@@ -80,7 +80,7 @@ export const WARLORDS = [
     { name: "酒井家次", side: 'EAST', soldiers: 1000, atk: 75, def: 75, jin: 70, loyalty: 100, q: 50, r: 38, size: 1, p: P_LOYAL, kamon: 'KATABAMI', bg: '#222' },
 
     // --- 西軍 (石田) ---
-    { name: "石田三成", side: 'WEST', soldiers: 6900, atk: 80, def: 85, jin: 95, loyalty: 100, q: 10, r: 15, size: 2, p: P_LOYAL, kamon: 'DAIICHI', bg: '#4a0080' },
+    { name: "石田三成", side: 'WEST', soldiers: 6900, atk: 80, def: 85, jin: 95, loyalty: 100, q: 10, r: 15, size: 2, p: P_LOYAL, kamon: 'SAGARI_FUJI', bg: '#4a0080' },
     { name: "島左近", side: 'WEST', soldiers: 1000, atk: 95, def: 90, jin: 85, loyalty: 100, q: 12, r: 16, size: 1, p: P_BRAVE, kamon: 'MITSU_GASHIWA', bg: '#8b0000' }, // 鬼左近の赤
     { name: "蒲生郷舎", side: 'WEST', soldiers: 800, atk: 80, def: 80, jin: 80, loyalty: 100, q: 11, r: 14, size: 1, p: P_LOYAL, kamon: 'MUKAI_TSURU', bg: '#444' },
     { name: "島津義弘", side: 'WEST', soldiers: 1500, atk: 98, def: 95, jin: 90, loyalty: 100, q: 15, r: 20, size: 1, p: P_BRAVE, kamon: 'MARUNI_JUJI', bg: '#222' },
