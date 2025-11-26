@@ -64,6 +64,48 @@ export class KamonDrawer {
             case 'MOKKO': // 木瓜（汎用）
                 this.drawMokko(ctx, size);
                 break;
+            case 'MUKAI_CHO': // 対い蝶（大谷）
+                this.drawMukaiCho(ctx, size);
+                break;
+            case 'MITSU_GASHIWA': // 三つ柏（島左近）
+                this.drawMitsuGashiwa(ctx, size);
+                break;
+            case 'TAKEDA_BISHI': // 武田菱（安国寺）
+                this.drawTakedaBishi(ctx, size);
+                break;
+            case 'SAGARI_FUJI': // 下り藤（加藤、大久保）
+                this.drawSagariFuji(ctx, size);
+                break;
+            case 'TSUTA': // 蔦（藤堂）
+                this.drawTsuta(ctx, size);
+                break;
+            case 'UMEBACHI': // 梅鉢（筒井、金森）
+                this.drawUmebachi(ctx, size);
+                break;
+            case 'GENJI_GURUMA': // 源氏車（榊原、生駒）
+                this.drawGenjiGuruma(ctx, size);
+                break;
+            case 'KATABAMI': // 片喰（酒井、長宗我部）
+                this.drawKatabami(ctx, size);
+                break;
+            case 'GION_MAMORI': // 祇園守（小西）
+                this.drawGionMamori(ctx, size);
+                break;
+            case 'WA_CHIGAI': // 輪違い（脇坂）
+                this.drawWaChigai(ctx, size);
+                break;
+            case 'MUKAI_TSURU': // 対い鶴（蒲生）
+                this.drawMukaiTsuru(ctx, size);
+                break;
+            case 'KUGINUKI': // 釘抜き（田中）
+                this.drawKuginuki(ctx, size);
+                break;
+            case 'MARUNI_FUTATSUHIKI': // 丸に二つ引（古田）
+                this.drawMaruniFutatsuhiki(ctx, size);
+                break;
+            case 'MITSU_UROKO': // 三つ鱗（平塚）
+                this.drawMitsuUroko(ctx, size);
+                break;
             default:
                 this.drawDefault(ctx, size);
                 break;
@@ -524,5 +566,376 @@ export class KamonDrawer {
         ctx.closePath();
         ctx.fill();
         ctx.restore();
+    }
+    /**
+     * 対い蝶（大谷吉継）
+     */
+    static drawMukaiCho(ctx, size) {
+        ctx.fillStyle = '#fff';
+        // 2つの蝶が向かい合うシルエット
+        for (let i = 0; i < 2; i++) {
+            ctx.save();
+            ctx.scale(i === 0 ? 1 : -1, 1);
+            ctx.translate(size * 0.2, 0);
+
+            // 羽
+            ctx.beginPath();
+            ctx.ellipse(0, -size * 0.2, size * 0.3, size * 0.2, -0.2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.ellipse(0, size * 0.2, size * 0.25, size * 0.15, 0.2, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 触角
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = size * 0.05;
+            ctx.beginPath();
+            ctx.moveTo(-size * 0.1, -size * 0.3);
+            ctx.quadraticCurveTo(-size * 0.2, -size * 0.5, 0, -size * 0.6);
+            ctx.stroke();
+
+            ctx.restore();
+        }
+    }
+
+    /**
+     * 三つ柏（島左近）
+     */
+    static drawMitsuGashiwa(ctx, size) {
+        ctx.fillStyle = '#fff';
+        const angles = [-90, 150, 30];
+        angles.forEach(a => {
+            ctx.save();
+            ctx.rotate(a * Math.PI / 180);
+            ctx.translate(0, -size * 0.15);
+
+            // 柏の葉
+            ctx.beginPath();
+            ctx.moveTo(0, -size * 0.5);
+            ctx.quadraticCurveTo(size * 0.35, -size * 0.3, 0, size * 0.1);
+            ctx.quadraticCurveTo(-size * 0.35, -size * 0.3, 0, -size * 0.5);
+            ctx.fill();
+            ctx.restore();
+        });
+    }
+
+    /**
+     * 武田菱（安国寺恵瓊）
+     */
+    static drawTakedaBishi(ctx, size) {
+        ctx.fillStyle = '#fff';
+        const s = size * 0.45;
+        // 4つの菱形
+        const positions = [
+            { x: 0, y: -s }, { x: -s * 0.8, y: 0 }, { x: s * 0.8, y: 0 }, { x: 0, y: s }
+        ];
+
+        positions.forEach(p => {
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.beginPath();
+            ctx.moveTo(0, -s * 0.5);
+            ctx.lineTo(s * 0.6, 0);
+            ctx.lineTo(0, s * 0.5);
+            ctx.lineTo(-s * 0.6, 0);
+            ctx.fill();
+            ctx.restore();
+        });
+    }
+
+    /**
+     * 下り藤（加藤嘉明、大久保忠隣）
+     */
+    static drawSagariFuji(ctx, size) {
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = size * 0.05;
+
+        // 丸枠
+        ctx.beginPath();
+        ctx.arc(0, 0, size * 0.85, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.fillStyle = '#fff';
+        // 藤の花房（左右）
+        for (let i = 0; i < 2; i++) {
+            ctx.save();
+            ctx.scale(i === 0 ? 1 : -1, 1);
+            ctx.translate(size * 0.3, 0);
+
+            // 房
+            ctx.beginPath();
+            ctx.ellipse(0, size * 0.1, size * 0.15, size * 0.4, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 蔓
+            ctx.beginPath();
+            ctx.moveTo(-size * 0.3, -size * 0.6);
+            ctx.quadraticCurveTo(0, -size * 0.6, 0, -size * 0.3);
+            ctx.stroke();
+
+            ctx.restore();
+        }
+    }
+
+    /**
+     * 蔦（藤堂高虎）
+     */
+    static drawTsuta(ctx, size) {
+        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = size * 0.03;
+
+        // 蔦の葉
+        ctx.beginPath();
+        ctx.moveTo(0, -size * 0.2);
+        ctx.lineTo(size * 0.4, 0);
+        ctx.lineTo(size * 0.2, size * 0.4);
+        ctx.lineTo(0, size * 0.2);
+        ctx.lineTo(-size * 0.2, size * 0.4);
+        ctx.lineTo(-size * 0.4, 0);
+        ctx.closePath();
+        ctx.fill();
+
+        // 丸枠
+        ctx.beginPath();
+        ctx.arc(0, 0, size * 0.85, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+
+    /**
+     * 梅鉢（筒井定次、金森長近）
+     */
+    static drawUmebachi(ctx, size) {
+        ctx.fillStyle = '#fff';
+
+        // 中心円
+        ctx.beginPath();
+        ctx.arc(0, 0, size * 0.25, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 周囲の5円
+        for (let i = 0; i < 5; i++) {
+            const angle = (i * 72 - 90) * Math.PI / 180;
+            const dist = size * 0.55;
+            const x = Math.cos(angle) * dist;
+            const y = Math.sin(angle) * dist;
+
+            ctx.beginPath();
+            ctx.arc(x, y, size * 0.2, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 軸
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = size * 0.05;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(x, y);
+            ctx.stroke();
+        }
+    }
+
+    /**
+     * 源氏車（榊原康政、生駒一正）
+     */
+    static drawGenjiGuruma(ctx, size) {
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = size * 0.1;
+
+        // 車輪
+        ctx.beginPath();
+        ctx.arc(0, 0, size * 0.8, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // 中心軸
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(0, 0, size * 0.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // スポーク（8本）
+        ctx.lineWidth = size * 0.05;
+        for (let i = 0; i < 8; i++) {
+            const angle = (i * 45) * Math.PI / 180;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(Math.cos(angle) * size * 0.8, Math.sin(angle) * size * 0.8);
+            ctx.stroke();
+        }
+    }
+
+    /**
+     * 片喰（酒井家次、長宗我部盛親）
+     */
+    static drawKatabami(ctx, size) {
+        ctx.fillStyle = '#fff';
+
+        // 3つのハート
+        const angles = [-90, 150, 30];
+        angles.forEach(a => {
+            ctx.save();
+            ctx.rotate(a * Math.PI / 180);
+            ctx.translate(0, -size * 0.2);
+
+            // ハート型
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.bezierCurveTo(-size * 0.3, -size * 0.3, -size * 0.4, 0, 0, size * 0.2);
+            ctx.bezierCurveTo(size * 0.4, 0, size * 0.3, -size * 0.3, 0, 0);
+            ctx.fill();
+            ctx.restore();
+        });
+
+        // 剣（長宗我部用だが汎用として）
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = size * 0.03;
+        angles.forEach(a => {
+            ctx.save();
+            ctx.rotate((a + 60) * Math.PI / 180);
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(0, -size * 0.7);
+            ctx.stroke();
+            ctx.restore();
+        });
+    }
+
+    /**
+     * 祇園守（小西行長）
+     */
+    static drawGionMamori(ctx, size) {
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = size * 0.08;
+
+        // クロス
+        ctx.beginPath();
+        ctx.moveTo(-size * 0.5, -size * 0.5);
+        ctx.lineTo(size * 0.5, size * 0.5);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(size * 0.5, -size * 0.5);
+        ctx.lineTo(-size * 0.5, size * 0.5);
+        ctx.stroke();
+
+        // 筒
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.rect(-size * 0.2, -size * 0.6, size * 0.4, size * 1.2);
+        ctx.fill();
+    }
+
+    /**
+     * 輪違い（脇坂安治）
+     */
+    static drawWaChigai(ctx, size) {
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = size * 0.1;
+
+        // 2つの交差する輪
+        for (let i = 0; i < 2; i++) {
+            ctx.save();
+            ctx.translate(i === 0 ? -size * 0.2 : size * 0.2, 0);
+            ctx.beginPath();
+            ctx.arc(0, 0, size * 0.5, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+
+    /**
+     * 対い鶴（蒲生郷舎）
+     */
+    static drawMukaiTsuru(ctx, size) {
+        ctx.fillStyle = '#fff';
+        // 2羽の鶴（非常に簡略化）
+        for (let i = 0; i < 2; i++) {
+            ctx.save();
+            ctx.scale(i === 0 ? 1 : -1, 1);
+            ctx.translate(size * 0.3, 0);
+
+            // 体
+            ctx.beginPath();
+            ctx.ellipse(0, 0, size * 0.2, size * 0.4, 0, 0, Math.PI * 2);
+            ctx.fill();
+            //首
+            ctx.beginPath();
+            ctx.arc(-size * 0.2, -size * 0.4, size * 0.1, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        // 丸枠
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = size * 0.05;
+        ctx.beginPath();
+        ctx.arc(0, 0, size * 0.85, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+
+    /**
+     * 釘抜き（田中吉政）
+     */
+    static drawKuginuki(ctx, size) {
+        ctx.fillStyle = '#fff';
+
+        // 丸枠
+        ctx.beginPath();
+        ctx.arc(0, 0, size * 0.85, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 中の四角い穴（背景色で抜く）
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.beginPath();
+        ctx.rect(-size * 0.3, -size * 0.3, size * 0.6, size * 0.6);
+        ctx.fill();
+        ctx.globalCompositeOperation = 'source-over';
+    }
+
+    /**
+     * 丸に二つ引（古田重勝）
+     */
+    static drawMaruniFutatsuhiki(ctx, size) {
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = size * 0.1;
+
+        // 丸枠
+        ctx.beginPath();
+        ctx.arc(0, 0, size * 0.85, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // 二つ引
+        ctx.lineWidth = size * 0.15;
+        ctx.beginPath();
+        ctx.moveTo(-size * 0.7, -size * 0.2);
+        ctx.lineTo(size * 0.7, -size * 0.2);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(-size * 0.7, size * 0.2);
+        ctx.lineTo(size * 0.7, size * 0.2);
+        ctx.stroke();
+    }
+
+    /**
+     * 三つ鱗（平塚為広）
+     */
+    static drawMitsuUroko(ctx, size) {
+        ctx.fillStyle = '#fff';
+        const s = size * 0.4;
+
+        const positions = [
+            { x: 0, y: -s }, { x: -s, y: s }, { x: s, y: s }
+        ];
+
+        positions.forEach(p => {
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.beginPath();
+            ctx.moveTo(0, -s * 0.8);
+            ctx.lineTo(s, s * 0.8);
+            ctx.lineTo(-s, s * 0.8);
+            ctx.fill();
+            ctx.restore();
+        });
     }
 }
