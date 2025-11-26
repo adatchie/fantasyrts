@@ -345,243 +345,93 @@
             <div id="victory-screen">
                 <div id="vic-msg-1" class="vic-title"></div>
                 <div id="vic-msg-2" class="vic-sub"></div>
-                <div style="margin-top:60px; cursor:pointer; color:#aaa; border-bottom:1px solid #aaa; padding:5px;" //
-                    グローバルスコープにGameインスタンスを作成 window.game=new Game(); // ページ読み込み完了時に初期化 window.onload=()=> {
+                <div style="margin-top:60px; cursor:pointer; color:#aaa; border-bottom:1px solid #aaa; padding:5px;"
+                    onclick="location.reload()">歴史を繰り返す</div>
+            </div>
+        </div>
+
+        <script>
+            // エラーログ表示機能 (リソース読み込みエラーも捕捉)
+            window.addEventListener('error', function (e) {
+                const log = document.getElementById('error-log');
+                if (!log) return;
+
+                let msg = '';
+                if (e.target && (e.target.tagName === 'SCRIPT' || e.target.tagName === 'IMG')) {
+                    msg = `Resource Load Error: ${e.target.src || e.target.href}`;
+                } else {
+                    msg = e.message || e.toString();
+                }
+
+                log.style.display = 'block';
+                log.style.color = 'red';
+                log.style.zIndex = '9999';
+                log.innerHTML += `<div style="background:rgba(0,0,0,0.8); padding:5px; margin:2px; border:1px solid red;">${msg}</div>`;
+            }, true); // Capture phase to catch resource errors
+
+            // Fallback for startGame (in case module fails to load)
+            window.startGame = function () {
+                alert("ゲームプログラムの読み込みに失敗しました。\n画面左上の赤枠のエラーメッセージを確認してください。\n(Module load failed)");
+            };
+        </script>
+
+        <script type="module">
+            import { Game } from './scripts/main.js?v=3';
+
+            try {
+                // グローバルスコープにGameインスタンスを作成
+                window.game = new Game();
+
+                // ページ読み込み完了時に初期化
+                window.onload = () => {
                     try {
-                    window.game.init();
+                        window.game.init();
                     } catch (e) {
-                    console.error("CommitTurn failed", e);
-                    throw e;
+                        console.error("Init failed", e);
+                        throw e;
                     }
-                    };
+                };
 
-                    window.issueCommand = (type) => {
+                // HTMLのボタンから呼び出せるようにグローバル関数を定義
+                window.startGame = (side) => {
+                    if (!window.game) {
+                        alert("ゲームの初期化が完了していません。ページをリロードしてください。\n(Modules not loaded)");
+                        return;
+                    }
                     try {
-                    window.game.issueCommand(type);
+                        window.game.startGame(side);
                     } catch (e) {
-                    console.error("IssueCommand failed", e);
-                    throw e;
+                        console.error("StartGame failed", e);
+                        alert("ゲーム開始時にエラーが発生しました: " + e.message);
+                        throw e;
                     }
-                    };
+                };
 
-                    window.closeCtx = () => window.game.closeCtx();
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    background-color: white;
-                    opacity: 0;
-                    pointer-events: none;
-                    z-index: 90;
-                    transition: opacity 0.5s;
-                    mix-blend-mode: overlay;
+                window.commitTurn = () => {
+                    try {
+                        window.game.commitTurn();
+                    } catch (e) {
+                        console.error("CommitTurn failed", e);
+                        throw e;
                     }
+                };
 
-                    #victory-screen {
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    background: rgba(0, 0, 0, 0.9);
-                    z-index: 200;
-                    display: none;
-                    flex-direction: column;
-                    align-items: center;
-                    justify-content: center;
-                    pointer-events: auto;
+                window.issueCommand = (type) => {
+                    try {
+                        window.game.issueCommand(type);
+                    } catch (e) {
+                        console.error("IssueCommand failed", e);
+                        throw e;
                     }
+                };
 
-                    .vic-title {
-                    font-size: 40px;
-                    color: #fff;
-                    font-family: serif;
-                    text-shadow: 0 0 10px red;
-                    margin-bottom: 30px;
-                    animation: floatUp 3s ease-out forwards;
-                    }
+                window.closeCtx = () => window.game.closeCtx();
 
-                    .vic-sub {
-                    font-size: 100px;
-                    color: #ffd700;
-                    font-weight: bold;
-                    font-family: serif;
-                    text-shadow: 0 0 30px #d4af37, 2px 2px 0 #000;
-                    opacity: 0;
-                    transform: scale(1.5);
-                    animation: stamp 0.5s 1s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-                    }
-
-                    @keyframes floatUp {
-                    0% {
-                    opacity: 0;
-                    transform: translateY(20px);
-                    }
-
-                    100% {
-                    opacity: 1;
-                    transform: translateY(0);
-                    }
-                    }
-
-                    @keyframes stamp {
-                    to {
-                    opacity: 1;
-                    transform: scale(1);
-                    }
-                    }
-
-                    #start-screen {
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    background: #080808;
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    justify-content: center;
-                    z-index: 200;
-                    pointer-events: auto;
-                    }
-
-                    .army-btn {
-                    margin: 15px;
-                    padding: 25px 80px;
-                    font-size: 28px;
-                    cursor: pointer;
-                    border: 1px solid #aaa;
-                    color: white;
-                    font-family: serif;
-                    position: relative;
-                    overflow: hidden;
-                    transition: 0.3s;
-                    }
-
-                    .army-btn:hover {
-                    transform: scale(1.05);
-                    box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
-                    }
-
-                    #btn-east {
-                    background: linear-gradient(to bottom, #001133, #002255);
-                    border-color: #88AAEE;
-                    }
-
-                    #btn-west {
-                    background: linear-gradient(to bottom, #330000, #550000);
-                    border-color: #EE4444;
-                    }
-
-                    #mist-layer {
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    background: url('data:image/svg+xml;utf8,<svg viewBox="0 0 200 200"
-                        xmlns="http://www.w3.org/2000/svg">
-                        <filter id="noise">
-                            <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3"
-                                stitchTiles="stitch" />
-                        </filter>
-                        <rect width="100%" height="100%" filter="url(%23noise)" opacity="0.3" />
-                    </svg>');
-                    opacity: 0.15;
-                    pointer-events: none;
-                    z-index: 5;
-                    mix-blend-mode: screen;
-                    }
-
-                    #error-log {
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    color: red;
-                    font-size: 10px;
-                    pointer-events: none;
-                    background: rgba(0, 0, 0, 0.5);
-                    }
-                    </style>
-                    </head>
-
-                    <body oncontextmenu="return false;">
-
-                        <div id="game-container">
-                            <canvas id="gameCanvas"></canvas>
-                            <div id="mist-layer"></div>
-                            <div id="effect-layer"></div>
-                            <div id="flash-overlay"></div>
-                            <div id="error-log"></div>
-
-                            <div id="ui-layer">
-                                <div id="top-bar" class="hud-panel">
-                                    <span id="phase-text" style="color:#ffd700">関ヶ原の戦い</span>
-                                    <span id="status-text" style="font-size:14px; color:#ccc; margin-top:4px;">東軍: -- /
-                                        西軍: --</span>
-                                </div>
-                                <div id="unit-list"></div>
-                                <button id="action-btn" onclick="commitTurn()">全軍 行動開始</button>
-                                <div
-                                    style="position:absolute; bottom:10px; left:10px; font-size:12px; color:#888; font-family:sans-serif;">
-                                    [左ドラッグ] 範囲選択 | [右ドラッグ] マップ移動 | [左クリック] 指示/確認
-                                </div>
-                                <div id="context-menu">
-                                    <button class="ctx-btn" style="color:darkred"
-                                        onclick="issueCommand('ATTACK')">突撃</button>
-                                    <button class="ctx-btn" style="color:darkgreen"
-                                        onclick="issueCommand('PLOT')">調略</button>
-                                    <button class="ctx-btn" onclick="closeCtx()">取消</button>
-                                </div>
-                            </div>
-
-                            <div id="start-screen">
-                                <h1
-                                    style="color:#ddd; font-size:50px; margin-bottom:10px; letter-spacing: 5px; text-shadow: 0 0 10px #fff;">
-                                    関ヶ原の戦い</h1>
-                                <p style="color:#aaa; font-size:14px; margin-bottom:40px;">調略バランス調整版：戦況により裏切りやすさが変化します
-                                </p>
-                                <div onclick="startGame('EAST')" id="btn-east" class="army-btn">東軍 (徳川家康)</div>
-                                <div onclick="startGame('WEST')" id="btn-west" class="army-btn">西軍 (石田三成)</div>
-                            </div>
-
-                            <div id="victory-screen">
-                                <div id="vic-msg-1" class="vic-title"></div>
-                                <div id="vic-msg-2" class="vic-sub"></div>
-                                <div id="victory-screen">
-                                    <div id="vic-msg-1" class="vic-title"></div>
-                                    <div id="vic-msg-2" class="vic-sub"></div>
-                                    <div style="margin-top:60px; cursor:pointer; color:#aaa; border-bottom:1px solid #aaa; padding:5px;"
-                                        // グローバルスコープにGameインスタンスを作成 window.game=new Game(); // ページ読み込み完了時に初期化
-                                        window.onload=()=> {
-                                        try {
-                                        window.game.init();
-                                        } catch (e) {
-                                        console.error("CommitTurn failed", e);
-                                        throw e;
-                                        }
-                                        };
-
-                                        window.issueCommand = (type) => {
-                                        try {
-                                        window.game.issueCommand(type);
-                                        } catch (e) {
-                                        console.error("IssueCommand failed", e);
-                                        throw e;
-                                        }
-                                        };
-
-                                        window.closeCtx = () => window.game.closeCtx();
-
-                                        } catch (e) {
-                                        console.error("Module setup failed", e);
-                                        throw e;
-                                        }
-                                        </script>
-                    </body>
+            } catch (e) {
+                console.error("Module setup failed", e);
+                throw e;
+            }
+        </script>
+</body>
 
 </html>
-<script type="module">
-    import { Game } from './scripts/main.js?v=3';
-</script>
