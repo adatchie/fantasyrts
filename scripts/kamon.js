@@ -115,6 +115,9 @@ export class KamonDrawer {
             case 'MARUNI_DAKIGASHIWA': // 丸に抱き柏（小川）
                 this.drawMaruniDakigashiwa(ctx, size);
                 break;
+            case 'MARUNI_MITSUMEBISHI': // 丸に三つ目菱（赤座）
+                this.drawMaruniMitsumebishi(ctx, size);
+                break;
             default:
                 this.drawDefault(ctx, size);
                 break;
@@ -1053,6 +1056,51 @@ export class KamonDrawer {
                 ctx.arc(size * 0.25, -size * 0.15 + (i * size * 0.15), size * 0.08, 0, Math.PI * 2);
                 ctx.fill();
             }
+
+            ctx.restore();
+        });
+    }
+
+    /**
+     * 丸に三つ目菱（赤座直保）
+     */
+    static drawMaruniMitsumebishi(ctx, size) {
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = size * 0.08;
+
+        // 外枠の円
+        ctx.beginPath();
+        ctx.arc(0, 0, size * 0.85, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.fillStyle = '#fff';
+
+        // 3つの大きな菱形を三角形状に配置
+        const positions = [
+            { x: 0, y: -size * 0.35 },      // 上
+            { x: -size * 0.3, y: size * 0.2 }, // 左下
+            { x: size * 0.3, y: size * 0.2 }   // 右下
+        ];
+
+        positions.forEach(p => {
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.rotate(45 * Math.PI / 180);
+
+            // 大きな菱形（黒で塗りつぶし）
+            const outerSize = size * 0.35;
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.rect(-outerSize / 2, -outerSize / 2, outerSize, outerSize);
+            ctx.fill();
+
+            // 中央の小さな白い菱形（目）
+            ctx.globalCompositeOperation = 'destination-out';
+            const innerSize = size * 0.12;
+            ctx.beginPath();
+            ctx.rect(-innerSize / 2, -innerSize / 2, innerSize, innerSize);
+            ctx.fill();
+            ctx.globalCompositeOperation = 'source-over';
 
             ctx.restore();
         });

@@ -95,7 +95,7 @@ export const WARLORDS = [
     { name: "脇坂安治", side: 'WEST', soldiers: 990, atk: 70, def: 70, jin: 50, loyalty: 60, q: 15, r: 40, size: 1, p: P_COWARD, kamon: 'WA_CHIGAI', bg: '#666' },
     { name: "朽木元綱", side: 'WEST', soldiers: 600, atk: 65, def: 65, jin: 50, loyalty: 60, q: 16, r: 41, size: 1, p: P_COWARD, kamon: 'FOUR_DIAMONDS', bg: '#666' },
     { name: "小川祐忠", side: 'WEST', soldiers: 2100, atk: 70, def: 70, jin: 50, loyalty: 60, q: 14, r: 39, size: 1, p: P_COWARD, kamon: 'MARUNI_DAKIGASHIWA', bg: '#666' },
-    { name: "赤座直保", side: 'WEST', soldiers: 600, atk: 65, def: 65, jin: 50, loyalty: 60, q: 13, r: 42, size: 1, p: P_COWARD, kamon: 'DEFAULT', bg: '#666' },
+    { name: "赤座直保", side: 'WEST', soldiers: 600, atk: 65, def: 65, jin: 50, loyalty: 60, q: 13, r: 42, size: 1, p: P_COWARD, kamon: 'MARUNI_MITSUMEBISHI', bg: '#666' },
 
     // --- 不確定勢力（松尾山）---
     { name: "小早川秀秋", side: 'WEST', soldiers: 15600, atk: 85, def: 80, jin: 70, loyalty: 40, q: 5, r: 50, size: 2, p: P_COWARD, kamon: 'CHIGAI_GAMA', bg: '#a52a2a' },
