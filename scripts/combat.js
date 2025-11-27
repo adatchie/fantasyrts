@@ -202,9 +202,17 @@ export class CombatSystem {
             getDist(u, def) <= (u.size + def.size) / 2 + 1
         );
 
+        // 鬨の声（戦闘開始SE）
+        this.audioEngine.sfxBattleCry();
+
+        // 攻撃側から防御側への攻撃線
         this.addEffect('BEAM', att.pos, def.pos, '#ffaa00');
         siegers.forEach(s => this.addEffect('BEAM', s.pos, def.pos, '#ffaa00'));
+
+        // 戦闘エフェクト: 土煙と火花を追加
         this.addEffect('DUST', def.pos, null, null);
+        this.spawnSparks(def.pos, 8); // 火花を8個生成
+
         this.audioEngine.sfxHit();
         await this.wait(600);
 
@@ -243,12 +251,12 @@ export class CombatSystem {
         if (def.soldiers <= 0) {
             def.soldiers = 0;
             def.dead = true;
-            await this.dramaticDeath(def);
+            await this.dramaticDeath(def, att.side);
         }
         if (att.soldiers <= 0) {
             att.soldiers = 0;
             att.dead = true;
-            await this.dramaticDeath(att);
+            await this.dramaticDeath(att, def.side);
         }
 
         await this.wait(400);
@@ -257,9 +265,19 @@ export class CombatSystem {
 
     /**
      * 劇的な死亡演出
+     * @param {Object} unit - 討ち取られたユニット
+     * @param {string} killerSide - 討ち取った側の陣営
      */
-    async dramaticDeath(unit) {
-        this.audioEngine.sfxSlash();
+    async dramaticDeath(unit, killerSide) {
+        // 討ち取った側によってSEを変更
+        if (killerSide === this.playerSide) {
+            // 敵を討ち取った！シャキーン！
+            this.audioEngine.sfxVictorySlash();
+        } else {
+            // 味方が討ち取られた…ズバッ
+            this.audioEngine.sfxDefeatSlash();
+        }
+
         this.speak(unit, 'DYING', true);
 
         const flash = document.getElementById('flash-overlay');
@@ -339,6 +357,25 @@ export class CombatSystem {
         await this.wait(600);
     }
 
+    /**
+     * 火花エフェクトを生成
+     */
+    spawnSparks(pos, count) {
+        for (let i = 0; i < count; i++) {
+            const angle = (Math.PI * 2 * i) / count;
+            const speed = 2 + Math.random() * 3;
+            this.activeEffects.push({
+                type: 'SPARK',
+                x: pos.x,
+                y: pos.y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                life: 20 + Math.random() * 10,
+                maxLife: 30
+            });
+        }
+    }
+
     wait(ms) {
         return new Promise(r => setTimeout(r, ms));
     }
@@ -346,7 +383,15 @@ export class CombatSystem {
     updateEffects() {
         this.activeEffects.forEach(e => {
             e.life--;
-            if (e.type === 'FLOAT_TEXT') e.y -= 0.5;
+            if (e.type === 'FLOAT_TEXT') {
+                e.y -= 0.5;
+            } else if (e.type === 'SPARK') {
+                // 火花の物理演算
+                e.x += e.vx;
+                e.y += e.vy;
+                e.vy += 0.2; // 重力効果
+                e.vx *= 0.95; // 空気抵抗
+            }
         });
         this.activeEffects = this.activeEffects.filter(e => e.life > 0);
 

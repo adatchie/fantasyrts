@@ -206,6 +206,26 @@ export class RenderingEngine {
                 ctx.beginPath();
                 ctx.arc(sx, sy, 30, 0, Math.PI * 2);
                 ctx.fill();
+            } else if (e.type === 'SPARK') {
+                // 火花エフェクト - 黄色/オレンジ色に輝く
+                const alpha = e.life / e.maxLife;
+                const size = 3 + alpha * 2;
+
+                // 外側の光輪
+                const gradient = ctx.createRadialGradient(sx, sy, 0, sx, sy, size * 2);
+                gradient.addColorStop(0, `rgba(255, 255, 100, ${alpha * 0.8})`);
+                gradient.addColorStop(0.5, `rgba(255, 150, 0, ${alpha * 0.5})`);
+                gradient.addColorStop(1, `rgba(255, 100, 0, 0)`);
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(sx, sy, size * 2, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 中心の明るい部分
+                ctx.fillStyle = `rgba(255, 255, 200, ${alpha})`;
+                ctx.beginPath();
+                ctx.arc(sx, sy, size, 0, Math.PI * 2);
+                ctx.fill();
             } else if (e.type === 'WAVE') {
                 ctx.strokeStyle = `rgba(200, 0, 255, ${e.life / 40})`;
                 ctx.lineWidth = 3;

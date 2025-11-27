@@ -178,4 +178,34 @@ export class AudioEngine {
     sfxHit() {
         this.playTone(100, 'square', 0.05, 0.1, 0.2);
     }
+
+    // 鬨の声（戦闘開始時の雄叫び）
+    sfxBattleCry() {
+        if (!this.ctx) return;
+        // 力強い低音と雑音で戦いの雄叫びを表現
+        this.playTone(80, 'sawtooth', 0.05, 0.3, 0.4);
+        this.playTone(120, 'square', 0.05, 0.25, 0.3);
+        this.playNoise(0.2, 0.25);
+    }
+
+    // 勝利時の斬撃音（シャキーン！）
+    sfxVictorySlash() {
+        if (!this.ctx) return;
+        const t = this.ctx.currentTime;
+        // 高音で爽快な斬撃音
+        this.playTone(800, 'sine', 0.01, 0.15, 0.3, t);
+        this.playTone(1200, 'sine', 0.01, 0.2, 0.25, t + 0.05);
+        this.playTone(1600, 'triangle', 0.01, 0.25, 0.2, t + 0.1);
+        this.playNoise(0.1, 0.4, t);
+    }
+
+    // 敗北時の斬撃音（ズバッ）
+    sfxDefeatSlash() {
+        if (!this.ctx) return;
+        const t = this.ctx.currentTime;
+        // 低音で重々しい斬撃音
+        this.playTone(150, 'sawtooth', 0.02, 0.3, 0.5, t);
+        this.playTone(100, 'square', 0.03, 0.35, 0.4, t);
+        this.playNoise(0.25, 0.7, t);
+    }
 }
