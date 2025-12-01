@@ -299,11 +299,24 @@ export class UnitManager {
      */
     checkHeadquartersStatus(warlordId) {
         const hq = this.getHeadquarters(warlordId);
+        const units = this.getUnitsByWarlordId(warlordId);
 
-        if (hq && hq.soldiers <= 0 && !hq.dead) {
-            console.log(`本陣全滅: ${hq.warlordName} - 全ユニット敗走`);
-            this.defeatWarlord(warlordId);
-            return true;
+        if (!hq) {
+            console.warn(`本陣が見つかりません: warlordId=${warlordId}`);
+            return false;
+        }
+
+        // 本陣が死亡している、または兵力が0の場合
+        if (hq.dead || hq.soldiers <= 0) {
+            // 配下ユニットがまだ生きている場合のみ敗走処理
+            const aliveUnits = units.filter(u => !u.dead);
+
+            if (aliveUnits.length > 0) {
+                console.log(`本陣全滅: ${hq.warlordName} (兵力: ${hq.soldiers}, dead: ${hq.dead})`);
+                console.log(`  配下ユニット ${aliveUnits.length}個を敗走させます`);
+                this.defeatWarlord(warlordId);
+                return true;
+            }
         }
 
         return false;
