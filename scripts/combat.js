@@ -76,7 +76,11 @@ export class CombatSystem {
                 const targetWarlordId = target.warlordId;
                 const targetWarlordUnits = allUnits.filter(u => u.warlordId === targetWarlordId);
 
+                console.log(`調略成功: ${target.warlordName} (武将ID: ${targetWarlordId})`);
+                console.log(`対象ユニット数: ${targetWarlordUnits.length}`);
+
                 targetWarlordUnits.forEach(warlordUnit => {
+                    console.log(`  - ユニットID ${warlordUnit.id}: ${warlordUnit.side} -> ${unit.side}`);
                     warlordUnit.side = unit.side;
                     warlordUnit.loyalty = 100;
                     warlordUnit.order = null; // 命令をクリア
