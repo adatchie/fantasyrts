@@ -3,12 +3,13 @@
  * メインゲームロジックとループ
  */
 
-import { HEX_SIZE, C_EAST, C_WEST, C_SEL_BOX, C_SEL_BORDER, WARLORDS } from './constants.js';
+import { HEX_SIZE, C_EAST, C_WEST, C_SEL_BOX, C_SEL_BORDER, WARLORDS, UNIT_TYPE_HEADQUARTERS } from './constants.js';
 import { AudioEngine } from './audio.js';
 import { MapSystem } from './map.js';
 import { RenderingEngine, generatePortrait } from './rendering.js';
 import { CombatSystem } from './combat.js';
 import { AISystem } from './ai.js';
+import { UnitManager } from './unit-manager.js';
 import { hexToPixel, pixelToHex, isValidHex, getDistRaw } from './pathfinding.js';
 
 export class Game {
@@ -34,6 +35,7 @@ export class Game {
         this.renderingEngine = null;
         this.combatSystem = null;
         this.aiSystem = new AISystem();
+        this.unitManager = new UnitManager();
     }
 
     init() {
@@ -67,18 +69,19 @@ export class Game {
         // マップ生成
         const map = this.mapSystem.generateMap();
 
-        // ユニット初期化
-        this.units = WARLORDS.map((w, i) => ({
-            id: i,
-            ...w,
-            maxSoldiers: w.soldiers,
-            dir: w.side === 'EAST' ? 3 : 0,
-            order: null,
-            dead: false,
-            pos: hexToPixel(w.q, w.r),
-            imgCanvas: generatePortrait(w), // 武将オブジェクト全体を渡す
-            radius: w.size === 2 ? 0.95 : 0.45
-        }));
+        // マルチユニット初期化: 各武将から複数ユニットを生成
+        WARLORDS.forEach((warlord, warlordId) => {
+            this.unitManager.createUnitsFromWarlord(warlord, warlordId, WARLORDS);
+        });
+
+        // 全ユニットを取得
+        this.units = this.unitManager.getAllUnits();
+
+        console.log(`Total units created: ${this.units.length}`);
+        console.log(`Warlords: ${WARLORDS.length}`);
+
+        // 調略フラグを初期化（武将単位で管理）
+        this.warlordPlotUsed = {}; // warlordId -> boolean
 
         // カメラ位置
         const center = hexToPixel(30, 30);
@@ -268,8 +271,10 @@ export class Game {
 
         if (u) {
             if (u.side === this.playerSide) {
-                this.selectedUnits = [u];
-                this.updateSelectionUI([u]);
+                // 同じ武将の全ユニットを選択
+                const warlordUnits = this.unitManager.getUnitsByWarlordId(u.warlordId);
+                this.selectedUnits = warlordUnits.filter(unit => !unit.dead);
+                this.updateSelectionUI(this.selectedUnits);
             } else {
                 this.updateSelectionUI([u]);
                 if (this.selectedUnits.length > 0 && this.selectedUnits[0].side === this.playerSide) {
@@ -340,7 +345,7 @@ export class Game {
         const container = document.getElementById('unit-list');
         container.innerHTML = '';
 
-        // 選択されているユニットがない場合は、味方全ユニットを表示
+        // 選択されているユニットがない場合は、味方全武将を表示
         let displayList = list;
         if (!list || list.length === 0) {
             displayList = this.units.filter(u => u.side === this.playerSide && !u.dead);
@@ -348,29 +353,48 @@ export class Game {
 
         if (!displayList || displayList.length === 0) return;
 
+        // 武将単位でグループ化して表示
+        const warlordMap = new Map();
         displayList.forEach(u => {
-            const d = document.createElement('div');
-            d.className = 'unit-card ' + (u.side === 'EAST' ? 'card-east' : 'card-west');
+            if (!warlordMap.has(u.warlordId)) {
+                warlordMap.set(u.warlordId, []);
+            }
+            warlordMap.get(u.warlordId).push(u);
+        });
 
-            // クリックでユニットを選択
+        // 各武将ごとに1つのカードを表示
+        warlordMap.forEach((units, warlordId) => {
+            // 本陣ユニットを取得（画像表示用）
+            const headquarters = units.find(u => u.unitType === UNIT_TYPE_HEADQUARTERS) || units[0];
+
+            // 合計兵力を計算
+            const totalSoldiers = units.reduce((sum, u) => sum + u.soldiers, 0);
+            const unitCount = units.length;
+
+            const d = document.createElement('div');
+            d.className = 'unit-card ' + (headquarters.side === 'EAST' ? 'card-east' : 'card-west');
+
+            // クリックで武将の全ユニットを選択
             d.onclick = () => {
-                this.selectedUnits = [u];
-                this.updateSelectionUI([u]);
+                this.selectedUnits = units.filter(u => !u.dead);
+                this.updateSelectionUI(this.selectedUnits);
             };
 
             let ord = "待機";
-            if (u.order) {
-                if (u.order.type === 'MOVE') ord = `移動`;
-                else if (u.order.type === 'ATTACK') ord = `攻撃`;
-                else if (u.order.type === 'PLOT') ord = `調略`;
+            if (headquarters.order) {
+                if (headquarters.order.type === 'MOVE') ord = `移動`;
+                else if (headquarters.order.type === 'ATTACK') ord = `攻撃`;
+                else if (headquarters.order.type === 'PLOT') ord = `調略`;
             }
 
             const img = document.createElement('img');
             img.className = 'portrait';
-            img.src = u.imgCanvas.toDataURL();
+            if (headquarters.imgCanvas) {
+                img.src = headquarters.imgCanvas.toDataURL();
+            }
 
             const info = document.createElement('div');
-            info.innerHTML = `<strong>${u.name}</strong><br>兵: ${u.soldiers} <small>(攻${u.atk}/防${u.def})</small><br>指示: ${ord}`;
+            info.innerHTML = `<strong>${headquarters.name}</strong><br>兵: ${totalSoldiers} (${unitCount}部隊) <small>(攻${headquarters.atk}/防${headquarters.def})</small><br>指示: ${ord}`;
 
             d.appendChild(img);
             d.appendChild(info);

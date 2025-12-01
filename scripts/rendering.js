@@ -3,7 +3,7 @@
  * 高精細化されたマップとユニットの描画
  */
 
-import { HEX_SIZE, C_EAST, C_WEST } from './constants.js';
+import { HEX_SIZE, C_EAST, C_WEST, UNIT_TYPE_HEADQUARTERS } from './constants.js';
 import { hexToPixel } from './pathfinding.js';
 import { KamonDrawer } from './kamon.js';
 
@@ -84,8 +84,11 @@ export class RenderingEngine {
             return;
         }
 
-        let visualSize = HEX_SIZE * camera.zoom * 0.8;
-        if (unit.size === 2) visualSize *= 2.2;
+        // マルチユニットシステム: 全ユニットを1HEXサイズに統一
+        const visualSize = HEX_SIZE * camera.zoom * 0.8;
+
+        // 本陣かどうかをチェック
+        const isHeadquarters = (unit.unitType === UNIT_TYPE_HEADQUARTERS);
 
         // 選択中のユニットは白い円で強調
         if (selectedUnits.includes(unit)) {
@@ -93,6 +96,15 @@ export class RenderingEngine {
             ctx.arc(sx, sy, visualSize + 4, 0, Math.PI * 2);
             ctx.fillStyle = '#fff';
             ctx.fill();
+        }
+
+        // 本陣ユニットは金色の枠で強調
+        if (isHeadquarters) {
+            ctx.beginPath();
+            ctx.arc(sx, sy, visualSize + 6, 0, Math.PI * 2);
+            ctx.strokeStyle = '#FFD700'; // ゴールド
+            ctx.lineWidth = 3;
+            ctx.stroke();
         }
 
         // ユニット本体の描画
@@ -123,15 +135,17 @@ export class RenderingEngine {
         ctx.stroke();
         ctx.restore();
 
-        // 名前表示
-        ctx.fillStyle = '#fff';
-        ctx.font = (unit.size === 2 ? "bold 12px" : "10px") + " sans-serif";
-        ctx.textAlign = 'center';
-        ctx.fillText(unit.name, sx, sy + visualSize + 12);
+        // 名前表示（本陣のみ）
+        if (isHeadquarters) {
+            ctx.fillStyle = '#fff';
+            ctx.font = "bold 10px sans-serif";
+            ctx.textAlign = 'center';
+            ctx.fillText(unit.name, sx, sy + visualSize + 12);
+        }
 
         // HPバー
         const barW = visualSize * 1.5;
-        const barY = sy + visualSize + 15;
+        const barY = sy + visualSize + (isHeadquarters ? 15 : 5);
         ctx.fillStyle = 'red';
         ctx.fillRect(sx - barW / 2, barY, barW, 4);
         ctx.fillStyle = '#0f0';

@@ -14,6 +14,13 @@ export const C_WEST = '#EE4444';
 export const C_SEL_BOX = 'rgba(255, 255, 255, 0.2)';
 export const C_SEL_BORDER = '#fff';
 
+// ユニットタイプ定数
+export const UNIT_TYPE_HEADQUARTERS = 'HEADQUARTERS'; // 本陣
+export const UNIT_TYPE_NORMAL = 'NORMAL';             // 通常ユニット
+
+// マルチユニットシステム定数
+export const SOLDIERS_PER_UNIT = 1000; // 1ユニットあたりの標準兵力
+
 // 性格タイプ
 export const P_BRAVE = '勇猛';
 export const P_LOYAL = '忠義';
