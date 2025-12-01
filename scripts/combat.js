@@ -23,14 +23,14 @@ export class CombatSystem {
     /**
      * ユニットの行動を処理
      */
-    async processUnit(unit, allUnits, map) {
+    async processUnit(unit, allUnits, map, warlordPlotUsed = {}) {
         if (!unit.order) return;
 
         const target = allUnits.find(u => u.id === unit.order.targetId);
         const reach = (unit.size + (target ? target.size : 1)) / 2.0 + 0.5;
 
         if (unit.order.type === 'PLOT' && target && !target.dead) {
-            await this.processPlot(unit, target, allUnits);
+            await this.processPlot(unit, target, allUnits, warlordPlotUsed);
         } else if (unit.order.type === 'ATTACK' && target && !target.dead) {
             await this.processAttack(unit, target, allUnits, map, reach);
         } else if (unit.order.type === 'MOVE') {
@@ -40,8 +40,18 @@ export class CombatSystem {
 
     /**
      * 調略を処理
+     * マルチユニットシステム: 1武将1ターン1回のみ
      */
-    async processPlot(unit, target, allUnits) {
+    async processPlot(unit, target, allUnits, warlordPlotUsed = {}) {
+        // この武将がすでに調略を使用済みかチェック
+        if (warlordPlotUsed[unit.warlordId]) {
+            console.log(`${unit.warlordName} は今ターンすでに調略を使用済み`);
+            // 調略をスキップして移動に切り替え
+            unit.order = { type: 'MOVE', targetHex: { q: target.q, r: target.r } };
+            await this.processMove(unit, allUnits);
+            return;
+        }
+
         if (getDist(unit, target) <= 5) {
             unit.dir = getFacingAngle(unit.q, unit.r, target.q, target.r);
             this.speak(unit, 'PLOT_DO');
@@ -72,6 +82,10 @@ export class CombatSystem {
                 this.spawnText(target.pos, "失敗...", "#aaa", 40);
                 this.audioEngine.sfxArrangementFail(); // 調略失敗SE
             }
+
+            // 調略使用フラグを立てる（武将単位）
+            warlordPlotUsed[unit.warlordId] = true;
+
             unit.order = null;
             await this.wait(800);
         } else {

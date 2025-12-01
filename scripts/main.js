@@ -111,22 +111,34 @@ export class Game {
 
     async resolveTurn() {
         try {
+            // 調略フラグをリセット（新しいターン開始）
+            this.warlordPlotUsed = {};
+
+            // ユニット単位でソート（残り兵数が少ない順）
             const queue = [...this.units].sort((a, b) => a.soldiers - b.soldiers);
 
             for (const u of queue) {
                 if (u.dead) continue;
 
-                await this.combatSystem.processUnit(u, this.units, this.mapSystem.getMap());
+                // ユニットの行動を処理
+                await this.combatSystem.processUnit(u, this.units, this.mapSystem.getMap(), this.warlordPlotUsed);
 
-                // 勝敗判定
-                const iyeyasu = this.units.find(x => x.name === '徳川家康');
-                const mitsunari = this.units.find(x => x.name === '石田三成');
+                // 各ユニット行動後に本陣の状態をチェック
+                // 本陣が全滅していたら、その武将の全ユニットを敗走させる
+                const warlordIds = new Set(this.units.map(unit => unit.warlordId));
+                warlordIds.forEach(warlordId => {
+                    this.unitManager.checkHeadquartersStatus(warlordId);
+                });
 
-                if (!iyeyasu || iyeyasu.dead) {
+                // 勝敗判定（本陣ユニットベース）
+                const iyeyasuHQ = this.units.find(x => x.warlordName === '徳川家康' && x.unitType === 'HEADQUARTERS');
+                const mitsunariHQ = this.units.find(x => x.warlordName === '石田三成' && x.unitType === 'HEADQUARTERS');
+
+                if (!iyeyasuHQ || iyeyasuHQ.dead) {
                     this.triggerEndGame('WEST', '徳川家康');
                     return;
                 }
-                if (!mitsunari || mitsunari.dead) {
+                if (!mitsunariHQ || mitsunariHQ.dead) {
                     this.triggerEndGame('EAST', '石田三成');
                     return;
                 }
