@@ -72,10 +72,21 @@ export class CombatSystem {
             if (target.loyalty > 95) chance = 1;
 
             if (Math.random() * 100 < chance) {
-                target.side = unit.side;
-                target.loyalty = 100;
-                target.order = null;
-                target.imgCanvas = generatePortrait(target.name, target.side);
+                // マルチユニットシステム: 対象武将の全ユニットを寝返らせる
+                const targetWarlordId = target.warlordId;
+                const targetWarlordUnits = allUnits.filter(u => u.warlordId === targetWarlordId);
+
+                targetWarlordUnits.forEach(warlordUnit => {
+                    warlordUnit.side = unit.side;
+                    warlordUnit.loyalty = 100;
+                    warlordUnit.order = null; // 命令をクリア
+
+                    // 本陣ユニットのみ画像を更新
+                    if (warlordUnit.imgCanvas) {
+                        warlordUnit.imgCanvas = generatePortrait(warlordUnit, warlordUnit.side);
+                    }
+                });
+
                 this.spawnText(target.pos, "寝返り！", "#0f0", 60);
                 this.audioEngine.sfxArrangementSuccess(); // 調略成功SE
             } else {
