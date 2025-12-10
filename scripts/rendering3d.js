@@ -13,7 +13,7 @@ export class RenderingEngine3D {
 
         // Three.js基本セットアップ
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x2a4a2a); // 暗めの緑
+        this.scene.background = new THREE.Color(0x1a2a1a); // 暗めのグレーグリーン（オーバーレイと調和）
 
         // カメラセットアップ（RTS視点：斜め45度上空）
         const aspect = window.innerWidth / window.innerHeight;
