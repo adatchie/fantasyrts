@@ -144,10 +144,10 @@ export class RenderingEngine3D {
         shape.lineTo(-groundOverlaySize / 2, groundOverlaySize / 2);
         shape.lineTo(-groundOverlaySize / 2, -groundOverlaySize / 2);
 
-        // 中央に穴（ヘックスグリッドエリア）
+        // 中央に穴（ヘックスグリッドエリア - 実際のグリッドサイズに合わせる）
         const hole = new THREE.Path();
-        const holeHalfWidth = gridWidth * 0.6;
-        const holeHalfHeight = gridHeight * 0.6;
+        const holeHalfWidth = gridWidth / 2;
+        const holeHalfHeight = gridHeight / 2;
         hole.moveTo(-holeHalfWidth, -holeHalfHeight);
         hole.lineTo(holeHalfWidth, -holeHalfHeight);
         hole.lineTo(holeHalfWidth, holeHalfHeight);
@@ -180,8 +180,8 @@ export class RenderingEngine3D {
 
         // 中央に穴（地面全体を含むエリア）
         const bgHole = new THREE.Path();
-        const bgHoleHalfWidth = gridWidth * 0.65;
-        const bgHoleHalfHeight = gridHeight * 0.65;
+        const bgHoleHalfWidth = gridWidth * 1.3 / 2; // 地面のサイズ（1.2倍）より少し大きめ
+        const bgHoleHalfHeight = gridHeight * 1.3 / 2;
         bgHole.moveTo(-bgHoleHalfWidth, -bgHoleHalfHeight);
         bgHole.lineTo(bgHoleHalfWidth, -bgHoleHalfHeight);
         bgHole.lineTo(bgHoleHalfWidth, bgHoleHalfHeight);
