@@ -210,7 +210,7 @@ export class RenderingEngine3D {
 
             const intersects = raycaster.intersectObject(this.groundMesh);
             if (intersects.length > 0) {
-                hexHeight = intersects[0].point.y + 10; // 地形の高さ + 十分な余白
+                hexHeight = intersects[0].point.y + 20; // 地形の高さ + 十分な余白
             }
         }
 
