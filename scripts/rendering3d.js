@@ -91,8 +91,8 @@ export class RenderingEngine3D {
         // テクスチャのフィルタリング設定（よりきれいに表示）
         groundTexture.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
 
-        // 地面（画面全体をカバーするよう大きめに）
-        const groundGeometry = new THREE.PlaneGeometry(gridWidth * 3, gridHeight * 3);
+        // 地面（グリッドより少し大きめ）
+        const groundGeometry = new THREE.PlaneGeometry(gridWidth * 1.2, gridHeight * 1.2);
         const groundMaterial = new THREE.MeshStandardMaterial({
             map: groundTexture,  // テクスチャを適用
             roughness: 0.8,
@@ -136,7 +136,7 @@ export class RenderingEngine3D {
         }
 
         // 地面全体にも大きなオーバーレイを追加（三角形の緑部分もカバー）
-        const groundOverlaySize = Math.max(gridWidth, gridHeight) * 3; // 地面と同じサイズ
+        const groundOverlaySize = Math.max(gridWidth, gridHeight) * 2;
         const shape = new THREE.Shape();
         shape.moveTo(-groundOverlaySize / 2, -groundOverlaySize / 2);
         shape.lineTo(groundOverlaySize / 2, -groundOverlaySize / 2);
