@@ -91,17 +91,27 @@ export class RenderingEngine3D {
         // テクスチャのフィルタリング設定（よりきれいに表示）
         groundTexture.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
 
-        // 地面（グリッドより少し大きめ）
-        const groundGeometry = new THREE.PlaneGeometry(gridWidth * 1.2, gridHeight * 1.2);
+        // 地面（セグメント数を増やして高低差を表現）
+        const groundGeometry = new THREE.PlaneGeometry(
+            gridWidth * 1.2,
+            gridHeight * 1.2,
+            256, // 幅のセグメント数（細かく分割）
+            256  // 高さのセグメント数
+        );
+
         const groundMaterial = new THREE.MeshStandardMaterial({
-            map: groundTexture,  // テクスチャを適用
+            map: groundTexture,  // カラーテクスチャ
+            displacementMap: groundTexture,  // 高さマップ（同じテクスチャを使用）
+            displacementScale: 50,  // 高さのスケール（調整可能）
             roughness: 0.8,
             metalness: 0.2
         });
+
         const ground = new THREE.Mesh(groundGeometry, groundMaterial);
         ground.rotation.x = -Math.PI / 2; // XZ平面に配置
         ground.position.set(centerX, 0, centerZ); // グリッドの中心に配置
         ground.receiveShadow = true;
+        ground.castShadow = true; // 山が影を落とす
         this.scene.add(ground);
 
         // グリッド外のエリアを暗くするオーバーレイ（プレイエリアを明確化）
