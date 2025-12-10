@@ -10,6 +10,7 @@ import { HEX_SIZE, MAP_W, MAP_H } from './constants.js';
 export class RenderingEngine3D {
     constructor(canvas) {
         this.canvas = canvas;
+        this.groundMesh = null; // 地形メッシュ（Raycast用）
 
         // Three.js基本セットアップ
         this.scene = new THREE.Scene();
@@ -91,12 +92,12 @@ export class RenderingEngine3D {
         // テクスチャのフィルタリング設定（よりきれいに表示）
         groundTexture.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
 
-        // 地面（セグメント数を増やして高低差を表現）
+        // 地面（セグメント数を減らしてパフォーマンス改善）
         const groundGeometry = new THREE.PlaneGeometry(
             gridWidth * 1.2,
             gridHeight * 1.2,
-            256, // 幅のセグメント数（細かく分割）
-            256  // 高さのセグメント数
+            128, // 幅のセグメント数（最適化）
+            128  // 高さのセグメント数
         );
 
         const groundMaterial = new THREE.MeshStandardMaterial({
@@ -113,6 +114,9 @@ export class RenderingEngine3D {
         ground.receiveShadow = true;
         ground.castShadow = true; // 山が影を落とす
         this.scene.add(ground);
+
+        // 地形メッシュを保存（Raycast用）
+        this.groundMesh = ground;
 
         // グリッド外のエリアを暗くするオーバーレイ（プレイエリアを明確化）
         this.createOutOfBoundsOverlay(gridWidth, gridHeight, centerX, centerZ);
@@ -186,17 +190,33 @@ export class RenderingEngine3D {
     }
 
     /**
-     * 六角形の頂点を取得（XZ平面）
+     * 六角形の頂点を取得（XZ平面）- 地形の高さに合わせる（軽量版）
      */
     getHexagonVertices(q, r) {
         const center = this.hexToWorld3D(q, r);
         const vertices = [];
 
+        // 中心点の高さをRaycastで取得（各ヘックス1回のみ）
+        let hexHeight = 5; // デフォルトの高さ
+
+        if (this.groundMesh) {
+            const raycaster = new THREE.Raycaster();
+            const rayOrigin = new THREE.Vector3(center.x, 200, center.z);
+            const rayDirection = new THREE.Vector3(0, -1, 0);
+            raycaster.set(rayOrigin, rayDirection);
+
+            const intersects = raycaster.intersectObject(this.groundMesh);
+            if (intersects.length > 0) {
+                hexHeight = intersects[0].point.y + 2; // 地形の高さ + 余白
+            }
+        }
+
+        // 全頂点を同じ高さで配置
         for (let i = 0; i < 6; i++) {
             const angle = (Math.PI / 3) * i + Math.PI / 6; // pointy-top
             const x = center.x + HEX_SIZE * Math.cos(angle);
             const z = center.z + HEX_SIZE * Math.sin(angle);
-            vertices.push(new THREE.Vector3(x, 120, z)); // 地形の上に表示
+            vertices.push(new THREE.Vector3(x, hexHeight, z));
         }
 
         return vertices;
