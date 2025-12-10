@@ -102,7 +102,7 @@ export class RenderingEngine3D {
         const groundMaterial = new THREE.MeshStandardMaterial({
             map: groundTexture,  // カラーテクスチャ
             displacementMap: groundTexture,  // 高さマップ（同じテクスチャを使用）
-            displacementScale: 50,  // 高さのスケール（調整可能）
+            displacementScale: 100,  // 高さのスケール（極端に調整）
             roughness: 0.8,
             metalness: 0.2
         });
@@ -196,7 +196,7 @@ export class RenderingEngine3D {
             const angle = (Math.PI / 3) * i + Math.PI / 6; // pointy-top
             const x = center.x + HEX_SIZE * Math.cos(angle);
             const z = center.z + HEX_SIZE * Math.sin(angle);
-            vertices.push(new THREE.Vector3(x, 0.1, z)); // 地面より少し上
+            vertices.push(new THREE.Vector3(x, 120, z)); // 地形の上に表示
         }
 
         return vertices;
