@@ -115,53 +115,55 @@ export class RenderingEngine3D {
      * グリッド外のエリアを暗くするオーバーレイを作成
      */
     createOutOfBoundsOverlay(gridWidth, gridHeight, centerX, centerZ) {
-        // グリッド境界を示すフレーム（4辺）
-        const frameThickness = 2000; // フレームの厚さ
-        const overlayColor = 0x1a1a1a; // 暗いグレー
-        const overlayOpacity = 0.7; // 透明度
+        // ヘックスグリッドの範囲外を暗くする
+        // 各ヘックス位置に対して、グリッド内かどうかを判定し、
+        // グリッド外なら暗いヘックス形状のオーバーレイを配置
 
-        const frameMaterial = new THREE.MeshBasicMaterial({
-            color: overlayColor,
+        const overlayColor = 0x000000; // 黒
+        const overlayOpacity = 0.6; // 透明度
+
+        // より広い範囲をチェック（グリッドより大きい範囲）
+        const checkRangeQ = MAP_W + 10;
+        const checkRangeR = MAP_H + 10;
+
+        for (let r = -5; r < checkRangeR; r++) {
+            for (let q = -5; q < checkRangeQ; q++) {
+                // グリッド範囲外のヘックスにオーバーレイを配置
+                if (q < 0 || q >= MAP_W || r < 0 || r >= MAP_H) {
+                    this.addHexOverlay(q, r, overlayColor, overlayOpacity);
+                }
+            }
+        }
+    }
+
+    /**
+     * 指定したヘックス位置に暗いオーバーレイを追加
+     */
+    addHexOverlay(q, r, color, opacity) {
+        const center = this.hexToWorld3D(q, r);
+        const vertices = this.getHexagonVertices(q, r);
+
+        // 六角形の形状を作成
+        const shape = new THREE.Shape();
+        shape.moveTo(vertices[0].x - center.x, vertices[0].z - center.z);
+        for (let i = 1; i < vertices.length; i++) {
+            shape.lineTo(vertices[i].x - center.x, vertices[i].z - center.z);
+        }
+        shape.lineTo(vertices[0].x - center.x, vertices[0].z - center.z);
+
+        const geometry = new THREE.ShapeGeometry(shape);
+        const material = new THREE.MeshBasicMaterial({
+            color: color,
             transparent: true,
-            opacity: overlayOpacity,
-            side: THREE.DoubleSide
+            opacity: opacity,
+            side: THREE.DoubleSide,
+            depthWrite: false
         });
 
-        // 上辺のフレーム
-        const topFrame = new THREE.Mesh(
-            new THREE.PlaneGeometry(gridWidth * 1.2 + frameThickness * 2, frameThickness),
-            frameMaterial
-        );
-        topFrame.rotation.x = -Math.PI / 2;
-        topFrame.position.set(centerX, 0.2, centerZ - gridHeight * 1.2 / 2 - frameThickness / 2);
-        this.scene.add(topFrame);
-
-        // 下辺のフレーム
-        const bottomFrame = new THREE.Mesh(
-            new THREE.PlaneGeometry(gridWidth * 1.2 + frameThickness * 2, frameThickness),
-            frameMaterial
-        );
-        bottomFrame.rotation.x = -Math.PI / 2;
-        bottomFrame.position.set(centerX, 0.2, centerZ + gridHeight * 1.2 / 2 + frameThickness / 2);
-        this.scene.add(bottomFrame);
-
-        // 左辺のフレーム
-        const leftFrame = new THREE.Mesh(
-            new THREE.PlaneGeometry(frameThickness, gridHeight * 1.2),
-            frameMaterial
-        );
-        leftFrame.rotation.x = -Math.PI / 2;
-        leftFrame.position.set(centerX - gridWidth * 1.2 / 2 - frameThickness / 2, 0.2, centerZ);
-        this.scene.add(leftFrame);
-
-        // 右辺のフレーム
-        const rightFrame = new THREE.Mesh(
-            new THREE.PlaneGeometry(frameThickness, gridHeight * 1.2),
-            frameMaterial
-        );
-        rightFrame.rotation.x = -Math.PI / 2;
-        rightFrame.position.set(centerX + gridWidth * 1.2 / 2 + frameThickness / 2, 0.2, centerZ);
-        this.scene.add(rightFrame);
+        const overlay = new THREE.Mesh(geometry, material);
+        overlay.rotation.x = -Math.PI / 2;
+        overlay.position.set(center.x, 0.5, center.z);
+        this.scene.add(overlay);
     }
 
     /**
