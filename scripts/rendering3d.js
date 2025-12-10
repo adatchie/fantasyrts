@@ -79,10 +79,22 @@ export class RenderingEngine3D {
         const centerX = (gridWidth - Math.sqrt(3) * HEX_SIZE) / 2;
         const centerZ = (gridHeight - 2 * HEX_SIZE) / 2;
 
+        // テクスチャをロード
+        const textureLoader = new THREE.TextureLoader();
+        const groundTexture = textureLoader.load('./assets/textures/ground_sekigahara.jpg');
+
+        // テクスチャの繰り返し設定
+        groundTexture.wrapS = THREE.RepeatWrapping;
+        groundTexture.wrapT = THREE.RepeatWrapping;
+        groundTexture.repeat.set(8, 8); // 8x8回繰り返し
+
+        // テクスチャのフィルタリング設定（よりきれいに表示）
+        groundTexture.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+
         // 地面（グリッドより少し大きめ）
         const groundGeometry = new THREE.PlaneGeometry(gridWidth * 1.2, gridHeight * 1.2);
         const groundMaterial = new THREE.MeshStandardMaterial({
-            color: 0x3a5a3a,
+            map: groundTexture,  // テクスチャを適用
             roughness: 0.8,
             metalness: 0.2
         });
