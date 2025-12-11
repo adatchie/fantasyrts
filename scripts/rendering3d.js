@@ -287,7 +287,10 @@ export class RenderingEngine3D {
                     color = 0x888888;
                 }
 
-                this.createUnit(unit.q, unit.r, unit.facing || 0, color);
+                // dirプロパティを使用（unit-manager.jsで設定されている）
+                // なければfacing、それもなければ0
+                const dir = unit.dir !== undefined ? unit.dir : (unit.facing || 0);
+                this.createUnit(unit.q, unit.r, dir, color);
             }
         });
     }
@@ -340,7 +343,10 @@ export class RenderingEngine3D {
         unit.rotation.x = -Math.PI / 2;
 
         // facing方向を向く（Z軸回転、地面に寝た状態で）
-        unit.rotation.z = facing * (Math.PI / 3);
+        // facing定義 (unit-manager.js準拠): 0=東, 1=南東, 2=南西, 3=西, 4=北西, 5=北東
+        // rotation.z=0で北を向いているため、補正が必要
+        // 0(東) -> -90度
+        unit.rotation.z = -Math.PI / 2 - facing * (Math.PI / 3);
 
         // 位置：地形の高さ + 固定オフセット
         let y = 100; // デフォルト高さ
