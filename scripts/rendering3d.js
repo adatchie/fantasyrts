@@ -277,16 +277,16 @@ export class RenderingEngine3D {
         const notchDepth = height * 0.5; // 凹みの深さ（深め）
         const notchWidth = width * 0.5;  // 凹みの幅
 
-        // 凸字型の頂点を定義（下から時計回り）
-        shape.moveTo(-width / 2, -height / 2);           // 左下
-        shape.lineTo(-notchWidth / 2, -height / 2);      // 凹み左下
-        shape.lineTo(-notchWidth / 2, -height / 2 + notchDepth); // 凹み左上
-        shape.lineTo(notchWidth / 2, -height / 2 + notchDepth);  // 凹み右上
-        shape.lineTo(notchWidth / 2, -height / 2);       // 凹み右下
+        // 凸字型の頂点を定義（上から反時計回り、形状を正しく）
+        shape.moveTo(-width / 2, height / 2);            // 左上
+        shape.lineTo(-width / 2, -height / 2);           // 左下
+        shape.lineTo(-notchWidth / 2, -height / 2);      // 凹み左外
+        shape.lineTo(-notchWidth / 2, -height / 2 + notchDepth); // 凹み左内
+        shape.lineTo(notchWidth / 2, -height / 2 + notchDepth);  // 凹み右内
+        shape.lineTo(notchWidth / 2, -height / 2);       // 凹み右外
         shape.lineTo(width / 2, -height / 2);            // 右下
         shape.lineTo(width / 2, height / 2);             // 右上
-        shape.lineTo(-width / 2, height / 2);            // 左上
-        shape.lineTo(-width / 2, -height / 2);           // 左下に戻る
+        shape.lineTo(-width / 2, height / 2);            // 左上に戻る
 
         // ExtrudeGeometryで立体化（薄い板状）
         const extrudeSettings = {
@@ -313,7 +313,7 @@ export class RenderingEngine3D {
         unit.rotation.z = facing * (Math.PI / 3);
 
         // 位置：地形の高さ + 固定オフセット
-        const heightOffset = 5; // 地表に近い位置
+        const heightOffset = 30; // 地形の上
         unit.position.set(pos.x, heightOffset, pos.z);
 
         unit.castShadow = true;
