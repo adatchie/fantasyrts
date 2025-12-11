@@ -269,21 +269,28 @@ export class RenderingEngine3D {
         // ヘックス位置を3D座標に変換
         const pos = this.hexToWorld3D(q, r);
 
-        // 凸型（矢印型）の形状を作成
+        // 凸字型の形状を作成（NATO記号スタイル）
         const shape = new THREE.Shape();
-        const size = HEX_SIZE * 0.6; // ユニットサイズ
+        const size = HEX_SIZE * 0.6;
+        const width = size * 0.8;    // 横幅
+        const height = size * 1.0;   // 高さ
+        const notchDepth = height * 0.3; // 凹みの深さ
+        const notchWidth = width * 0.4;  // 凹みの幅
 
-        // 凸型の頂点を定義（上向きの矢印）
-        shape.moveTo(0, size * 0.5);           // 上の尖った部分
-        shape.lineTo(size * 0.4, size * 0.2);  // 右上
-        shape.lineTo(size * 0.4, -size * 0.5); // 右下
-        shape.lineTo(-size * 0.4, -size * 0.5);// 左下
-        shape.lineTo(-size * 0.4, size * 0.2); // 左上
-        shape.lineTo(0, size * 0.5);           // 上に戻る
+        // 凸字型の頂点を定義（下から時計回り）
+        shape.moveTo(-width / 2, -height / 2);           // 左下
+        shape.lineTo(-notchWidth / 2, -height / 2);      // 凹み左下
+        shape.lineTo(-notchWidth / 2, -height / 2 + notchDepth); // 凹み左上
+        shape.lineTo(notchWidth / 2, -height / 2 + notchDepth);  // 凹み右上
+        shape.lineTo(notchWidth / 2, -height / 2);       // 凹み右下
+        shape.lineTo(width / 2, -height / 2);            // 右下
+        shape.lineTo(width / 2, height / 2);             // 右上
+        shape.lineTo(-width / 2, height / 2);            // 左上
+        shape.lineTo(-width / 2, -height / 2);           // 左下に戻る
 
-        // ExtrudeGeometryで立体化
+        // ExtrudeGeometryで立体化（薄い板状）
         const extrudeSettings = {
-            depth: HEX_SIZE * 0.3,  // 厚み
+            depth: size * 0.2,  // 厚み
             bevelEnabled: false
         };
 
@@ -298,9 +305,12 @@ export class RenderingEngine3D {
 
         const unit = new THREE.Mesh(geometry, material);
 
-        // 回転：facingに応じて向きを変える（0=上、1=右上、2=右下、3=下、4=左下、5=左上）
-        const rotationY = (facing * Math.PI / 3);
-        unit.rotation.y = rotationY;
+        // 地面に寝かせる（X軸回転）
+        unit.rotation.x = -Math.PI / 2;
+
+        // facing方向を向く（Z軸回転、地面に寝た状態で）
+        // facing 0 = 北（Z軸負方向）、1 = 北東、2 = 南東、3 = 南、4 = 南西、5 = 北西
+        unit.rotation.z = facing * (Math.PI / 3);
 
         // 位置：地形の高さ + 固定オフセット
         const heightOffset = 50; // 固定の高さ（地形の上）
