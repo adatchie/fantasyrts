@@ -271,11 +271,11 @@ export class RenderingEngine3D {
 
         // 凸字型の形状を作成（NATO記号スタイル）
         const shape = new THREE.Shape();
-        const size = HEX_SIZE * 0.6;
-        const width = size * 0.8;    // 横幅
-        const height = size * 1.0;   // 高さ
-        const notchDepth = height * 0.3; // 凹みの深さ
-        const notchWidth = width * 0.4;  // 凹みの幅
+        const size = HEX_SIZE * 0.7;
+        const width = size * 1.2;    // 横幅（広め）
+        const height = size * 0.8;   // 高さ
+        const notchDepth = height * 0.5; // 凹みの深さ（深め）
+        const notchWidth = width * 0.5;  // 凹みの幅
 
         // 凸字型の頂点を定義（下から時計回り）
         shape.moveTo(-width / 2, -height / 2);           // 左下
@@ -313,7 +313,7 @@ export class RenderingEngine3D {
         unit.rotation.z = facing * (Math.PI / 3);
 
         // 位置：地形の高さ + 固定オフセット
-        const heightOffset = 50; // 固定の高さ（地形の上）
+        const heightOffset = 5; // 地表に近い位置
         unit.position.set(pos.x, heightOffset, pos.z);
 
         unit.castShadow = true;
