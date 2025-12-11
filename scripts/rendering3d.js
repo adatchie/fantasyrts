@@ -319,8 +319,24 @@ export class RenderingEngine3D {
         unit.rotation.z = facing * (Math.PI / 3);
 
         // 位置：地形の高さ + 固定オフセット
-        const heightOffset = 40; // 地形の上
-        unit.position.set(pos.x, heightOffset, pos.z);
+        let y = 40; // デフォルト高さ
+
+        // Raycastで地形の高さを取得
+        if (this.groundMesh) {
+            const raycaster = new THREE.Raycaster();
+            const rayOrigin = new THREE.Vector3(pos.x, 500, pos.z); // 上空から
+            const rayDirection = new THREE.Vector3(0, -1, 0); // 真下へ
+            raycaster.set(rayOrigin, rayDirection);
+
+            const intersects = raycaster.intersectObject(this.groundMesh);
+            if (intersects.length > 0) {
+                // 地形の高さ + ユニットの浮遊高さ
+                // displacementMapの影響で見た目の高さと異なる場合があるため調整が必要かもしれない
+                y = intersects[0].point.y + 10;
+            }
+        }
+
+        unit.position.set(pos.x, y, pos.z);
 
         unit.castShadow = true;
         unit.receiveShadow = true;
