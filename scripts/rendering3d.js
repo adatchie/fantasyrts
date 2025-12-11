@@ -275,15 +275,16 @@ export class RenderingEngine3D {
 
         window.gameState.units.forEach(unit => {
             if (unit.q !== undefined && unit.r !== undefined && !unit.dead) {
-                // 大名の色を取得
-                let color = 0xff0000; // デフォルト赤
+                // 所属軍の色を取得（東軍：青、西軍：赤）
+                let color = 0x88AAEE; // デフォルト東軍色
 
-                if (unit.warlordId !== undefined && WARLORDS[unit.warlordId]) {
-                    const warlord = WARLORDS[unit.warlordId];
-                    // constants.jsでは 'bg' プロパティが色
-                    if (warlord.bg) {
-                        color = parseInt(warlord.bg.replace('#', '0x'));
-                    }
+                if (unit.side === 'WEST') {
+                    color = 0xEE4444; // 西軍色
+                } else if (unit.side === 'EAST') {
+                    color = 0x88AAEE; // 東軍色
+                } else {
+                    // その他はグレー
+                    color = 0x888888;
                 }
 
                 this.createUnit(unit.q, unit.r, unit.facing || 0, color);
@@ -297,14 +298,13 @@ export class RenderingEngine3D {
     createUnit(q, r, facing, color) {
         // ヘックス位置を3D座標に変換
         const pos = this.hexToWorld3D(q, r);
-        console.log(`Creating unit at hex(${q}, ${r}) -> world(${pos.x}, ${pos.z})`);
 
         // 凸字型の形状を作成（NATO記号スタイル）
         const shape = new THREE.Shape();
-        const size = HEX_SIZE * 2.0; // サイズを一時的に大きくして確認
-        const width = size * 1.2;    // 横幅（広め）
+        const size = HEX_SIZE * 1.5; // サイズ調整
+        const width = size * 1.2;    // 横幅
         const height = size * 0.8;   // 高さ
-        const notchDepth = height * 0.5; // 凹みの深さ（深め）
+        const notchDepth = height * 0.5; // 凹みの深さ
         const notchWidth = width * 0.5;  // 凹みの幅
 
         // 凸字型の頂点を定義（下部中央に突起）
@@ -320,7 +320,7 @@ export class RenderingEngine3D {
 
         // ExtrudeGeometryで立体化（薄い板状）
         const extrudeSettings = {
-            depth: size * 0.5,  // 厚みも増やす
+            depth: size * 0.3,  // 厚み
             bevelEnabled: false
         };
 
@@ -331,7 +331,7 @@ export class RenderingEngine3D {
             color: color,
             roughness: 0.7,
             metalness: 0.3,
-            side: THREE.DoubleSide // 両面描画
+            side: THREE.DoubleSide
         });
 
         const unit = new THREE.Mesh(geometry, material);
@@ -340,27 +340,22 @@ export class RenderingEngine3D {
         unit.rotation.x = -Math.PI / 2;
 
         // facing方向を向く（Z軸回転、地面に寝た状態で）
-        // facing 0 = 北（Z軸負方向）、1 = 北東、2 = 南東、3 = 南、4 = 南西、5 = 北西
         unit.rotation.z = facing * (Math.PI / 3);
 
         // 位置：地形の高さ + 固定オフセット
-        let y = 100; // デフォルト高さ（高めに設定して埋没回避）
+        let y = 100; // デフォルト高さ
 
         // Raycastで地形の高さを取得
         if (this.groundMesh) {
             const raycaster = new THREE.Raycaster();
-            // Rayの発射位置を高くし、方向を確実に下へ
             const rayOrigin = new THREE.Vector3(pos.x, 2000, pos.z);
             const rayDirection = new THREE.Vector3(0, -1, 0);
             raycaster.set(rayOrigin, rayDirection);
 
             const intersects = raycaster.intersectObject(this.groundMesh);
             if (intersects.length > 0) {
-                // 地形の高さ + ユニットの浮遊高さ
-                y = intersects[0].point.y + 20;
-                console.log(`Terrain height at (${q},${r}): ${intersects[0].point.y}`);
-            } else {
-                console.warn(`Raycast missed for unit at ${q},${r}, using default height ${y}`);
+                // 地形の高さ + ユニットの浮遊高さ（大幅に上げる）
+                y = intersects[0].point.y + 60;
             }
         }
 
@@ -370,7 +365,6 @@ export class RenderingEngine3D {
         unit.receiveShadow = true;
 
         this.scene.add(unit);
-        console.log("Unit added to scene:", unit);
     }
 
     /**
@@ -383,36 +377,17 @@ export class RenderingEngine3D {
     }
 
     /**
-     * 六角形の頂点を取得（XZ平面）- 地形の高さに合わせる（軽量版）
+     * 六角形の頂点を取得（XZ平面）
      */
     getHexagonVertices(q, r) {
         const center = this.hexToWorld3D(q, r);
         const vertices = [];
 
-        // 各頂点で地形の高さを取得（Raycast）
         for (let i = 0; i < 6; i++) {
             const angle = (Math.PI / 3) * i + Math.PI / 6; // pointy-top
             const x = center.x + HEX_SIZE * Math.cos(angle);
             const z = center.z + HEX_SIZE * Math.sin(angle);
-
-            // この頂点位置の地形の高さを取得
-            // TODO: Raycastが正しく動作していないため、一時的に固定の高さを使用
             let y = 150; // 固定の高さ
-
-            /*
-            if (this.groundMesh) {
-                const raycaster = new THREE.Raycaster();
-                const rayOrigin = new THREE.Vector3(x, 200, z);
-                const rayDirection = new THREE.Vector3(0, -1, 0);
-                raycaster.set(rayOrigin, rayDirection);
-
-                const intersects = raycaster.intersectObject(this.groundMesh);
-                if (intersects.length > 0) {
-                    y = intersects[0].point.y + 30; // 地形の高さ + 十分な余白
-                }
-            }
-            */
-
             vertices.push(new THREE.Vector3(x, y, z));
         }
 
