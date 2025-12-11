@@ -106,7 +106,7 @@ export class RenderingEngine3D {
         const groundMaterial = new THREE.MeshStandardMaterial({
             map: groundTexture,  // カラーテクスチャ
             displacementMap: heightMap,  // 専用の高さマップを使用
-            displacementScale: 80,  // 高さのスケール（グレースケールに合わせて調整）
+            displacementScale: 50,  // 高さのスケール（控えめに調整）
             roughness: 0.8,
             metalness: 0.2
         });
@@ -245,7 +245,7 @@ export class RenderingEngine3D {
             transparent: true,
             opacity: 1.0,
             displacementMap: heightMap,
-            displacementScale: 80,
+            displacementScale: 50,
             roughness: 1.0,
             metalness: 0.0,
             side: THREE.DoubleSide,
