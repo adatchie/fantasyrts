@@ -310,7 +310,7 @@ export class RenderingEngine3D {
 
         // facing方向を向く（Z軸回転、地面に寝た状態で）
         // facing 0 = 北（Z軸負方向）、1 = 北東、2 = 南東、3 = 南、4 = 南西、5 = 北西
-        unit.rotation.z = facing * (Math.PI / 3) + Math.PI; // 180度回転を追加
+        unit.rotation.z = facing * (Math.PI / 3);
 
         // 位置：地形の高さ + 固定オフセット
         const heightOffset = 40; // 地形の上
