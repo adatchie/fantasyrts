@@ -337,6 +337,33 @@ export class RenderingEngine3D {
         // 地面に寝かせる（X軸回転）
         unit.rotation.x = -Math.PI / 2;
 
+        // facing方向を向く（Z軸回転、地面に寝た状態で）
+        // facing 0 = 北（Z軸負方向）、1 = 北東、2 = 南東、3 = 南、4 = 南西、5 = 北西
+        unit.rotation.z = facing * (Math.PI / 3);
+
+        // 位置：地形の高さ + 固定オフセット
+        let y = 100; // デフォルト高さ（高めに設定して埋没回避）
+
+        // Raycastで地形の高さを取得
+        if (this.groundMesh) {
+            const raycaster = new THREE.Raycaster();
+            // Rayの発射位置を高くし、方向を確実に下へ
+            const rayOrigin = new THREE.Vector3(pos.x, 1000, pos.z);
+            const rayDirection = new THREE.Vector3(0, -1, 0);
+            raycaster.set(rayOrigin, rayDirection);
+
+            const intersects = raycaster.intersectObject(this.groundMesh);
+            if (intersects.length > 0) {
+                // 地形の高さ + ユニットの浮遊高さ
+                y = intersects[0].point.y + 10;
+            } else {
+                console.warn(`Raycast missed for unit at ${q},${r}, using default height ${y}`);
+            }
+        }
+
+        unit.position.set(pos.x, y, pos.z);
+
+        unit.castShadow = true;
         unit.receiveShadow = true;
 
         this.scene.add(unit);
