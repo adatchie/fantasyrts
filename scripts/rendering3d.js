@@ -277,15 +277,15 @@ export class RenderingEngine3D {
         const notchDepth = height * 0.5; // 凹みの深さ（深め）
         const notchWidth = width * 0.5;  // 凹みの幅
 
-        // 凸字型の頂点を定義（反時計回り）
+        // 凸字型の頂点を定義（下部中央に突起）
         shape.moveTo(-width / 2, height / 2);            // 左上
-        shape.lineTo(-width / 2, -height / 2);           // 左下
-        shape.lineTo(-notchWidth / 2, -height / 2);      // 凹み左外
-        shape.lineTo(-notchWidth / 2, -height / 2 + notchDepth); // 凹み左内
-        shape.lineTo(notchWidth / 2, -height / 2 + notchDepth);  // 凹み右内
-        shape.lineTo(notchWidth / 2, -height / 2);       // 凹み右外
-        shape.lineTo(width / 2, -height / 2);            // 右下
         shape.lineTo(width / 2, height / 2);             // 右上
+        shape.lineTo(width / 2, -height / 2);            // 右下
+        shape.lineTo(notchWidth / 2, -height / 2);       // 突起右上
+        shape.lineTo(notchWidth / 2, -height / 2 - notchDepth);  // 突起右下
+        shape.lineTo(-notchWidth / 2, -height / 2 - notchDepth); // 突起左下
+        shape.lineTo(-notchWidth / 2, -height / 2);      // 突起左上
+        shape.lineTo(-width / 2, -height / 2);           // 左下
         shape.lineTo(-width / 2, height / 2);            // 左上に戻る
 
         // ExtrudeGeometryで立体化（薄い板状）
