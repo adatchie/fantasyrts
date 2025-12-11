@@ -204,6 +204,30 @@ export class RenderingEngine3D {
         ctx.lineWidth = 2;
 
         const scaleX = size / (gridWidth * 1.2);
+        const scaleZ = size / (gridHeight * 1.2);
+        const offsetX = (size - gridWidth * scaleX) / 2;
+        const offsetZ = (size - gridHeight * scaleZ) / 2;
+
+        for (let r = 0; r < MAP_H; r++) {
+            for (let q = 0; q < MAP_W; q++) {
+                const center = this.hexToWorld3D(q, r);
+
+                ctx.beginPath();
+                for (let i = 0; i <= 6; i++) {
+                    const angle = (Math.PI / 3) * i + Math.PI / 6;
+                    const x = (center.x + HEX_SIZE * Math.cos(angle)) * scaleX + offsetX;
+                    const z = (center.z + HEX_SIZE * Math.sin(angle)) * scaleZ + offsetZ;
+
+                    if (i === 0) {
+                        ctx.moveTo(x, z);
+                    } else {
+                        ctx.lineTo(x, z);
+                    }
+                }
+                ctx.stroke();
+            }
+        }
+
         const gridTexture = new THREE.CanvasTexture(canvas);
         gridTexture.wrapS = THREE.ClampToEdgeWrapping;
         gridTexture.wrapT = THREE.ClampToEdgeWrapping;
@@ -241,6 +265,30 @@ export class RenderingEngine3D {
      */
     drawUnits() {
         if (!window.gameState || !window.gameState.units) return;
+
+        // groundMeshがまだない場合は少し待って再試行
+        if (!this.groundMesh) {
+            console.log("Waiting for ground mesh...");
+            setTimeout(() => this.drawUnits(), 100);
+            return;
+        }
+
+        window.gameState.units.forEach(unit => {
+            if (unit.q !== undefined && unit.r !== undefined && !unit.dead) {
+                // 大名の色を取得
+                let color = 0xff0000; // デフォルト赤
+
+                if (unit.warlordId !== undefined && WARLORDS[unit.warlordId]) {
+                    const warlord = WARLORDS[unit.warlordId];
+                    // constants.jsでは 'bg' プロパティが色
+                    if (warlord.bg) {
+                        color = parseInt(warlord.bg.replace('#', '0x'));
+                    }
+                }
+
+                this.createUnit(unit.q, unit.r, unit.facing || 0, color);
+            }
+        });
     }
 
     /**
