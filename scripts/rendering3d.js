@@ -297,10 +297,11 @@ export class RenderingEngine3D {
     createUnit(q, r, facing, color) {
         // ヘックス位置を3D座標に変換
         const pos = this.hexToWorld3D(q, r);
+        console.log(`Creating unit at hex(${q}, ${r}) -> world(${pos.x}, ${pos.z})`);
 
         // 凸字型の形状を作成（NATO記号スタイル）
         const shape = new THREE.Shape();
-        const size = HEX_SIZE * 0.7;
+        const size = HEX_SIZE * 2.0; // サイズを一時的に大きくして確認
         const width = size * 1.2;    // 横幅（広め）
         const height = size * 0.8;   // 高さ
         const notchDepth = height * 0.5; // 凹みの深さ（深め）
@@ -319,7 +320,7 @@ export class RenderingEngine3D {
 
         // ExtrudeGeometryで立体化（薄い板状）
         const extrudeSettings = {
-            depth: size * 0.2,  // 厚み
+            depth: size * 0.5,  // 厚みも増やす
             bevelEnabled: false
         };
 
@@ -329,7 +330,8 @@ export class RenderingEngine3D {
         const material = new THREE.MeshStandardMaterial({
             color: color,
             roughness: 0.7,
-            metalness: 0.3
+            metalness: 0.3,
+            side: THREE.DoubleSide // 両面描画
         });
 
         const unit = new THREE.Mesh(geometry, material);
@@ -348,14 +350,15 @@ export class RenderingEngine3D {
         if (this.groundMesh) {
             const raycaster = new THREE.Raycaster();
             // Rayの発射位置を高くし、方向を確実に下へ
-            const rayOrigin = new THREE.Vector3(pos.x, 1000, pos.z);
+            const rayOrigin = new THREE.Vector3(pos.x, 2000, pos.z);
             const rayDirection = new THREE.Vector3(0, -1, 0);
             raycaster.set(rayOrigin, rayDirection);
 
             const intersects = raycaster.intersectObject(this.groundMesh);
             if (intersects.length > 0) {
                 // 地形の高さ + ユニットの浮遊高さ
-                y = intersects[0].point.y + 10;
+                y = intersects[0].point.y + 20;
+                console.log(`Terrain height at (${q},${r}): ${intersects[0].point.y}`);
             } else {
                 console.warn(`Raycast missed for unit at ${q},${r}, using default height ${y}`);
             }
@@ -367,6 +370,7 @@ export class RenderingEngine3D {
         unit.receiveShadow = true;
 
         this.scene.add(unit);
+        console.log("Unit added to scene:", unit);
     }
 
     /**
