@@ -268,9 +268,9 @@ export class RenderingEngine3D {
         if (!window.gameState || !window.gameState.units) return;
 
         window.gameState.units.forEach(unit => {
-            if (unit.q !== undefined && unit.r !== undefined) {
+            if (unit.q !== undefined && unit.r !== undefined && !unit.dead) {
                 // 大名の色を取得
-                const warlord = window.WARLORDS[unit.warlord];
+                const warlord = window.WARLORDS[unit.warlordId];
                 const color = warlord ? parseInt(warlord.color.replace('#', '0x')) : 0xff0000;
 
                 this.createUnit(unit.q, unit.r, unit.facing || 0, color);
