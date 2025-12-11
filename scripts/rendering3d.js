@@ -127,8 +127,8 @@ export class RenderingEngine3D {
         // ヘックスグリッドを地形に沿った平面として描画（DisplacementMap使用）
         this.createHexGridOverlay(gridWidth, gridHeight, centerX, centerZ, heightMap);
 
-        // テスト用：1つのユニットを配置
-        this.createTestUnit(5, 5, 0, 0xff0000); // (5,5)に赤い凸型ユニット、向き=0
+        // 全ユニットを表示
+        this.drawUnits();
     }
 
     /**
@@ -263,9 +263,26 @@ export class RenderingEngine3D {
     }
 
     /**
-     * テスト用：凸型ユニットを1つ配置
+     * 全ユニットを描画
      */
-    createTestUnit(q, r, facing, color) {
+    drawUnits() {
+        if (!window.gameState || !window.gameState.units) return;
+
+        window.gameState.units.forEach(unit => {
+            if (unit.q !== undefined && unit.r !== undefined) {
+                // 大名の色を取得
+                const warlord = window.WARLORDS[unit.warlord];
+                const color = warlord ? parseInt(warlord.color.replace('#', '0x')) : 0xff0000;
+
+                this.createUnit(unit.q, unit.r, unit.facing || 0, color);
+            }
+        });
+    }
+
+    /**
+     * 凸型ユニットを1つ配置
+     */
+    createUnit(q, r, facing, color) {
         // ヘックス位置を3D座標に変換
         const pos = this.hexToWorld3D(q, r);
 
