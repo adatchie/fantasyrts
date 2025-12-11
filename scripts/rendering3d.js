@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { HEX_SIZE, MAP_W, MAP_H, WARLORDS } from './constants.js';
+import { KamonDrawer } from './kamon.js';
 
 export class RenderingEngine3D {
     constructor(canvas) {
@@ -39,6 +40,13 @@ export class RenderingEngine3D {
         this.controls.minDistance = 200;
         this.controls.maxDistance = 2000;
         this.controls.maxPolarAngle = Math.PI / 2.2; // 地平線より下に行かない
+
+        // マウス操作の割り当てを変更（左クリックをゲーム操作用に開放）
+        this.controls.mouseButtons = {
+            LEFT: null, // 左ドラッグ：無効（範囲選択などに使用）
+            MIDDLE: THREE.MOUSE.DOLLY, // 中ドラッグ：ズーム
+            RIGHT: THREE.MOUSE.ROTATE  // 右ドラッグ：回転
+        };
 
         // ライティング
         this.setupLights();
@@ -290,7 +298,7 @@ export class RenderingEngine3D {
                 // dirプロパティを使用（unit-manager.jsで設定されている）
                 // なければfacing、それもなければ0
                 const dir = unit.dir !== undefined ? unit.dir : (unit.facing || 0);
-                this.createUnit(unit.q, unit.r, dir, color);
+                this.createUnit(unit.q, unit.r, dir, color, unit);
             }
         });
     }
@@ -298,7 +306,7 @@ export class RenderingEngine3D {
     /**
      * 凸型ユニットを1つ配置
      */
-    createUnit(q, r, facing, color) {
+    createUnit(q, r, facing, color, unitData) {
         // ヘックス位置を3D座標に変換
         const pos = this.hexToWorld3D(q, r);
 
@@ -371,7 +379,75 @@ export class RenderingEngine3D {
         unit.castShadow = true;
         unit.receiveShadow = true;
 
+        // 情報オーバーレイ（兵士ゲージ、家紋）を追加
+        if (unitData) {
+            this.createUnitInfoOverlay(unit, unitData);
+        }
+
         this.scene.add(unit);
+    }
+
+    /**
+     * ユニット情報オーバーレイ（兵士ゲージ、家紋）を作成
+     */
+    createUnitInfoOverlay(mesh, unit) {
+        // 兵士ゲージ
+        const barWidth = 128;
+        const barHeight = 16;
+        const canvas = document.createElement('canvas');
+        canvas.width = barWidth;
+        canvas.height = barHeight;
+        const ctx = canvas.getContext('2d');
+
+        // 背景（赤）
+        ctx.fillStyle = '#ff4444';
+        ctx.fillRect(0, 0, barWidth, barHeight);
+
+        // 現在兵力（緑）
+        const ratio = unit.soldiers / unit.maxSoldiers;
+        ctx.fillStyle = '#44ff44';
+        ctx.fillRect(0, 0, barWidth * ratio, barHeight);
+
+        // 枠線
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(0, 0, barWidth, barHeight);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.SpriteMaterial({ map: texture });
+        const sprite = new THREE.Sprite(material);
+
+        // サイズと位置調整
+        sprite.scale.set(15, 2, 1);
+        sprite.position.set(0, 30, 0); // ユニットの頭上
+        mesh.add(sprite);
+
+        // 本陣マーカー（家紋）
+        if (unit.unitType === 'HEADQUARTERS') {
+            const kSize = 128;
+            const kCanvas = document.createElement('canvas');
+            kCanvas.width = kSize;
+            kCanvas.height = kSize;
+            const kCtx = kCanvas.getContext('2d');
+
+            // 家紋描画
+            // 背景色を取得（武将の背景色）
+            let bgColor = '#000000';
+            if (unit.warlordId !== undefined && WARLORDS[unit.warlordId]) {
+                bgColor = WARLORDS[unit.warlordId].bg || '#000000';
+            }
+
+            // KamonDrawerを使用
+            KamonDrawer.drawKamon(kCtx, unit.kamon || 'DEFAULT', kSize / 2, kSize / 2, kSize / 2 - 4, bgColor);
+
+            const kTexture = new THREE.CanvasTexture(kCanvas);
+            const kMaterial = new THREE.SpriteMaterial({ map: kTexture });
+            const kSprite = new THREE.Sprite(kMaterial);
+
+            kSprite.scale.set(15, 15, 1);
+            kSprite.position.set(0, 45, 0); // ゲージより上
+            mesh.add(kSprite);
+        }
     }
 
     /**
@@ -458,5 +534,66 @@ export class RenderingEngine3D {
 
     drawBubbles() {
         // 3Dバブルは後で実装
+    }
+
+    /**
+     * スクリーン座標(x, y)からHEX座標(q, r)を取得
+     * @param {number} x - スクリーンX座標
+     * @param {number} y - スクリーンY座標
+     * @returns {{q: number, r: number}|null} HEX座標、またはnull
+     */
+    getHexFromScreenCoordinates(x, y) {
+        if (!this.groundMesh) return null;
+
+        // スクリーン座標を正規化デバイス座標(-1 to +1)に変換
+        const rect = this.canvas.getBoundingClientRect();
+        const ndcX = ((x - rect.left) / rect.width) * 2 - 1;
+        const ndcY = -((y - rect.top) / rect.height) * 2 + 1;
+
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera({ x: ndcX, y: ndcY }, this.camera);
+
+        // 地形との交差判定
+        const intersects = raycaster.intersectObject(this.groundMesh);
+
+        if (intersects.length > 0) {
+            const point = intersects[0].point;
+            return this.world3DToHex(point.x, point.z);
+        }
+
+        return null;
+    }
+
+    /**
+     * 3Dワールド座標(x, z)をHEX座標(q, r)に変換
+     */
+    world3DToHex(x, z) {
+        // axial coordinatesへの変換
+        const q = (Math.sqrt(3) / 3 * x - 1 / 3 * z) / HEX_SIZE;
+        const r = (2 / 3 * z) / HEX_SIZE;
+
+        return this.axialRound(q, r);
+    }
+
+    /**
+     * Axial座標の丸め処理
+     */
+    axialRound(q, r) {
+        let s = -q - r;
+        let roundQ = Math.round(q);
+        let roundR = Math.round(r);
+        let roundS = Math.round(s);
+
+        const qDiff = Math.abs(roundQ - q);
+        const rDiff = Math.abs(roundR - r);
+        const sDiff = Math.abs(roundS - s);
+
+        if (qDiff > rDiff && qDiff > sDiff) {
+            roundQ = -roundR - roundS;
+        } else if (rDiff > sDiff) {
+            roundR = -roundQ - roundS;
+        }
+
+        return { q: roundQ, r: roundR };
     }
 }

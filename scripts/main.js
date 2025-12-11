@@ -218,10 +218,8 @@ export class Game {
 
     // Input handling
     onMouseDown(e) {
-        if (e.button === 2) {
-            this.input.isRightDown = true;
-            this.input.start = { x: e.clientX, y: e.clientY };
-        } else if (e.button === 0) {
+        // 右クリックはOrbitControlsが処理するので何もしない
+        if (e.button === 0) {
             this.input.isLeftDown = true;
             this.input.start = { x: e.clientX, y: e.clientY };
             this.input.curr = { x: e.clientX, y: e.clientY };
@@ -229,39 +227,32 @@ export class Game {
     }
 
     onMouseMove(e) {
-        if (this.input.isRightDown) {
-            this.camera.x += e.clientX - this.input.start.x;
-            this.camera.y += e.clientY - this.input.start.y;
-            this.input.start = { x: e.clientX, y: e.clientY };
-        }
+        // 右ドラッグ（カメラ移動）はOrbitControlsが処理する
         if (this.input.isLeftDown) {
             this.input.curr = { x: e.clientX, y: e.clientY };
         }
     }
 
     onMouseUp(e) {
-        if (this.input.isRightDown && e.button === 2) {
-            this.input.isRightDown = false;
-        }
         if (this.input.isLeftDown && e.button === 0) {
             this.input.isLeftDown = false;
             const dist = Math.hypot(e.clientX - this.input.start.x, e.clientY - this.input.start.y);
             if (dist < 5) {
                 this.handleLeftClick(e.clientX, e.clientY);
             } else {
-                this.handleBoxSelect();
+                // 3Dでのボックス選択は未実装のため、クリック扱いにするか何もしない
+                // 今回はクリック扱いにする（誤操作防止のため）
+                // this.handleBoxSelect(); 
             }
         }
     }
 
     onWheel(e) {
-        this.camera.zoom -= e.deltaY * 0.001;
-        if (this.camera.zoom < 0.3) this.camera.zoom = 0.3;
-        if (this.camera.zoom > 2.0) this.camera.zoom = 2.0;
+        // ズームはOrbitControlsが処理する
     }
 
     onKeyDown(e) {
-        // ESC\u30ad\u30fc\u3067\u9078\u629e\u89e3\u9664\u3068\u30d1\u30cd\u30eb\u3092\u9589\u3058\u308b
+        // ESCキーで選択解除とパネルを閉じる
         if (e.key === 'Escape') {
             this.selectedUnits = [];
             this.updateSelectionUI([]);
@@ -270,11 +261,22 @@ export class Game {
     }
 
     handleLeftClick(mx, my) {
-        const h = pixelToHex(mx, my, this.camera);
-        if (!isValidHex(h)) return;
+        let h = null;
 
+        // 3DレンダリングエンジンからHEX座標を取得
+        if (this.renderingEngine && this.renderingEngine.getHexFromScreenCoordinates) {
+            h = this.renderingEngine.getHexFromScreenCoordinates(mx, my);
+        } else {
+            // フォールバック（2D用）
+            h = pixelToHex(mx, my, this.camera);
+        }
+
+        if (!h || !isValidHex(h)) return;
+
+        // クリック位置に近いユニットを探す
+        // 3Dの場合、HEX座標の一致で判定する方が確実
         const u = this.units.find(x =>
-            !x.dead && getDistRaw(x.q, x.r, h.q, h.r) < x.radius
+            !x.dead && x.q === h.q && x.r === h.r
         );
 
         const menu = document.getElementById('context-menu');
@@ -314,19 +316,8 @@ export class Game {
     }
 
     handleBoxSelect() {
-        const x1 = Math.min(this.input.start.x, this.input.curr.x);
-        const x2 = Math.max(this.input.start.x, this.input.curr.x);
-        const y1 = Math.min(this.input.start.y, this.input.curr.y);
-        const y2 = Math.max(this.input.start.y, this.input.curr.y);
-
-        this.selectedUnits = this.units.filter(u => {
-            if (u.side !== this.playerSide || u.dead) return false;
-            const sx = u.pos.x * this.camera.zoom + this.camera.x;
-            const sy = u.pos.y * this.camera.zoom + this.camera.y;
-            return (sx >= x1 && sx <= x2 && sy >= y1 && sy <= y2);
-        });
-
-        this.updateSelectionUI(this.selectedUnits);
+        // 3Dでのボックス選択は複雑なため、一時的に無効化
+        // 将来的にはFrustum Cullingなどを使用して実装する
     }
 
     issueCommand(type) {
