@@ -199,30 +199,28 @@ export class RenderingEngine3D {
         const center = this.hexToWorld3D(q, r);
         const vertices = [];
 
-        // 中心点の高さをRaycastで取得（各ヘックス1回のみ）
-        // TODO: Raycastが機能していないため、一時的に固定の高さを使用
-        let hexHeight = 120; // 固定の高さ（地形の最高点より上）
-
-        /*
-        if (this.groundMesh) {
-            const raycaster = new THREE.Raycaster();
-            const rayOrigin = new THREE.Vector3(center.x, 200, center.z);
-            const rayDirection = new THREE.Vector3(0, -1, 0);
-            raycaster.set(rayOrigin, rayDirection);
-
-            const intersects = raycaster.intersectObject(this.groundMesh);
-            if (intersects.length > 0) {
-                hexHeight = intersects[0].point.y + 20; // 地形の高さ + 十分な余白
-            }
-        }
-        */
-
-        // 全頂点を同じ高さで配置
+        // 各頂点で地形の高さを取得（Raycast）
         for (let i = 0; i < 6; i++) {
             const angle = (Math.PI / 3) * i + Math.PI / 6; // pointy-top
             const x = center.x + HEX_SIZE * Math.cos(angle);
             const z = center.z + HEX_SIZE * Math.sin(angle);
-            vertices.push(new THREE.Vector3(x, hexHeight, z));
+
+            // この頂点位置の地形の高さを取得
+            let y = 5; // デフォルトの高さ
+
+            if (this.groundMesh) {
+                const raycaster = new THREE.Raycaster();
+                const rayOrigin = new THREE.Vector3(x, 200, z);
+                const rayDirection = new THREE.Vector3(0, -1, 0);
+                raycaster.set(rayOrigin, rayDirection);
+
+                const intersects = raycaster.intersectObject(this.groundMesh);
+                if (intersects.length > 0) {
+                    y = intersects[0].point.y + 2; // 地形の高さ + 少しの余白
+                }
+            }
+
+            vertices.push(new THREE.Vector3(x, y, z));
         }
 
         return vertices;
