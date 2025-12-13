@@ -98,13 +98,15 @@ function isBlocked(q, r, units, movingUnitId, movingUnitRadius, movingUnitSide) 
  * A*アルゴリズムによるパスファインディング
  * 他のユニットを避けるルートを探索
  */
-export function findPath(startQ, startR, goalQ, goalR, units, movingUnit) {
+export function findPath(startQ, startR, goalQ, goalR, units, movingUnit, mapSystem) {
     // 目標と同じ位置にいる場合
     if (startQ === goalQ && startR === goalR) {
         return [{ q: startQ, r: startR }];
     }
 
     // 直線距離が近い場合は直線パスを試す（敵ユニットのみチェック）
+    // ただし、地形コストがある場合は直線パスが最適とは限らないため、
+    // 山岳がある場合はA*を優先すべきだが、簡易的に「直線上に山があればA*」とする
     const straightPath = getLine(startQ, startR, goalQ, goalR);
     let blocked = false;
     for (let i = 1; i < straightPath.length; i++) {
@@ -113,6 +115,19 @@ export function findPath(startQ, startR, goalQ, goalR, units, movingUnit) {
         if (blockInfo.blocked && !blockInfo.isFriendly) {
             blocked = true;
             break;
+        }
+        // 地形チェック
+        if (mapSystem) {
+            const tile = mapSystem.getTile(straightPath[i].q, straightPath[i].r);
+            if (tile && tile.type === 'MTN') {
+                blocked = true; // 山は通行不可（迂回させる）
+                break;
+            }
+            // HILLの場合は通行可能だがコストがかかるため、直線移動が最適とは限らない。
+            // しかし、ここでは「通行不可」かどうかだけを判定しているので、HILLはブロックしない。
+            // ただし、A*の方がコストを考慮したルートを選べるため、
+            // 厳密にはHILLがある場合もA*に任せた方が良いかもしれない。
+            // 一旦、HILLは直線移動OKとする（コスト計算は移動時に行われるため、結果的に遅くなるだけ）
         }
     }
     if (!blocked) {
@@ -131,7 +146,7 @@ export function findPath(startQ, startR, goalQ, goalR, units, movingUnit) {
     fScore.set(key(startQ, startR), getDistRaw(startQ, startR, goalQ, goalR));
 
     let iterations = 0;
-    const maxIterations = 500; // 無限ループ防止
+    const maxIterations = 1000; // 探索範囲を少し広げる
 
     while (openSet.length > 0 && iterations < maxIterations) {
         iterations++;
@@ -174,11 +189,30 @@ export function findPath(startQ, startR, goalQ, goalR, units, movingUnit) {
                 }
             }
 
-            // 移動コストを計算（味方ユニットがいる場合は高コスト）
+            // 移動コストを計算
             let moveCost = 1;
-            if (blockInfo.blocked && blockInfo.isFriendly) {
-                moveCost = 10; // 味方がいる場合は10倍のコスト（迂回を促す）
+
+            // 地形コスト
+            if (mapSystem) {
+                const tile = mapSystem.getTile(neighbor.q, neighbor.r);
+                if (tile) {
+                    if (tile.type === 'MTN') {
+                        moveCost = 999; // 山は実質通行不可
+                    } else if (tile.type === 'HILL') {
+                        moveCost = 3; // 丘陵はコスト増（平地の3倍）
+                    } else if (tile.type === 'RIVER') {
+                        moveCost = 5; // 川はさらにコスト増
+                    }
+                }
             }
+
+            // 味方ユニットがいる場合はコスト増（迂回を促す）
+            if (blockInfo.blocked && blockInfo.isFriendly) {
+                moveCost += 10;
+            }
+
+            // 山岳などでコストが極端に高い場合はスキップ（ただしゴールなら許容する場合もあるが、今回は山は完全不可とする）
+            if (moveCost >= 999) continue;
 
             const tentativeGScore = (gScore.get(currentKey) || Infinity) + moveCost;
 

@@ -5,10 +5,10 @@
 
 import { HEX_SIZE, C_EAST, C_WEST, C_SEL_BOX, C_SEL_BORDER, WARLORDS, UNIT_TYPE_HEADQUARTERS, FORMATION_HOKO, FORMATION_KAKUYOKU, FORMATION_GYORIN } from './constants.js';
 import { AudioEngine } from './audio.js';
-import { MapSystem } from './map.js';
-import { RenderingEngine3D } from './rendering3d.js';
+import { MapSystem } from './map.js?v=2';
+import { RenderingEngine3D } from './rendering3d.js?v=4';
 import { generatePortrait } from './rendering.js';
-import { CombatSystem } from './combat.js';
+import { CombatSystem } from './combat.js?v=4';
 import { AISystem } from './ai.js';
 import { UnitManager } from './unit-manager.js';
 import { hexToPixel, pixelToHex, isValidHex, getDistRaw } from './pathfinding.js';
@@ -47,7 +47,9 @@ export class Game {
 
         // 3Dレンダラーに切り替え
         this.renderingEngine = new RenderingEngine3D(this.canvas);
+        this.renderingEngine.setMapSystem(this.mapSystem); // MapSystemを渡す
         this.combatSystem = new CombatSystem(this.audioEngine);
+        this.combatSystem.setRenderingEngine(this.renderingEngine);
 
         this.resize();
         window.addEventListener('resize', () => this.resize());
@@ -56,6 +58,16 @@ export class Game {
         window.addEventListener('mouseup', (e) => this.onMouseUp(e));
         this.canvas.addEventListener('wheel', (e) => this.onWheel(e));
         window.addEventListener('keydown', (e) => this.onKeyDown(e));
+
+        // 選択ボックス用要素を作成
+        this.selectionBox = document.createElement('div');
+        this.selectionBox.style.position = 'absolute';
+        this.selectionBox.style.border = '1px solid #00FF00';
+        this.selectionBox.style.backgroundColor = 'rgba(0, 255, 0, 0.1)';
+        this.selectionBox.style.display = 'none';
+        this.selectionBox.style.pointerEvents = 'none'; // クリックを透過
+        this.selectionBox.style.zIndex = '1000';
+        document.body.appendChild(this.selectionBox);
 
         requestAnimationFrame(() => this.loop());
     }
@@ -159,8 +171,13 @@ export class Game {
             for (const u of queue) {
                 if (u.dead) continue;
 
-                // ユニットの行動を処理
-                await this.combatSystem.processUnit(u, this.units, this.mapSystem.getMap(), this.warlordPlotUsed);
+                try {
+                    // ユニットの行動を処理
+                    await this.combatSystem.processUnit(u, this.units, this.mapSystem.getMap(), this.warlordPlotUsed);
+                } catch (err) {
+                    console.error(`Error processing unit ${u.name}:`, err);
+                    // エラーが出ても続行
+                }
 
                 // 各ユニット行動後に本陣の状態をチェック
                 // 本陣が全滅していたら、その武将の全ユニットを敗走させる
@@ -230,19 +247,37 @@ export class Game {
         // 右ドラッグ（カメラ移動）はOrbitControlsが処理する
         if (this.input.isLeftDown) {
             this.input.curr = { x: e.clientX, y: e.clientY };
+
+            // 選択ボックスを描画
+            const startX = Math.min(this.input.start.x, this.input.curr.x);
+            const startY = Math.min(this.input.start.y, this.input.curr.y);
+            const width = Math.abs(this.input.curr.x - this.input.start.x);
+            const height = Math.abs(this.input.curr.y - this.input.start.y);
+
+            // 一定以上のドラッグでボックスを表示
+            if (width > 5 || height > 5) {
+                this.selectionBox.style.left = startX + 'px';
+                this.selectionBox.style.top = startY + 'px';
+                this.selectionBox.style.width = width + 'px';
+                this.selectionBox.style.height = height + 'px';
+                this.selectionBox.style.display = 'block';
+            }
         }
     }
 
     onMouseUp(e) {
         if (this.input.isLeftDown && e.button === 0) {
             this.input.isLeftDown = false;
+
+            // 選択ボックスを隠す
+            this.selectionBox.style.display = 'none';
+
             const dist = Math.hypot(e.clientX - this.input.start.x, e.clientY - this.input.start.y);
             if (dist < 5) {
                 this.handleLeftClick(e.clientX, e.clientY);
             } else {
-                // 3Dでのボックス選択は未実装のため、クリック扱いにするか何もしない
-                // 今回はクリック扱いにする（誤操作防止のため）
-                // this.handleBoxSelect(); 
+                // ボックス選択実行
+                this.handleBoxSelect();
             }
         }
     }
@@ -287,17 +322,32 @@ export class Game {
                 // 同じ武将の全ユニットを選択
                 const warlordUnits = this.unitManager.getUnitsByWarlordId(u.warlordId);
                 this.selectedUnits = warlordUnits.filter(unit => !unit.dead);
-                this.updateSelectionUI(this.selectedUnits);
+                this.updateSelectionUI(this.selectedUnits, null); // ターゲット情報はクリア
                 // 陣形はユニットカード内に表示される
             } else {
-                this.updateSelectionUI([u]);
+                // 敵クリック
+                // 既に味方を選択中なら、それをターゲットにする（攻撃/調略）
                 if (this.selectedUnits.length > 0 && this.selectedUnits[0].side === this.playerSide) {
                     this.targetContextUnit = u;
                     menu.style.display = 'flex';
                     menu.style.left = mx + 'px';
                     menu.style.top = my + 'px';
+
+                    // ユーザー要望: 目標の部隊の情報も表示したい
+                    // 選択状態は維持しつつ、UI上だけ一時的にターゲット情報を表示する、あるいは
+                    // 選択UIにターゲット情報も追加する形が望ましいが、
+                    // ここではシンプルに「ターゲット情報のみを表示」してしまうと、自軍の操作ができなくなる。
+                    // 妥協案として、コンソールに情報を出すか、あるいは updateSelectionUI を拡張して「ターゲット情報」を表示できるようにする。
+                    // 今回は updateSelectionUI にターゲットユニットを渡して、両方表示するように変更する。
+                    this.updateSelectionUI(this.selectedUnits, u);
+
                 } else {
-                    this.selectedUnits = [];
+                    // 味方を選択していないなら、敵ユニットを選択（情報表示のみ）
+                    // この場合、敵の武将グループ全体を表示する
+                    const warlordUnits = this.unitManager.getUnitsByWarlordId(u.warlordId);
+                    const enemyGroup = warlordUnits.filter(unit => !unit.dead);
+                    this.updateSelectionUI(enemyGroup);
+                    this.selectedUnits = []; // 操作対象としては保持しない
                 }
             }
         } else {
@@ -310,14 +360,48 @@ export class Game {
             } else {
                 // 選択状態でなければ、選択解除
                 this.selectedUnits = [];
-                this.updateSelectionUI([]);
+                this.updateSelectionUI([], null); // ターゲット情報はクリア
             }
         }
     }
 
     handleBoxSelect() {
-        // 3Dでのボックス選択は複雑なため、一時的に無効化
-        // 将来的にはFrustum Cullingなどを使用して実装する
+        if (!this.renderingEngine || !this.renderingEngine.getUnitScreenPosition) return;
+
+        const startX = Math.min(this.input.start.x, this.input.curr.x);
+        const endX = Math.max(this.input.start.x, this.input.curr.x);
+        const startY = Math.min(this.input.start.y, this.input.curr.y);
+        const endY = Math.max(this.input.start.y, this.input.curr.y);
+
+        const selected = [];
+
+        // 全ユニットのスクリーン座標をチェック
+        this.units.forEach(u => {
+            if (u.dead || u.side !== this.playerSide) return; // 味方のみ選択可能
+
+            const screenPos = this.renderingEngine.getUnitScreenPosition(u);
+            if (screenPos) {
+                if (screenPos.x >= startX && screenPos.x <= endX &&
+                    screenPos.y >= startY && screenPos.y <= endY) {
+                    selected.push(u);
+                }
+            }
+        });
+
+        if (selected.length > 0) {
+            this.selectedUnits = selected;
+            this.updateSelectionUI(this.selectedUnits, null); // ターゲット情報はクリア
+
+            // コンテキストメニューは閉じる
+            this.closeCtx();
+        } else {
+            // 何も囲まなかった場合は選択解除しない（誤操作防止）
+            // または選択解除する？ RTSの標準は「何もないところを囲むと選択解除」だが、
+            // 3Dだと意図せず空振りすることもあるので、維持の方が親切かも。
+            // ここでは「空振りなら選択解除」にする（標準挙動）
+            this.selectedUnits = [];
+            this.updateSelectionUI([], null); // ターゲット情報はクリア
+        }
     }
 
     issueCommand(type) {
@@ -425,9 +509,42 @@ export class Game {
         document.getElementById('status-text').innerText = `東軍: ${eS} / 西軍: ${wS}`;
     }
 
-    updateSelectionUI(list) {
+    updateSelectionUI(list, targetUnit = null) {
         const container = document.getElementById('unit-list');
         container.innerHTML = '';
+
+        // ターゲットユニットがある場合、その情報を最上部に表示
+        if (targetUnit) {
+            const targetWarlordUnits = this.unitManager.getUnitsByWarlordId(targetUnit.warlordId);
+            const targetHeadquarters = targetWarlordUnits.find(u => u.unitType === UNIT_TYPE_HEADQUARTERS) || targetWarlordUnits[0];
+            const targetTotalSoldiers = targetWarlordUnits.reduce((sum, u) => sum + (u.dead ? 0 : u.soldiers), 0);
+            const targetUnitCount = targetWarlordUnits.filter(u => !u.dead).length;
+
+            const targetDiv = document.createElement('div');
+            targetDiv.className = 'unit-card target-card ' + (targetHeadquarters.side === 'EAST' ? 'card-east' : 'card-west');
+            targetDiv.style.border = '2px solid #FF0000'; // ターゲット強調
+            targetDiv.style.marginBottom = '10px';
+
+            const img = document.createElement('img');
+            img.className = 'portrait';
+            if (targetHeadquarters.imgCanvas) {
+                img.src = targetHeadquarters.imgCanvas.toDataURL();
+            }
+
+            const info = document.createElement('div');
+            info.style.flex = '1';
+            info.innerHTML = `<strong style="color:#FF8888">[目標] ${targetHeadquarters.name}</strong><br>兵: ${targetTotalSoldiers} (${targetUnitCount}部隊) <small>(攻${targetHeadquarters.atk}/防${targetHeadquarters.def})</small>`;
+
+            targetDiv.appendChild(img);
+            targetDiv.appendChild(info);
+            container.appendChild(targetDiv);
+
+            // 区切り線
+            const hr = document.createElement('hr');
+            hr.style.borderColor = '#444';
+            hr.style.margin = '5px 0 15px 0';
+            container.appendChild(hr);
+        }
 
         // 選択されているユニットがない場合は、味方全武将を表示
         let displayList = list;

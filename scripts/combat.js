@@ -27,6 +27,14 @@ export class CombatSystem {
         this.unitManager = unitManager;
     }
 
+    setRenderingEngine(renderingEngine) {
+        this.renderingEngine = renderingEngine;
+    }
+
+    setMapSystem(mapSystem) {
+        this.mapSystem = mapSystem;
+    }
+
     /**
      * ユニットの行動を処理
      */
@@ -72,11 +80,17 @@ export class CombatSystem {
             return;
         }
 
-        if (getDist(unit, target) <= 5) {
+        const dist = getDist(unit, target);
+        console.log(`[processPlot] ${unit.name} -> ${target.name}, dist=${dist}`);
+
+        if (dist <= 5) {
             unit.dir = getFacingAngle(unit.q, unit.r, target.q, target.r);
             this.speak(unit, 'PLOT_DO');
             this.speak(target, 'PLOT_REC');
             await this.spawnEffect('WAVE', unit, target);
+
+            // エフェクトを見せるためのウェイト
+            await this.wait(800);
 
             // 戦況による調略成功率
             const eTotal = allUnits.filter(u => u.side === 'EAST' && !u.dead)
@@ -90,6 +104,8 @@ export class CombatSystem {
 
             let chance = 30 + (unit.jin - target.loyalty) + tideMod;
             if (target.loyalty > 95) chance = 1;
+
+            console.log(`[processPlot] Chance: ${chance}% (Jin: ${unit.jin}, Loyalty: ${target.loyalty}, Tide: ${tideMod.toFixed(1)})`);
 
             if (Math.random() * 100 < chance) {
                 // マルチユニットシステム: 対象武将の全ユニットを寝返らせる
@@ -105,16 +121,22 @@ export class CombatSystem {
                     warlordUnit.loyalty = 100;
                     warlordUnit.order = null; // 命令をクリア
 
-                    // 本陣ユニットのみ画像を更新
+                    // 本陣ユニットのみ画像を更新（2D用）
                     if (warlordUnit.imgCanvas) {
                         warlordUnit.imgCanvas = generatePortrait(warlordUnit, warlordUnit.side);
                     }
+
+                    // 3D表示を更新
+                    if (this.renderingEngine && this.renderingEngine.updateUnitVisuals) {
+                        this.renderingEngine.updateUnitVisuals(warlordUnit);
+                    }
                 });
 
-                this.spawnText(target.pos, "寝返り！", "#0f0", 60);
+                this.spawnText({ q: target.q, r: target.r }, "寝返り！", "#0f0", 60);
                 this.audioEngine.sfxArrangementSuccess(); // 調略成功SE
             } else {
-                this.spawnText(target.pos, "失敗...", "#aaa", 40);
+                console.log(`[processPlot] Failed.`);
+                this.spawnText({ q: target.q, r: target.r }, "失敗...", "#aaa", 40);
                 this.audioEngine.sfxArrangementFail(); // 調略失敗SE
             }
 
@@ -124,6 +146,7 @@ export class CombatSystem {
             unit.order = null;
             await this.wait(800);
         } else {
+            console.log(`[processPlot] Target too far, moving instead.`);
             await this.moveUnitStep(unit, target, allUnits);
         }
     }
@@ -132,13 +155,20 @@ export class CombatSystem {
      * 攻撃を処理
      */
     async processAttack(unit, target, allUnits, map, reach) {
-        if (getDist(unit, target) <= reach) {
+        // 距離チェックを少し緩める（+1.0の猶予を持たせる）
+        // 3D化に伴う座標の微妙なズレを許容するため
+        const dist = getDist(unit, target);
+        console.log(`[processAttack] ${unit.name} -> ${target.name}, dist=${dist}, reach=${reach}`);
+
+        if (dist <= reach + 1.0) {
             unit.dir = getFacingAngle(unit.q, unit.r, target.q, target.r);
             this.speak(unit, 'ATTACK');
             await this.combat(unit, target, allUnits, map);
         } else {
             const moved = await this.moveUnitStep(unit, target, allUnits);
-            if (!moved && getDist(unit, target) <= reach + 1.0) {
+            // 移動後に再チェック
+            const newDist = getDist(unit, target);
+            if (newDist <= reach + 1.0) {
                 unit.dir = getFacingAngle(unit.q, unit.r, target.q, target.r);
                 this.speak(unit, 'ATTACK');
                 await this.combat(unit, target, allUnits, map);
@@ -279,12 +309,12 @@ export class CombatSystem {
         this.audioEngine.sfxBattleCry();
 
         // 攻撃側から防御側への攻撃線
-        this.addEffect('BEAM', att.pos, def.pos, '#ffaa00');
-        siegers.forEach(s => this.addEffect('BEAM', s.pos, def.pos, '#ffaa00'));
+        this.addEffect('BEAM', { q: att.q, r: att.r }, { q: def.q, r: def.r }, '#ffaa00');
+        siegers.forEach(s => this.addEffect('BEAM', { q: s.q, r: s.r }, { q: def.q, r: def.r }, '#ffaa00'));
 
         // 戦闘エフェクト: 土煙と火花を追加
-        this.addEffect('DUST', def.pos, null, null);
-        this.spawnSparks(att.pos, def.pos); // 攻撃側と防御側の間に火花
+        this.addEffect('DUST', { q: def.q, r: def.r }, null, null);
+        this.spawnSparks(att, def); // 攻撃側と防御側の間に火花
 
         this.audioEngine.sfxHit();
         await this.wait(600);
@@ -308,7 +338,7 @@ export class CombatSystem {
             dirMsg = "側面攻撃!";
         }
 
-        if (dirMsg) this.spawnText(def.pos, dirMsg, "#ffff00", 40);
+        if (dirMsg) this.spawnText({ q: def.q, r: def.r }, dirMsg, "#ffff00", 40);
 
         // 陣形によるステータス修正
         const attFormation = getFormationModifiers(att.formation);
@@ -323,9 +353,18 @@ export class CombatSystem {
 
         def.soldiers -= dmgToDef;
         att.soldiers -= dmgToAtt;
-        this.spawnText(def.pos, `-${dmgToDef}`, '#ff3333', 60);
-        this.spawnText(att.pos, `-${dmgToAtt}`, '#ff8888', 60);
+        this.spawnText({ q: def.q, r: def.r }, `-${dmgToDef}`, '#ff3333', 60);
+        this.spawnText({ q: att.q, r: att.r }, `-${dmgToAtt}`, '#ff8888', 60);
         this.speak(def, 'DAMAGED');
+
+        // 3Dレンダラー側のユニット情報を更新（兵士数ゲージなど）
+        if (this.renderingEngine && this.renderingEngine.updateUnitInfo) {
+            // ユニットメッシュを取得して更新
+            const attMesh = this.renderingEngine.unitMeshes.get(att.id);
+            const defMesh = this.renderingEngine.unitMeshes.get(def.id);
+            if (attMesh) this.renderingEngine.updateUnitInfo(attMesh, att);
+            if (defMesh) this.renderingEngine.updateUnitInfo(defMesh, def);
+        }
 
         if (def.soldiers <= 0) {
             def.soldiers = 0;
@@ -406,6 +445,14 @@ export class CombatSystem {
         const lines = DIALOGUE[unit.p]?.[type];
         if (!lines) return;
         const text = lines[Math.floor(Math.random() * lines.length)];
+
+        if (this.renderingEngine) {
+            this.renderingEngine.add3DEffect('BUBBLE', {
+                unit: unit,
+                text: text
+            });
+        }
+
         this.activeBubbles.push({
             x: unit.pos.x,
             y: unit.pos.y - 40,
@@ -414,86 +461,46 @@ export class CombatSystem {
         });
     }
 
-    addEffect(type, p1, p2, color) {
-        this.activeEffects.push({
-            type: type,
-            x: p1.x,
-            y: p1.y,
-            tx: p2?.x,
-            ty: p2?.y,
-            color: color,
-            life: 30
-        });
-    }
-
-    spawnText(pos, text, color, life) {
-        this.activeEffects.push({
-            type: 'FLOAT_TEXT',
-            x: pos.x,
-            y: pos.y - 30,
-            text: text,
-            color: color,
-            life: life
-        });
-    }
-
-    /**
-     * 陣形表示（ダメージ表示と同じ要領）
-     * @param {Object} unit - 本陣ユニット
-     * @param {string} formationName - 陣形名（鋒矢/鶴翼/魚鱗）
-     */
     showFormation(unit, formationName) {
-        this.spawnText(unit.pos, `【${formationName}】`, '#ffd700', 80);
+        this.spawnText({ q: unit.q, r: unit.r }, formationName, "#00FFFF", 40);
+        this.speak(unit, 'FORMATION'); // 陣形変更時のセリフがあれば
     }
 
-    async spawnEffect(type, u1, u2) {
-        if (type === 'WAVE') {
-            this.activeEffects.push({
-                type: 'WAVE',
-                x: u1.pos.x,
-                y: u1.pos.y,
-                tx: u2.pos.x,
-                ty: u2.pos.y,
-                life: 40
+    addEffect(type, start, end, color) {
+        if (this.renderingEngine) {
+            this.renderingEngine.add3DEffect(type, start, end, color);
+        }
+    }
+
+    spawnText(pos, text, color, size) {
+        if (this.renderingEngine) {
+            this.renderingEngine.add3DEffect('FLOAT_TEXT', {
+                q: pos.q,
+                r: pos.r,
+                text: text,
+                color: color,
+                size: size
             });
         }
-        await this.wait(600);
     }
 
-    /**
-     * 火花エフェクトを生成（攻撃側と防御側の間で閃く小さな光）
-     * @param {Object} attPos - 攻撃側の位置
-     * @param {Object} defPos - 防御側の位置
-     */
-    spawnSparks(attPos, defPos) {
-        // 攻撃側と防御側の中間点
-        const midX = (attPos.x + defPos.x) / 2;
-        const midY = (attPos.y + defPos.y) / 2;
-
-        // 15個の小さな火花を中間点付近の狭い範囲に生成
-        for (let i = 0; i < 15; i++) {
-            // 中間点付近の狭い範囲（±12px）にランダムに配置
-            const offsetX = (Math.random() - 0.5) * 24;
-            const offsetY = (Math.random() - 0.5) * 24;
-
-            // ごくわずかなランダムな動き
-            const vx = (Math.random() - 0.5) * 0.5;
-            const vy = (Math.random() - 0.5) * 0.5;
-
-            this.activeEffects.push({
-                type: 'SPARK',
-                x: midX + offsetX,
-                y: midY + offsetY,
-                vx: vx,
-                vy: vy,
-                life: 8 + Math.random() * 8,  // 短い寿命（8-16フレーム）
-                maxLife: 16
+    spawnSparks(unit1, unit2) {
+        if (this.renderingEngine) {
+            this.renderingEngine.add3DEffect('SPARK', {
+                q: (unit1.q + unit2.q) / 2,
+                r: (unit1.r + unit2.r) / 2
             });
+        }
+    }
+
+    spawnEffect(type, unit1, unit2) {
+        if (this.renderingEngine) {
+            this.renderingEngine.add3DEffect(type, { q: unit1.q, r: unit1.r }, { q: unit2.q, r: unit2.r });
         }
     }
 
     wait(ms) {
-        return new Promise(r => setTimeout(r, ms));
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
 
     updateEffects() {
