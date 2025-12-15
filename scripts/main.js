@@ -6,13 +6,13 @@
 import { HEX_SIZE, C_EAST, C_WEST, C_SEL_BOX, C_SEL_BORDER, WARLORDS, UNIT_TYPE_HEADQUARTERS, FORMATION_HOKO, FORMATION_KAKUYOKU, FORMATION_GYORIN } from './constants.js';
 import { AudioEngine } from './audio.js';
 import { MapSystem } from './map.js?v=2';
-import { RenderingEngine3D } from './rendering3d.js?v=4';
+import { RenderingEngine3D } from './rendering3d.js?v=5';
 import { generatePortrait } from './rendering.js';
-import { CombatSystem } from './combat.js?v=4';
+import { CombatSystem } from './combat.js?v=5';
 import { AISystem } from './ai.js';
 import { UnitManager } from './unit-manager.js';
 import { hexToPixel, pixelToHex, isValidHex, getDistRaw } from './pathfinding.js';
-import { FORMATION_INFO, getAvailableFormations } from './formation.js';
+import { FORMATION_INFO, getAvailableFormations } from './formation.js?v=2';
 
 export class Game {
     constructor() {
@@ -596,7 +596,16 @@ export class Game {
 
             const info = document.createElement('div');
             info.style.flex = '1';
-            info.innerHTML = `<strong>${headquarters.name}</strong><br>兵: ${totalSoldiers} (${unitCount}部隊) <small>(攻${headquarters.atk}/防${headquarters.def})</small><br>指示: ${ord}`;
+
+            let formationText = "";
+            if (headquarters.unitType === UNIT_TYPE_HEADQUARTERS && headquarters.formation) {
+                const fInfo = FORMATION_INFO[headquarters.formation];
+                if (fInfo) {
+                    formationText = `<br>陣形: ${fInfo.nameShort}`;
+                }
+            }
+
+            info.innerHTML = `<strong>${headquarters.name}</strong><br>兵: ${totalSoldiers} (${unitCount}部隊) <small>(攻${headquarters.atk}/防${headquarters.def})</small>${formationText}<br>指示: ${ord}`;
 
             d.appendChild(img);
             d.appendChild(info);
