@@ -805,6 +805,9 @@ export class RenderingEngine3D {
         // 命令ライン描画
         this.drawOrderLines();
 
+        // 攻撃ライン描画（流れる光）
+        this.updateAttackLines();
+
         // コントロールを更新
         this.controls.update();
 
@@ -1271,6 +1274,132 @@ export class RenderingEngine3D {
         });
     }
 
+
+    /**
+     * 攻撃ライン（流れる光）のアニメーション更新
+     */
+    updateAttackLines() {
+        if (!this.attackLineGroup) {
+            this.attackLineGroup = new THREE.Group();
+            this.scene.add(this.attackLineGroup);
+
+            // 流れるテクスチャの作成
+            this.flowTexture = this.createFlowTexture();
+        }
+
+        // テクスチャのアニメーション（オフセット移動）
+        if (this.flowTexture) {
+            this.flowTexture.offset.x -= 0.02; // 流れる速度
+        }
+
+        // 既存のラインを削除
+        while (this.attackLineGroup.children.length > 0) {
+            const obj = this.attackLineGroup.children[0];
+            this.attackLineGroup.remove(obj);
+            if (obj.geometry) obj.geometry.dispose();
+            // マテリアルは再利用するのでdisposeしない
+        }
+
+        // 攻撃ラインを描画
+        if (!window.gameState || !window.gameState.units) return;
+
+        window.gameState.units.forEach(unit => {
+            if (unit.dead) return;
+
+            let targetId = null;
+            let isPlot = false;
+
+            // 命令によるターゲット確認
+            if (unit.order) {
+                if (unit.order.type === 'ATTACK') {
+                    targetId = unit.order.targetId;
+                } else if (unit.order.type === 'PLOT') {
+                    targetId = unit.order.targetId;
+                    isPlot = true;
+                }
+            }
+
+            if (!targetId) return;
+
+            const target = window.gameState.units.find(u => u.id === targetId);
+            if (!target || target.dead) return;
+
+            // 距離チェック
+            const dq = unit.q - target.q;
+            const dr = unit.r - target.r;
+            const ds = -dq - dr;
+            const dist = Math.max(Math.abs(dq), Math.abs(dr), Math.abs(ds));
+
+            // 接敵距離（約3HEX）より遠い場合はラインを出さない（移動中は矢印のみ）
+            if (dist > 3) return;
+
+            const startPos = this.hexToWorld3D(unit.q, unit.r);
+            const endPos = this.hexToWorld3D(target.q, target.r);
+
+            startPos.y = 40;
+            endPos.y = 40;
+
+            this.createAttackRibbon(startPos, endPos, isPlot);
+        });
+    }
+
+    /**
+     * 流れるテクスチャを作成
+     */
+    createFlowTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 64;
+        canvas.height = 16;
+        const ctx = canvas.getContext('2d');
+
+        // グラデーション（光の粒子感）
+        const gradient = ctx.createLinearGradient(0, 0, 64, 0);
+        gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
+        gradient.addColorStop(0.4, 'rgba(255, 255, 255, 0.1)');
+        gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.8)');
+        gradient.addColorStop(0.6, 'rgba(255, 255, 255, 0.1)');
+        gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, 64, 16);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.ClampToEdgeWrapping;
+
+        return texture;
+    }
+
+    /**
+     * 攻撃リボンを作成
+     */
+    createAttackRibbon(start, end, isPlot) {
+        const sub = new THREE.Vector3().subVectors(end, start);
+        const length = sub.length();
+        const angle = Math.atan2(sub.z, sub.x);
+        const center = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+
+        const width = 8;
+        const geometry = new THREE.PlaneGeometry(length, width);
+        const color = isPlot ? 0x00ffff : 0xff3333;
+
+        const material = new THREE.MeshBasicMaterial({
+            map: this.flowTexture,
+            color: color,
+            transparent: true,
+            opacity: 0.8,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending
+        });
+
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.copy(center);
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.rotation.z = -angle;
+
+        this.attackLineGroup.add(mesh);
+    }
 
     /**
      * スクリーン座標(x, y)からHEX座標(q, r)を取得
