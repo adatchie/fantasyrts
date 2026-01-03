@@ -3,14 +3,14 @@
  * メインゲームロジックとループ
  */
 
-import { HEX_SIZE, C_EAST, C_WEST, C_SEL_BOX, C_SEL_BORDER, WARLORDS, UNIT_TYPE_HEADQUARTERS, FORMATION_HOKO, FORMATION_KAKUYOKU, FORMATION_GYORIN } from './constants.js?v=3';
+import { HEX_SIZE, C_EAST, C_WEST, C_SEL_BOX, C_SEL_BORDER, WARLORDS, UNIT_TYPE_HEADQUARTERS, FORMATION_HOKO, FORMATION_KAKUYOKU, FORMATION_GYORIN } from './constants.js?v=4';
 import { AudioEngine } from './audio.js';
 import { MapSystem } from './map.js?v=2';
-import { RenderingEngine3D } from './rendering3d.js?v=7';
+import { RenderingEngine3D } from './rendering3d.js?v=24';
 import { generatePortrait } from './rendering.js';
 import { CombatSystem } from './combat.js?v=6';
 import { AISystem } from './ai.js';
-import { UnitManager } from './unit-manager.js';
+import { UnitManager } from './unit-manager.js?v=2';
 import { hexToPixel, pixelToHex, isValidHex, getDistRaw } from './pathfinding.js';
 import { FORMATION_INFO, getAvailableFormations } from './formation.js?v=3';
 
@@ -636,7 +636,7 @@ export class Game {
             if (headquarters.imgCanvas) {
                 img.src = headquarters.imgCanvas.toDataURL();
             }
-            d.appendChild(img);
+            // d.appendChild(img); // Moved below
 
             const info = document.createElement('div');
             info.style.flex = '1';

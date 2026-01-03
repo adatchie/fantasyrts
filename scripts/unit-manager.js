@@ -68,6 +68,7 @@ export class UnitManager {
                 p: warlord.p,
                 kamon: warlord.kamon,
                 bg: warlord.bg,
+                face: warlord.face,
 
                 // このユニットの兵力
                 soldiers: soldierDistribution[i],

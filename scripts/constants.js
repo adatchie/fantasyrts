@@ -70,16 +70,16 @@ export const WARLORDS = [
     { name: "徳川家康", side: 'EAST', soldiers: 30000, atk: 95, def: 99, jin: 99, loyalty: 100, q: 55, r: 35, size: 2, p: P_CALM, kamon: 'MITSUBA_AOI', bg: '#d4af37', face: 'tokugawa_iyeyasu.png' },
     { name: "本多忠勝", side: 'EAST', soldiers: 500, atk: 99, def: 90, jin: 80, loyalty: 100, q: 53, r: 34, size: 1, p: P_BRAVE, kamon: 'MARUNI_TACHIAOI', bg: '#111', face: 'honda_tadakatsu.png' },
     { name: "井伊直政", side: 'EAST', soldiers: 3600, atk: 92, def: 85, jin: 85, loyalty: 100, q: 45, r: 30, size: 1, p: P_BRAVE, kamon: 'TACHIBANA', bg: '#cc0000', face: 'ii_naomasa.png' }, // 赤備え
-    { name: "松平忠吉", side: 'EAST', soldiers: 3000, atk: 80, def: 80, jin: 75, loyalty: 100, q: 44, r: 31, size: 1, p: P_LOYAL, kamon: 'MITSUBA_AOI', bg: '#444' },
+    { name: "松平忠吉", side: 'EAST', soldiers: 3000, atk: 80, def: 80, jin: 75, loyalty: 100, q: 44, r: 31, size: 1, p: P_LOYAL, kamon: 'MITSUBA_AOI', bg: '#444', face: 'matsudaira_tadayoshi.png' },
 
     // 豊臣恩顧の東軍
     { name: "福島正則", side: 'EAST', soldiers: 6000, atk: 90, def: 80, jin: 70, loyalty: 75, q: 35, r: 25, size: 1, p: P_BRAVE, kamon: 'OMODAKA', bg: '#222', face: 'fukushima_masanori.png' },
     { name: "黒田長政", side: 'EAST', soldiers: 5400, atk: 88, def: 85, jin: 85, loyalty: 82, q: 38, r: 22, size: 1, p: P_CALM, kamon: 'FUJIDOMOE', bg: '#333', face: 'kuroda_nagamasa.png' },
-    { name: "細川忠興", side: 'EAST', soldiers: 5000, atk: 85, def: 80, jin: 80, loyalty: 78, q: 40, r: 20, size: 1, p: P_LOYAL, kamon: 'KUYO', bg: '#333' },
-    { name: "加藤嘉明", side: 'EAST', soldiers: 3000, atk: 82, def: 80, jin: 75, loyalty: 75, q: 36, r: 23, size: 1, p: P_BRAVE, kamon: 'SAGARI_FUJI', bg: '#444' },
-    { name: "田中吉政", side: 'EAST', soldiers: 3000, atk: 80, def: 80, jin: 75, loyalty: 85, q: 32, r: 28, size: 1, p: P_LOYAL, kamon: 'KUGINUKI', bg: '#444' },
-    { name: "藤堂高虎", side: 'EAST', soldiers: 2490, atk: 85, def: 85, jin: 85, loyalty: 88, q: 30, r: 30, size: 1, p: P_CALM, kamon: 'TSUTA', bg: '#555' },
-    { name: "京極高知", side: 'EAST', soldiers: 3000, atk: 78, def: 75, jin: 70, loyalty: 85, q: 28, r: 32, size: 1, p: P_LOYAL, kamon: 'FOUR_DIAMONDS', bg: '#666' },
+    { name: "細川忠興", side: 'EAST', soldiers: 5000, atk: 85, def: 80, jin: 80, loyalty: 78, q: 40, r: 20, size: 1, p: P_LOYAL, kamon: 'KUYO', bg: '#333', face: 'hosokawa_tadaoki.png' },
+    { name: "加藤嘉明", side: 'EAST', soldiers: 3000, atk: 82, def: 80, jin: 75, loyalty: 75, q: 36, r: 23, size: 1, p: P_BRAVE, kamon: 'SAGARI_FUJI', bg: '#444', face: 'kato_yoshiaki.png' },
+    { name: "田中吉政", side: 'EAST', soldiers: 3000, atk: 80, def: 80, jin: 75, loyalty: 85, q: 32, r: 28, size: 1, p: P_LOYAL, kamon: 'KUGINUKI', bg: '#444', face: 'tanaka_yoshimasa.png' },
+    { name: "藤堂高虎", side: 'EAST', soldiers: 2490, atk: 85, def: 85, jin: 85, loyalty: 88, q: 30, r: 30, size: 1, p: P_CALM, kamon: 'TSUTA', bg: '#555', face: 'todo_takatora.png' },
+    { name: "京極高知", side: 'EAST', soldiers: 3000, atk: 78, def: 75, jin: 70, loyalty: 85, q: 28, r: 32, size: 1, p: P_LOYAL, kamon: 'FOUR_DIAMONDS', bg: '#666', face: 'kyogoku_takatomo.png' },
     { name: "寺沢広高", side: 'EAST', soldiers: 2400, atk: 75, def: 75, jin: 70, loyalty: 80, q: 26, r: 34, size: 1, p: P_CALM, kamon: 'KANI', bg: '#666' },
     { name: "筒井定次", side: 'EAST', soldiers: 2850, atk: 75, def: 75, jin: 70, loyalty: 80, q: 34, r: 26, size: 1, p: P_CALM, kamon: 'UMEBACHI', bg: '#666' },
     { name: "生駒一正", side: 'EAST', soldiers: 1830, atk: 75, def: 70, jin: 65, loyalty: 80, q: 24, r: 36, size: 1, p: P_LOYAL, kamon: 'GENJI_GURUMA', bg: '#666' },
@@ -96,12 +96,12 @@ export const WARLORDS = [
     { name: "島左近", side: 'WEST', soldiers: 1000, atk: 95, def: 90, jin: 85, loyalty: 100, q: 12, r: 16, size: 1, p: P_BRAVE, kamon: 'MITSU_GASHIWA', bg: '#8b0000', face: 'shima_sakon.png' }, // 鬼左近の赤
     { name: "蒲生郷舎", side: 'WEST', soldiers: 800, atk: 80, def: 80, jin: 80, loyalty: 100, q: 11, r: 14, size: 1, p: P_LOYAL, kamon: 'MUKAI_TSURU', bg: '#444' },
     { name: "島津義弘", side: 'WEST', soldiers: 1500, atk: 98, def: 95, jin: 90, loyalty: 100, q: 15, r: 20, size: 1, p: P_BRAVE, kamon: 'MARUNI_JUJI', bg: '#222', face: 'shimazu_yoshihiro.png' },
-    { name: "島津豊久", side: 'WEST', soldiers: 500, atk: 90, def: 85, jin: 80, loyalty: 100, q: 16, r: 21, size: 1, p: P_BRAVE, kamon: 'MARUNI_JUJI', bg: '#222' },
+    { name: "島津豊久", side: 'WEST', soldiers: 500, atk: 90, def: 85, jin: 80, loyalty: 100, q: 16, r: 21, size: 1, p: P_BRAVE, kamon: 'MARUNI_JUJI', bg: '#222', face: 'shimazu_toyohisa.png' },
     { name: "小西行長", side: 'WEST', soldiers: 4000, atk: 80, def: 85, jin: 75, loyalty: 100, q: 18, r: 25, size: 1, p: P_CALM, kamon: 'GION_MAMORI', bg: '#333', face: 'konishi_yukinaga.png' },
     { name: "宇喜多秀家", side: 'WEST', soldiers: 17000, atk: 85, def: 85, jin: 80, loyalty: 100, q: 22, r: 28, size: 2, p: P_BRAVE, kamon: 'JI', bg: '#222', face: 'ukita_hideie.png' },
     { name: "明石全登", side: 'WEST', soldiers: 2000, atk: 88, def: 80, jin: 75, loyalty: 100, q: 24, r: 29, size: 1, p: P_BRAVE, kamon: 'JI', bg: '#444' },
     { name: "大谷吉継", side: 'WEST', soldiers: 600, atk: 90, def: 90, jin: 95, loyalty: 100, q: 20, r: 35, size: 1, p: P_CALM, kamon: 'MUKAI_CHO', bg: '#fff', face: 'otani_yoshitsugu.png' }, // 白頭巾
-    { name: "大谷吉治", side: 'WEST', soldiers: 1000, atk: 75, def: 75, jin: 70, loyalty: 100, q: 19, r: 36, size: 1, p: P_LOYAL, kamon: 'MUKAI_CHO', bg: '#ccc' },
+    { name: "大谷吉治", side: 'WEST', soldiers: 1000, atk: 75, def: 75, jin: 70, loyalty: 100, q: 19, r: 36, size: 1, p: P_LOYAL, kamon: 'MUKAI_CHO', bg: '#ccc', face: 'ootani_yoshiharu.png' },
     { name: "戸田重政", side: 'WEST', soldiers: 1500, atk: 70, def: 70, jin: 60, loyalty: 100, q: 21, r: 34, size: 1, p: P_LOYAL, kamon: 'MUTSUBOSHI', bg: '#555' },
     { name: "平塚為広", side: 'WEST', soldiers: 360, atk: 75, def: 70, jin: 60, loyalty: 100, q: 20, r: 37, size: 1, p: P_BRAVE, kamon: 'MITSU_UROKO', bg: '#555' },
     { name: "脇坂安治", side: 'WEST', soldiers: 990, atk: 70, def: 70, jin: 50, loyalty: 60, q: 15, r: 40, size: 1, p: P_COWARD, kamon: 'WA_CHIGAI', bg: '#666' },
@@ -115,8 +115,8 @@ export const WARLORDS = [
 
     // --- 不確定勢力（南宮山）---
     { name: "毛利秀元", side: 'WEST', soldiers: 16000, atk: 85, def: 90, jin: 80, loyalty: 70, q: 50, r: 50, size: 2, p: P_CALM, kamon: 'MITSUBOSHI', bg: '#222', face: 'mouri_hidemoto.png' },
-    { name: "吉川広家", side: 'WEST', soldiers: 3000, atk: 80, def: 85, jin: 85, loyalty: 20, q: 48, r: 48, size: 1, p: P_CALM, kamon: 'MITSUBOSHI', bg: '#333' },
-    { name: "安国寺恵瓊", side: 'WEST', soldiers: 1800, atk: 70, def: 70, jin: 75, loyalty: 90, q: 52, r: 48, size: 1, p: P_CALM, kamon: 'TAKEDA_BISHI', bg: '#555' },
-    { name: "長宗我部盛親", side: 'WEST', soldiers: 6600, atk: 88, def: 85, jin: 80, loyalty: 80, q: 55, r: 45, size: 1, p: P_BRAVE, kamon: 'KATABAMI', bg: '#333' },
+    { name: "吉川広家", side: 'WEST', soldiers: 3000, atk: 80, def: 85, jin: 85, loyalty: 20, q: 48, r: 48, size: 1, p: P_CALM, kamon: 'MITSUBOSHI', bg: '#333', face: 'kikkawa_hiroie.png' },
+    { name: "安国寺恵瓊", side: 'WEST', soldiers: 1800, atk: 70, def: 70, jin: 75, loyalty: 90, q: 52, r: 48, size: 1, p: P_CALM, kamon: 'TAKEDA_BISHI', bg: '#555', face: 'ankokuji_ekei.png' },
+    { name: "長宗我部盛親", side: 'WEST', soldiers: 6600, atk: 88, def: 85, jin: 80, loyalty: 80, q: 55, r: 45, size: 1, p: P_BRAVE, kamon: 'KATABAMI', bg: '#333', face: 'chosokabe_nobuchika.png' },
     { name: "長束正家", side: 'WEST', soldiers: 1500, atk: 75, def: 75, jin: 70, loyalty: 90, q: 53, r: 46, size: 1, p: P_LOYAL, kamon: 'HANABISHI', bg: '#444' }
 ];

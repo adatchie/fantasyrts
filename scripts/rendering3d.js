@@ -16,6 +16,8 @@ export class RenderingEngine3D {
         this.groundMesh = null; // 地形メッシュ（Raycast用）
         this.unitMeshes = new Map(); // ユニットID -> Mesh
         this.effects = []; // 3Dエフェクト
+        this.hexHeights = []; // 地形高さキャッシュ
+        this.unitGeometry = null; // ユニット用ジオメトリ（共有）
 
 
         // Three.js基本セットアップ
@@ -234,6 +236,10 @@ export class RenderingEngine3D {
 
                 this.mapSystem.updateTerrain(q, r, heightVal);
 
+                // 高さキャッシュに保存 (displacementScale = 50)
+                if (!this.hexHeights[r]) this.hexHeights[r] = [];
+                this.hexHeights[r][q] = (heightVal / 255) * 50;
+
                 if (heightVal > 160) mountainCount++;
                 else if (heightVal > 80) hillCount++;
             }
@@ -399,22 +405,16 @@ export class RenderingEngine3D {
             const targetPos = this.hexToWorld3D(unit.q, unit.r);
 
             // 現在位置とターゲット位置が離れている場合のみ更新（パフォーマンス最適化）
-            if (Math.abs(mesh.position.x - targetPos.x) > 1 || Math.abs(mesh.position.z - targetPos.z) > 1) {
+            if (Math.abs(mesh.position.x - targetPos.x) > 0.1 || Math.abs(mesh.position.z - targetPos.z) > 0.1) {
                 mesh.position.x = targetPos.x;
                 mesh.position.z = targetPos.z;
 
-                // 高さ合わせ（Raycast）
-                const raycaster = new THREE.Raycaster();
-                const rayOrigin = new THREE.Vector3(targetPos.x, 2000, targetPos.z);
-                const rayDirection = new THREE.Vector3(0, -1, 0);
-                raycaster.set(rayOrigin, rayDirection);
-
-                const intersects = raycaster.intersectObject(this.groundMesh);
-                if (intersects.length > 0) {
-                    mesh.position.y = intersects[0].point.y + 60;
-                } else {
-                    mesh.position.y = 100;
+                // 高さ合わせ（キャッシュ使用）
+                let groundHeight = 0;
+                if (this.hexHeights && this.hexHeights[unit.r] && this.hexHeights[unit.r][unit.q] !== undefined) {
+                    groundHeight = this.hexHeights[unit.r][unit.q];
                 }
+                mesh.position.y = groundHeight + 60; // オフセット調整
             }
 
             // 回転更新
@@ -486,7 +486,12 @@ export class RenderingEngine3D {
         shape.lineTo(-width / 2, height / 2);
 
         const extrudeSettings = { depth: size * 0.3, bevelEnabled: false };
-        const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+
+        // ジオメトリを共有（キャッシュ作成）
+        if (!this.unitGeometry) {
+            this.unitGeometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+        }
+
         const material = new THREE.MeshStandardMaterial({
             color: color,
             roughness: 0.7,
@@ -494,7 +499,7 @@ export class RenderingEngine3D {
             side: THREE.DoubleSide
         });
 
-        const mesh = new THREE.Mesh(geometry, material);
+        const mesh = new THREE.Mesh(this.unitGeometry, material);
         mesh.rotation.x = -Math.PI / 2;
         mesh.castShadow = true;
         mesh.receiveShadow = true;
@@ -635,15 +640,22 @@ export class RenderingEngine3D {
         // 兵士ゲージの更新
         const barSprite = mesh.getObjectByName('barSprite');
         if (barSprite) {
+            // 値が変わったときのみ更新
+            if (mesh.userData.lastSoldiers === unit.soldiers && mesh.userData.lastMaxSoldiers === unit.maxSoldiers) {
+                return;
+            }
+
             // テクスチャのみ更新したいが、CanvasTextureの更新はコストが高いので
             // 兵数が変わったときのみ再描画するロジックを入れるべき
-            // ここでは簡易的に毎回描画（最適化余地あり）
-            // ただしCanvasTextureのcanvasを取得して描き直す
             const texture = barSprite.material.map;
             const canvas = texture.image;
             const ctx = canvas.getContext('2d');
             this.drawBar(ctx, unit.soldiers, unit.maxSoldiers, canvas.width, canvas.height);
             texture.needsUpdate = true;
+
+            // キャッシュ更新
+            mesh.userData.lastSoldiers = unit.soldiers;
+            mesh.userData.lastMaxSoldiers = unit.maxSoldiers;
         }
     }
 
