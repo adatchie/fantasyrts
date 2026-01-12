@@ -5,8 +5,9 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { HEX_SIZE, MAP_W, MAP_H, WARLORDS } from './constants.js';
+import { HEX_SIZE, TILE_SIZE, TILE_HEIGHT, MAP_W, MAP_H, WARLORDS } from './constants.js';
 import { KamonDrawer } from './kamon.js';
+import { ANIMATIONS, DIRECTIONS, getSpriteInfo, getAllSpritePaths } from './sprite-config.js';
 
 export class RenderingEngine3D {
     constructor(canvas) {
@@ -19,21 +20,42 @@ export class RenderingEngine3D {
         this.hexHeights = []; // 地形高さキャッシュ
         this.unitGeometry = null; // ユニット用ジオメトリ（共有）
 
+        // スプライト関連
+        this.spriteTextures = new Map(); // スプライトシートテクスチャキャッシュ
+        this.unitAnimationStates = new Map(); // ユニットID -> {anim, frame, lastUpdate}
+        this.loadSpriteTextures();
+
 
         // Three.js基本セットアップ
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x1a2a1a); // 暗めのグレーグリーン（オーバーレイと調和）
 
-        // カメラセットアップ（RTS視点：斜め45度上空）
+        // カメラセットアップ（OrthographicCamera：平行投影でアイソメトリック表示）
         const aspect = window.innerWidth / window.innerHeight;
-        this.camera = new THREE.PerspectiveCamera(60, aspect, 1, 10000);
-        this.camera.position.set(0, 800, 600); // 斜め上から見下ろす
-        this.camera.lookAt(0, 0, 0);
+        const frustumSize = 800; // 視野の大きさ（調整可能）
+        this.frustumSize = frustumSize;
+        this.camera = new THREE.OrthographicCamera(
+            frustumSize * aspect / -2,  // left
+            frustumSize * aspect / 2,   // right
+            frustumSize / 2,            // top
+            frustumSize / -2,           // bottom
+            1,                          // near
+            10000                       // far
+        );
+        // クォータービュー：ユーザー指定のカスタム設定 (2026/01/12)
+        // Position: (x=0, y=428, z=1242), Target: (x=-4, y=-118, z=492), Zoom: 1.47
+        this.camera.position.set(0, 428, 1242);
+        this.camera.zoom = 1.47;
+        this.camera.updateProjectionMatrix();
+
+        // lookAtは初期化時に設定（OrbitControlsのtargetと合わせる）
+        this.camera.lookAt(-4, -118, 492);
 
         // レンダラーセットアップ
         this.renderer = new THREE.WebGLRenderer({
             canvas: canvas,
-            antialias: true
+            antialias: true,
+            alpha: true  // アルファ透過を有効化
         });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(window.devicePixelRatio);
@@ -44,8 +66,10 @@ export class RenderingEngine3D {
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.05;
-        this.controls.minDistance = 200;
-        this.controls.maxDistance = 2000;
+        // OrthographicCamera用：ズームは距離ではなくスケールで制御
+        this.controls.enableZoom = true;
+        this.controls.minZoom = 0.5;
+        this.controls.maxZoom = 3;
         this.controls.maxPolarAngle = Math.PI / 2.5; // 地平線より手前で止める（約72度）
 
         // マウス操作の割り当てを変更（左クリックをゲーム操作用に開放）
@@ -61,9 +85,30 @@ export class RenderingEngine3D {
             TWO: THREE.TOUCH.DOLLY_PAN // 2本指：移動とズーム
         };
 
+        // OrbitControlsのターゲットをユーザー指定値に設定
+        this.controls.target.set(-4, -118, 492);
+        // 回転を無効化（固定アイソメトリック視点）
+        this.controls.enableRotate = false;
+
         // マウス位置追跡（画面端での回転用）
         this.mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
         this.isRightMouseDown = false; // 右クリック状態
+
+        // デバッグ用: カメラ情報を画面に表示（ユーザー調整用）
+        this.createCameraDebugOverlay();
+        this.controls.addEventListener('change', () => {
+            this.updateCameraDebugInfo();
+        });
+
+        // 初回表示更新
+        this.updateCameraDebugInfo();
+
+        // F9キーでデバッグ表示切り替え
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'F9') {
+                this.toggleCameraDebugOverlay();
+            }
+        });
 
         window.addEventListener('mousemove', (e) => {
             this.mouse.x = e.clientX;
@@ -110,77 +155,432 @@ export class RenderingEngine3D {
     }
 
     setupGround() {
-        // ヘックスグリッドの実際のサイズを計算
-        // pointy-top hexの場合：
-        // 幅 = MAP_W * sqrt(3) * HEX_SIZE + (MAP_H-1) * sqrt(3)/2 * HEX_SIZE
-        // 高さ = (MAP_H-1) * 1.5 * HEX_SIZE + 2*HEX_SIZE
-        const gridWidth = MAP_W * Math.sqrt(3) * HEX_SIZE + (MAP_H - 1) * Math.sqrt(3) / 2 * HEX_SIZE;
-        const gridHeight = (MAP_H - 1) * 1.5 * HEX_SIZE + 2 * HEX_SIZE;
+        // アイソメトリックグリッドのサイズを計算
+        const gridWorldWidth = (MAP_W + MAP_H) * TILE_SIZE / 2;
+        const gridWorldHeight = (MAP_W + MAP_H) * TILE_SIZE / 4;
 
-        // グリッドの中心位置を計算
-        const centerX = (gridWidth - Math.sqrt(3) * HEX_SIZE) / 2;
-        const centerZ = (gridHeight - 2 * HEX_SIZE) / 2;
+        // グリッドの中心
+        const centerX = 0;
+        const centerZ = gridWorldHeight / 2;
 
-        // クラスメンバとして保存（ハイトマップ解析用）
-        this.gridWidth = gridWidth;
-        this.gridHeight = gridHeight;
+        // クラスメンバとして保存
+        this.gridWidth = gridWorldWidth;
+        this.gridHeight = gridWorldHeight;
         this.gridCenterX = centerX;
         this.gridCenterZ = centerZ;
 
-        // テクスチャをロード
+        // 地形テクスチャとハイトマップをロード
         const textureLoader = new THREE.TextureLoader();
-        const groundTexture = textureLoader.load('./assets/textures/ground_sekigahara.jpg');
+        this.groundTexture = textureLoader.load('./assets/textures/ground_sekigahara.jpg');
 
-        // ハイトマップのロードと解析
-        const heightMap = textureLoader.load('./assets/textures/height_sekigahara.jpg', (texture) => {
-            // 画像読み込み完了時に解析を行う
-            // texture.image は Image オブジェクト
-            if (texture.image) {
-                this.analyzeHeightMap(texture.image);
-            }
-        });
+        // ハイトマップをロードして解析
+        const heightMapImage = new Image();
+        heightMapImage.crossOrigin = 'anonymous';
+        heightMapImage.onload = () => {
+            // ハイトマップから各タイルの高さを読み取り
+            this.buildTerrainFromHeightmap(heightMapImage);
+        };
+        heightMapImage.src = './assets/textures/height_sekigahara.jpg';
 
-        // テクスチャを繰り返さない（史実の地形マップとして使用）
-        groundTexture.wrapS = THREE.ClampToEdgeWrapping;
-        groundTexture.wrapT = THREE.ClampToEdgeWrapping;
-        heightMap.wrapS = THREE.ClampToEdgeWrapping;
-        heightMap.wrapT = THREE.ClampToEdgeWrapping;
+        // テクスチャ設定
+        this.groundTexture.wrapS = THREE.ClampToEdgeWrapping;
+        this.groundTexture.wrapT = THREE.ClampToEdgeWrapping;
 
-        // テクスチャのフィルタリング設定（よりきれいに表示）
-        groundTexture.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
-        heightMap.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
-
-        // 地面（セグメント数を減らしてパフォーマンス改善）
-        const groundGeometry = new THREE.PlaneGeometry(
-            gridWidth * 1.2,
-            gridHeight * 1.2,
-            128, // 幅のセグメント数（最適化）
-            128  // 高さのセグメント数
+        // Raycast用の不可視平面
+        const groundPlaneGeometry = new THREE.PlaneGeometry(
+            gridWorldWidth * 2,
+            gridWorldHeight * 2
         );
+        const groundPlaneMaterial = new THREE.MeshBasicMaterial({ visible: false });
+        this.groundMesh = new THREE.Mesh(groundPlaneGeometry, groundPlaneMaterial);
+        this.groundMesh.rotation.x = -Math.PI / 2;
+        this.groundMesh.position.set(centerX, 0, centerZ);
+        this.scene.add(this.groundMesh);
 
-        const groundMaterial = new THREE.MeshStandardMaterial({
-            map: groundTexture,  // カラーテクスチャ
-            displacementMap: heightMap,  // 専用の高さマップを使用
-            displacementScale: 50,  // 高さのスケール（控えめに調整）
-            roughness: 0.8,
-            metalness: 0.2
+        // タイルグループを作成
+        this.tileGroup = new THREE.Group();
+        this.scene.add(this.tileGroup);
+
+        // グリッド線オーバーレイ
+        this.createIsometricGridOverlay();
+    }
+
+    /**
+     * ハイトマップからタイル地形を構築
+     */
+    buildTerrainFromHeightmap(heightMapImage) {
+        // Canvasでハイトマップを読み取る
+        const canvas = document.createElement('canvas');
+        canvas.width = heightMapImage.width;
+        canvas.height = heightMapImage.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(heightMapImage, 0, 0);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+        // MapSystemの高さデータを更新
+        if (this.mapSystem) {
+            const tiles = this.mapSystem.getMap();
+
+            // 第1パス：ハイトマップから生の高さを読み取り
+            for (let y = 0; y < MAP_H; y++) {
+                for (let x = 0; x < MAP_W; x++) {
+                    const u = x / MAP_W;
+                    const v = y / MAP_H;
+                    const imgX = Math.floor(u * (canvas.width - 1));
+                    const imgY = Math.floor(v * (canvas.height - 1));
+                    const idx = (imgY * canvas.width + imgX) * 4;
+                    const heightVal = imageData.data[idx]; // R channel
+
+                    // 高さを0-5段階に変換（山はより高く）
+                    const z = Math.floor(heightVal / 255 * 5);
+                    tiles[y][x].z = z;
+                }
+            }
+
+            // 第2パス：スムージング（隣接タイルと平均化）
+            const tempHeights = [];
+            for (let y = 0; y < MAP_H; y++) {
+                tempHeights[y] = [];
+                for (let x = 0; x < MAP_W; x++) {
+                    let sum = tiles[y][x].z;
+                    let count = 1;
+                    // 4方向の隣接タイルをチェック
+                    const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+                    for (const [dx, dy] of dirs) {
+                        const nx = x + dx;
+                        const ny = y + dy;
+                        if (nx >= 0 && nx < MAP_W && ny >= 0 && ny < MAP_H) {
+                            sum += tiles[ny][nx].z;
+                            count++;
+                        }
+                    }
+                    tempHeights[y][x] = Math.round(sum / count);
+                }
+            }
+
+            // スムージング結果を適用
+            for (let y = 0; y < MAP_H; y++) {
+                for (let x = 0; x < MAP_W; x++) {
+                    tiles[y][x].z = tempHeights[y][x];
+                }
+            }
+        }
+
+        // タイルメッシュを生成
+        this.createIsometricTiles();
+    }
+
+    /**
+     * アイソメトリックタイルメッシュを生成（1枚テクスチャをUVで参照）
+     */
+    createIsometricTiles() {
+        // 既存タイルをクリア
+        while (this.tileGroup.children.length > 0) {
+            const child = this.tileGroup.children[0];
+            this.tileGroup.remove(child);
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) child.material.dispose();
+        }
+
+        if (!this.mapSystem) return;
+        const tiles = this.mapSystem.getMap();
+        if (!tiles) return;
+
+        // hexHeightsキャッシュを初期化
+        this.hexHeights = [];
+
+        // 崖側面用のマテリアル
+        const cliffMaterial = new THREE.MeshStandardMaterial({
+            color: 0x5a4a3a,
+            roughness: 0.95,
+            metalness: 0.0,
+            side: THREE.DoubleSide
         });
 
-        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-        ground.rotation.x = -Math.PI / 2; // XZ平面に配置
-        ground.position.set(centerX, 0, centerZ); // グリッドの中心に配置
-        ground.receiveShadow = true;
-        ground.castShadow = true; // 山が影を落とす
-        this.scene.add(ground);
+        for (let y = 0; y < MAP_H; y++) {
+            this.hexHeights[y] = [];
+            for (let x = 0; x < MAP_W; x++) {
+                const tile = tiles[y][x];
+                const worldPos = this.gridToWorld3D(x, y, tile.z);
 
-        // 地形メッシュを保存（Raycast用）
-        this.groundMesh = ground;
+                // タイル用の菱形ジオメトリを作成
+                const tileShape = new THREE.Shape();
+                const hw = TILE_SIZE / 2;
+                const hh = TILE_SIZE / 4;
+                tileShape.moveTo(0, -hh);
+                tileShape.lineTo(hw, 0);
+                tileShape.lineTo(0, hh);
+                tileShape.lineTo(-hw, 0);
+                tileShape.closePath();
 
-        // グリッド外のエリアを暗くするオーバーレイ（プレイエリアを明確化）
-        this.createOutOfBoundsOverlay(gridWidth, gridHeight, centerX, centerZ);
+                const tileGeometry = new THREE.ShapeGeometry(tileShape);
 
-        // ヘックスグリッドを地形に沿った平面として描画（DisplacementMap使用）
-        this.createHexGridOverlay(gridWidth, gridHeight, centerX, centerZ, heightMap);
+                // UV座標を設定（マップ全体の中での位置）
+                const positions = tileGeometry.attributes.position;
+                const uvs = new Float32Array(positions.count * 2);
+
+                // タイルのUV範囲を計算
+                const uBase = x / MAP_W;
+                const vBase = 1 - (y / MAP_H); // V座標は反転
+                const uSize = 1 / MAP_W;
+                const vSize = 1 / MAP_H;
+
+                for (let i = 0; i < positions.count; i++) {
+                    const localX = positions.getX(i);
+                    const localY = positions.getY(i);
+                    // ローカル座標をUVオフセットに変換
+                    uvs[i * 2] = uBase + (localX / (hw * 2) + 0.5) * uSize;
+                    uvs[i * 2 + 1] = vBase - (localY / (hh * 2) + 0.5) * vSize;
+                }
+                tileGeometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+
+                // 高さに基づく明度調整
+                const brightness = 0.7 + (tile.z / 7) * 0.3;
+
+                const material = new THREE.MeshStandardMaterial({
+                    map: this.groundTexture,
+                    color: new THREE.Color(brightness, brightness, brightness),
+                    roughness: 0.85,
+                    metalness: 0.05,
+                    side: THREE.DoubleSide
+                });
+
+                const tileMesh = new THREE.Mesh(tileGeometry, material);
+                tileMesh.rotation.x = -Math.PI / 2;
+                tileMesh.position.set(worldPos.x, worldPos.y, worldPos.z);
+                tileMesh.receiveShadow = true;
+
+                // Raycast用に座標データを保存
+                tileMesh.userData = { x: x, y: y, z: tile.z };
+
+                this.tileGroup.add(tileMesh);
+                this.hexHeights[y][x] = worldPos.y;
+
+                // 崖の側面を描画
+                this.addCliffSides(x, y, tile.z, tiles, cliffMaterial);
+            }
+        }
+
+        console.log('Isometric terrain built from heightmap');
+    }
+
+    /**
+     * MapSystem設定後にタイルを更新
+     */
+    updateTerrainTiles(tileGeometry, terrainColors, terrainTextures = {}) {
+        // 既存のタイルをクリア
+        while (this.tileGroup.children.length > 0) {
+            const child = this.tileGroup.children[0];
+            this.tileGroup.remove(child);
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) child.material.dispose();
+        }
+
+        const tiles = this.mapSystem.getMap();
+        if (!tiles || tiles.length === 0) return;
+
+        // hexHeightsキャッシュを初期化
+        this.hexHeights = [];
+
+        // 崖側面用のマテリアル（暗めの茶色）
+        const cliffMaterial = new THREE.MeshStandardMaterial({
+            color: 0x5a4a3a,
+            roughness: 0.95,
+            metalness: 0.0,
+            side: THREE.DoubleSide
+        });
+
+        // タイルタイプごとのマテリアルをキャッシュ（パフォーマンス最適化）
+        const materialCache = {};
+
+        for (let y = 0; y < MAP_H; y++) {
+            this.hexHeights[y] = [];
+            for (let x = 0; x < MAP_W; x++) {
+                const tile = tiles[y][x];
+                const worldPos = this.gridToWorld3D(x, y, tile.z);
+
+                // マテリアルのキャッシュキー（タイプと高さ）
+                const cacheKey = `${tile.type}_${tile.z}`;
+
+                let material;
+                if (materialCache[cacheKey]) {
+                    material = materialCache[cacheKey];
+                } else {
+                    // 高さに基づく明度調整
+                    const brightness = 0.7 + (tile.z / 8) * 0.3;
+
+                    // テクスチャがあれば使用、なければ色
+                    const texture = terrainTextures[tile.type];
+                    if (texture) {
+                        material = new THREE.MeshStandardMaterial({
+                            map: texture,
+                            color: new THREE.Color(brightness, brightness, brightness),
+                            roughness: 0.85,
+                            metalness: 0.05,
+                            side: THREE.DoubleSide
+                        });
+                    } else {
+                        const baseColor = terrainColors[tile.type] || 0x888888;
+                        const color = new THREE.Color(baseColor);
+                        color.multiplyScalar(brightness);
+                        material = new THREE.MeshStandardMaterial({
+                            color: color,
+                            roughness: 0.9,
+                            metalness: 0.1,
+                            side: THREE.DoubleSide
+                        });
+                    }
+                    materialCache[cacheKey] = material;
+                }
+
+                const tileMesh = new THREE.Mesh(tileGeometry, material);
+                tileMesh.rotation.x = -Math.PI / 2;
+                tileMesh.position.set(worldPos.x, worldPos.y, worldPos.z);
+                tileMesh.receiveShadow = true;
+                tileMesh.castShadow = false; // シャドウを無効化してアーティファクトを回避
+
+                this.tileGroup.add(tileMesh);
+
+                // hexHeightsキャッシュに保存（ユニット高さ合わせ用）
+                this.hexHeights[y][x] = worldPos.y;
+
+                // 崖の側面を描画（隣接タイルとの高さ差をチェック）
+                this.addCliffSides(x, y, tile.z, tiles, cliffMaterial);
+            }
+        }
+    }
+
+    /**
+     * 崖の側面を追加（菱形タイルの4辺に沿って）
+     */
+    addCliffSides(x, y, z, tiles, cliffMaterial) {
+        if (z === 0) return; // 高さ0の場合は側面不要
+
+        const worldPos = this.gridToWorld3D(x, y, z);
+        const hw = TILE_SIZE / 2;  // タイル幅の半分
+        const hh = TILE_SIZE / 4;  // タイル高さの半分（アイソメトリック）
+
+        // 菱形の4つの頂点（上面）
+        const topVertices = [
+            { x: worldPos.x, z: worldPos.z - hh },  // 上（北）
+            { x: worldPos.x + hw, z: worldPos.z },  // 右（東）
+            { x: worldPos.x, z: worldPos.z + hh },  // 下（南）
+            { x: worldPos.x - hw, z: worldPos.z }   // 左（西）
+        ];
+
+        // 4方向の隣接タイルと対応する辺（上下左右）
+        const edges = [
+            { dx: 0, dy: -1, v1: 0, v2: 1, name: '北' },   // 上辺：上のタイルに接続
+            { dx: 1, dy: 0, v1: 1, v2: 2, name: '東' },    // 右辺：右のタイルに接続
+            { dx: 0, dy: 1, v1: 2, v2: 3, name: '南' },    // 下辺：下のタイルに接続
+            { dx: -1, dy: 0, v1: 3, v2: 0, name: '西' }    // 左辺：左のタイルに接続
+        ];
+
+        const topY = worldPos.y;
+
+        for (const edge of edges) {
+            const nx = x + edge.dx;
+            const ny = y + edge.dy;
+
+            // 隣接タイルの高さを取得
+            let neighborZ = 0;
+            if (nx >= 0 && nx < MAP_W && ny >= 0 && ny < MAP_H) {
+                neighborZ = tiles[ny][nx].z;
+            }
+
+            // 高さ差がある場合、その辺に側面を描画
+            if (z > neighborZ) {
+                const bottomY = neighborZ * TILE_HEIGHT;
+                const v1 = topVertices[edge.v1];
+                const v2 = topVertices[edge.v2];
+
+                // 四角形の4頂点（上辺の2点 + 下辺の2点）
+                const vertices = new Float32Array([
+                    v1.x, topY, v1.z,      // 上辺・頂点1
+                    v1.x, bottomY, v1.z,   // 下辺・頂点1
+                    v2.x, bottomY, v2.z,   // 下辺・頂点2
+                    v2.x, topY, v2.z       // 上辺・頂点2
+                ]);
+
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+                geometry.setIndex([0, 1, 2, 0, 2, 3]);
+                geometry.computeVertexNormals();
+
+                const cliffMesh = new THREE.Mesh(geometry, cliffMaterial);
+                cliffMesh.receiveShadow = true;
+                cliffMesh.castShadow = false;
+                this.tileGroup.add(cliffMesh);
+            }
+        }
+    }
+
+    /**
+     * プレースホルダー地形（mapSystem設定前）
+     */
+    createPlaceholderTerrain(tileGeometry) {
+        const material = new THREE.MeshStandardMaterial({
+            color: 0x4a7c3a,
+            roughness: 0.9,
+            metalness: 0.1
+        });
+
+        for (let y = 0; y < MAP_H; y++) {
+            for (let x = 0; x < MAP_W; x++) {
+                const worldPos = this.gridToWorld3D(x, y, 0);
+                const tileMesh = new THREE.Mesh(tileGeometry, material);
+                tileMesh.rotation.x = -Math.PI / 2;
+                tileMesh.position.set(worldPos.x, 0, worldPos.z);
+                this.tileGroup.add(tileMesh);
+            }
+        }
+    }
+
+    /**
+     * アイソメトリックグリッド線オーバーレイを生成
+     */
+    createIsometricGridOverlay() {
+        const lineMaterial = new THREE.LineBasicMaterial({
+            color: 0x444444,
+            transparent: true,
+            opacity: 0.3
+        });
+
+        const gridGroup = new THREE.Group();
+
+        // 各タイルの境界線を描画
+        for (let y = 0; y <= MAP_H; y++) {
+            for (let x = 0; x <= MAP_W; x++) {
+                // 水平線（X方向）
+                if (x < MAP_W) {
+                    const start = this.gridToWorld3D(x, y, 0);
+                    const end = this.gridToWorld3D(x + 1, y, 0);
+                    const points = [
+                        new THREE.Vector3(start.x, 2, start.z),
+                        new THREE.Vector3(end.x, 2, end.z)
+                    ];
+                    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                    const line = new THREE.Line(geometry, lineMaterial);
+                    gridGroup.add(line);
+                }
+
+                // 垂直線（Y方向）
+                if (y < MAP_H) {
+                    const start = this.gridToWorld3D(x, y, 0);
+                    const end = this.gridToWorld3D(x, y + 1, 0);
+                    const points = [
+                        new THREE.Vector3(start.x, 2, start.z),
+                        new THREE.Vector3(end.x, 2, end.z)
+                    ];
+                    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                    const line = new THREE.Line(geometry, lineMaterial);
+                    gridGroup.add(line);
+                }
+            }
+        }
+
+        this.scene.add(gridGroup);
+        this.gridOverlay = gridGroup;
     }
 
     /**
@@ -188,6 +588,7 @@ export class RenderingEngine3D {
      */
     setMapSystem(mapSystem) {
         this.mapSystem = mapSystem;
+        // 高さキャッシュはハイトマップロード時にcreateIsometricTiles()で初期化される
     }
 
     /**
@@ -282,11 +683,11 @@ export class RenderingEngine3D {
     /**
      * 指定したヘックス位置に暗いオーバーレイを追加
      */
-    addHexOverlay(q, r, color, opacity) {
-        const center = this.hexToWorld3D(q, r);
+    addHexOverlay(q, r, color, opacity, isRange = false) {
+        const center = this.gridToWorld3D(q, r);
         const vertices = this.getHexagonVertices(q, r);
 
-        // 六角形の形状を作成
+        // 六角形（菱形）の形状を作成
         const shape = new THREE.Shape();
         shape.moveTo(vertices[0].x - center.x, vertices[0].z - center.z);
         for (let i = 1; i < vertices.length; i++) {
@@ -305,8 +706,46 @@ export class RenderingEngine3D {
 
         const overlay = new THREE.Mesh(geometry, material);
         overlay.rotation.x = -Math.PI / 2;
-        overlay.position.set(center.x, 0.5, center.z);
+        // 少し浮かせる（カーソルよりは下、地面より上）
+        let y = 0;
+        if (this.hexHeights && this.hexHeights[r] && this.hexHeights[r][q] !== undefined) {
+            y = this.hexHeights[r][q];
+        }
+        overlay.position.set(center.x, y + 1.0, center.z);
         this.scene.add(overlay);
+
+        if (isRange) {
+            if (!this.rangeOverlays) this.rangeOverlays = [];
+            this.rangeOverlays.push(overlay);
+        }
+
+        return overlay;
+    }
+
+    /**
+     * 移動範囲のハイライトを表示
+     * @param {Array<{x, y}>} tiles 
+     * @param {number} color 
+     */
+    showMoveRange(tiles, color = 0x0000ff) {
+        this.clearMoveRange();
+        tiles.forEach(t => {
+            this.addHexOverlay(t.x, t.y, color, 0.3, true);
+        });
+    }
+
+    /**
+     * 移動範囲のハイライトを消去
+     */
+    clearMoveRange() {
+        if (this.rangeOverlays) {
+            this.rangeOverlays.forEach(mesh => {
+                this.scene.remove(mesh);
+                if (mesh.geometry) mesh.geometry.dispose();
+                if (mesh.material) mesh.material.dispose();
+            });
+        }
+        this.rangeOverlays = [];
     }
 
     /**
@@ -438,7 +877,7 @@ export class RenderingEngine3D {
 
             // 位置更新
             // アニメーション適用時は強制更新したいので、距離チェック条件を変更
-            const rawPos = this.hexToWorld3D(unit.q, unit.r);
+            const rawPos = this.gridToWorld3D(unit.x, unit.y);
             const targetPos = new THREE.Vector3(rawPos.x, rawPos.y, rawPos.z);
             targetPos.add(animOffset);
 
@@ -450,16 +889,19 @@ export class RenderingEngine3D {
 
                 // 高さ合わせ（キャッシュ使用）
                 let groundHeight = 0;
-                if (this.hexHeights && this.hexHeights[unit.r] && this.hexHeights[unit.r][unit.q] !== undefined) {
-                    groundHeight = this.hexHeights[unit.r][unit.q];
+                if (this.hexHeights && this.hexHeights[unit.y] && this.hexHeights[unit.y][unit.x] !== undefined) {
+                    groundHeight = this.hexHeights[unit.y][unit.x];
                 }
-                mesh.position.y = groundHeight + 60; // オフセット調整
+                mesh.position.y = groundHeight + 2; // オフセット調整
             }
 
-            // 回転更新
-            const dir = unit.dir !== undefined ? unit.dir : (unit.facing || 0);
-            const targetRot = -Math.PI / 2 - dir * (Math.PI / 3) + Math.PI;
-            mesh.rotation.z = targetRot;
+            // 画面正対ビルボード - スプライトがカメラのビュー平面に完全に平行
+            // 画面上では常にまっすぐ立って見える
+            const sprite = mesh.getObjectByName('unitSprite');
+            if (sprite && this.camera) {
+                // カメラのクォータニオンをコピーして、スプライトをカメラと同じ向きに
+                sprite.quaternion.copy(this.camera.quaternion);
+            }
 
             // 選択状態のハイライト更新
             const isSelected = window.game && window.game.selectedUnits && window.game.selectedUnits.some(u => u.id === unit.id);
@@ -486,6 +928,30 @@ export class RenderingEngine3D {
                 }
             }
 
+            // スプライトアニメーション更新
+            // 優先順位: 死亡 > 被ダメージ > 攻撃中 > 行動済み(静止) > 移動中 > 未行動(待機)
+            let animType = 'ready'; // デフォルト: 未行動（01-02ループ）
+
+            if (unit.isDying) {
+                // 死亡アニメーション（06パターン）
+                animType = 'death';
+            } else if (unit.isDamaged) {
+                // 被ダメージアニメーション（05パターン）
+                animType = 'damage';
+            } else if (unit.isAttacking) {
+                // 攻撃アニメーション中
+                animType = 'attack';
+            } else if (unit.hasActed) {
+                // 行動済み（静止）- 攻撃や移動が完了した後
+                animType = 'idle';
+            } else if (unit.order && (unit.order.type === 'MOVE' || unit.order.type === 'ATTACK')) {
+                // 移動中または攻撃のため移動中
+                animType = 'walk';
+            }
+            // else: ready（未行動、待機中）
+
+            this.updateSpriteAnimation(unit.id, unit, animType);
+
             // 兵士数ゲージ更新
             this.updateUnitInfo(mesh, unit);
         });
@@ -501,85 +967,364 @@ export class RenderingEngine3D {
     }
 
     /**
-     * ユニットメッシュを作成して返す
+     * スプライトテクスチャをロード（個別ファイル版 + 色相シフト）
+     * 東軍=オリジナル（青系）、西軍=色相シフト（赤系）
+     */
+    loadSpriteTextures() {
+        const paths = getAllSpritePaths();
+
+        for (const path of paths) {
+            // 画像をロードしてからテクスチャを作成
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+                // オリジナル（東軍用）
+                const eastTexture = this.createTextureFromImage(img);
+                this.spriteTextures.set(`EAST:${path}`, eastTexture);
+
+                // 色相シフト版（西軍用）- 青→赤
+                const westCanvas = this.hueShiftImage(img, 180); // 180度シフトで青→赤
+                const westTexture = this.createTextureFromCanvas(westCanvas);
+                this.spriteTextures.set(`WEST:${path}`, westTexture);
+            };
+            img.src = path;
+        }
+    }
+
+    /**
+     * 画像からテクスチャを作成
+     */
+    createTextureFromImage(img) {
+        const texture = new THREE.Texture(img);
+        texture.magFilter = THREE.NearestFilter;
+        texture.minFilter = THREE.NearestFilter;
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.premultiplyAlpha = false; // アルファ透過を正しく処理
+        texture.needsUpdate = true;
+        return texture;
+    }
+
+    /**
+     * Canvasからテクスチャを作成
+     */
+    createTextureFromCanvas(canvas) {
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.magFilter = THREE.NearestFilter;
+        texture.minFilter = THREE.NearestFilter;
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.premultiplyAlpha = false; // アルファ透過を正しく処理
+        texture.needsUpdate = true;
+        return texture;
+    }
+
+    /**
+     * 画像の色相をシフト（青→赤変換用）
+     * @param {HTMLImageElement} img - 元画像
+     * @param {number} hueShift - 色相シフト量（度）
+     * @returns {HTMLCanvasElement}
+     */
+    hueShiftImage(img, hueShift) {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imageData.data;
+
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            const a = data[i + 3];
+
+            // 透明ピクセルはスキップ
+            if (a === 0) continue;
+
+            // RGB to HSL
+            const [h, s, l] = this.rgbToHsl(r, g, b);
+
+            // 色相シフト
+            const newH = (h + hueShift / 360) % 1;
+
+            // HSL to RGB
+            const [newR, newG, newB] = this.hslToRgb(newH, s, l);
+
+            data[i] = newR;
+            data[i + 1] = newG;
+            data[i + 2] = newB;
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+        return canvas;
+    }
+
+    /**
+     * RGB to HSL変換
+     */
+    rgbToHsl(r, g, b) {
+        r /= 255; g /= 255; b /= 255;
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        let h, s, l = (max + min) / 2;
+
+        if (max === min) {
+            h = s = 0;
+        } else {
+            const d = max - min;
+            s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+            switch (max) {
+                case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+                case g: h = ((b - r) / d + 2) / 6; break;
+                case b: h = ((r - g) / d + 4) / 6; break;
+            }
+        }
+        return [h, s, l];
+    }
+
+    /**
+     * HSL to RGB変換
+     */
+    hslToRgb(h, s, l) {
+        let r, g, b;
+        if (s === 0) {
+            r = g = b = l;
+        } else {
+            const hue2rgb = (p, q, t) => {
+                if (t < 0) t += 1;
+                if (t > 1) t -= 1;
+                if (t < 1 / 6) return p + (q - p) * 6 * t;
+                if (t < 1 / 2) return q;
+                if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+                return p;
+            };
+            const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+            const p = 2 * l - q;
+            r = hue2rgb(p, q, h + 1 / 3);
+            g = hue2rgb(p, q, h);
+            b = hue2rgb(p, q, h - 1 / 3);
+        }
+        return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+    }
+
+    /**
+     * ユニットメッシュを作成して返す（個別スプライトファイル版）
      */
     createUnitMesh(unit) {
-        // 所属軍の色を取得
-        let color = 0x88AAEE;
-        if (unit.side === 'WEST') color = 0xEE4444;
-        else if (unit.side === 'EAST') color = 0x88AAEE;
-        else color = 0x888888;
+        // コンテナグループを作成
+        const group = new THREE.Group();
+        group.userData = { unitId: unit.id };
 
-        // 凸字型の形状を作成
-        const shape = new THREE.Shape();
-        const size = HEX_SIZE * 1.5;
-        const width = size * 1.2;
-        const height = size * 0.8;
-        const notchDepth = height * 0.5;
-        const notchWidth = width * 0.5;
+        const size = HEX_SIZE * 0.6;
+        const side = unit.side || 'EAST';
 
-        shape.moveTo(-width / 2, height / 2);
-        shape.lineTo(width / 2, height / 2);
-        shape.lineTo(width / 2, -height / 2);
-        shape.lineTo(notchWidth / 2, -height / 2);
-        shape.lineTo(notchWidth / 2, -height / 2 - notchDepth);
-        shape.lineTo(-notchWidth / 2, -height / 2 - notchDepth);
-        shape.lineTo(-notchWidth / 2, -height / 2);
-        shape.lineTo(-width / 2, -height / 2);
-        shape.lineTo(-width / 2, height / 2);
+        // 1. スプライトビルボード（PlaneGeometryを使用してフリップ対応）
+        const planeGeo = new THREE.PlaneGeometry(size * 2, size * 2);
+        const initialSpriteInfo = getSpriteInfo(unit.dir || 0, '00');
+        // 所属軍に応じたテクスチャを取得（EAST=青, WEST=赤）
+        const textureKey = `${side}:${initialSpriteInfo.path}`;
+        const initialTexture = this.spriteTextures.get(textureKey);
 
-        const extrudeSettings = { depth: size * 0.3, bevelEnabled: false };
+        const planeMat = new THREE.MeshBasicMaterial({
+            map: initialTexture || null,
+            transparent: true,
+            side: THREE.DoubleSide,
+            alphaTest: 0.5,      // アルファが0.5以下のピクセルは描画しない
+            depthWrite: false,   // 深度バッファに書き込まない
+            depthTest: false     // 深度テスト無効（常に地形の上に描画）
+        });
+        const plane = new THREE.Mesh(planeGeo, planeMat);
+        plane.position.y = size * 1.0;
+        plane.name = 'unitSprite';
+        plane.renderOrder = 100; // 地形より後に描画（高い値=後に描画）
+        group.add(plane);
 
-        // ジオメトリを共有（キャッシュ作成）
-        if (!this.unitGeometry) {
-            this.unitGeometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-        }
-
-        const material = new THREE.MeshStandardMaterial({
-            color: color,
-            roughness: 0.7,
-            metalness: 0.3,
-            side: THREE.DoubleSide
+        // アニメーション状態を初期化
+        this.unitAnimationStates.set(unit.id, {
+            anim: 'idle',
+            frame: 0,
+            lastUpdate: Date.now(),
+            dir: unit.dir || 0,
+            side: side,
+            material: planeMat,
+            mesh: plane
         });
 
-        const mesh = new THREE.Mesh(this.unitGeometry, material);
-        mesh.rotation.x = -Math.PI / 2;
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-
-        // Raycast用にIDを保存
-        mesh.userData = { unitId: unit.id };
-
-        // 情報オーバーレイ初期作成
-        this.createUnitInfoOverlay(mesh, unit);
-
-        // 本陣の場合、金色のリングを追加
+        // 3. 本陣の場合、金色のリングを追加
         if (unit.unitType === 'HEADQUARTERS') {
-            const ringGeo = new THREE.RingGeometry(size * 0.8, size * 0.9, 32);
+            const ringGeo = new THREE.RingGeometry(size * 0.9, size * 1.0, 32);
             const ringMat = new THREE.MeshBasicMaterial({ color: 0xFFD700, side: THREE.DoubleSide });
             const ring = new THREE.Mesh(ringGeo, ringMat);
-            ring.position.z = 1; // 地面より少し上
-            mesh.add(ring);
+            ring.rotation.x = -Math.PI / 2;
+            ring.position.y = 2;
+            ring.name = 'hqRing';
+            group.add(ring);
         }
 
-        // 選択リング（初期状態は非表示）
-        // ユニットより大きくして外側に見えるようにする
-        const selRingGeo = new THREE.RingGeometry(size * 1.3, size * 1.4, 32);
+        // 4. 選択リング（初期状態は非表示）
+        const selRingGeo = new THREE.RingGeometry(size * 1.0, size * 1.1, 32);
         const selRingMat = new THREE.MeshBasicMaterial({
             color: 0xFFFFFF,
             side: THREE.DoubleSide,
             transparent: true,
             opacity: 0.8,
-            depthTest: false // 常に最前面に描画（埋もれ防止）
+            depthTest: false
         });
         const selRing = new THREE.Mesh(selRingGeo, selRingMat);
+        selRing.rotation.x = -Math.PI / 2;
         selRing.name = 'selectionRing';
-        selRing.position.z = 0.5; // 地面近く
-        selRing.renderOrder = 999; // 最前面
+        selRing.position.y = 3;
+        selRing.renderOrder = 999;
         selRing.visible = false;
-        mesh.add(selRing);
+        group.add(selRing);
 
-        return mesh;
+        // 5. HitBox（クリック判定用）
+        const hitBoxGeo = new THREE.BoxGeometry(size * 1.5, size * 2, size * 1.5);
+        const hitBoxMat = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.0,
+            side: THREE.DoubleSide,
+            depthWrite: false
+        });
+        const hitBox = new THREE.Mesh(hitBoxGeo, hitBoxMat);
+        hitBox.name = 'hitBox';
+        hitBox.position.y = size;
+        group.add(hitBox);
+
+        // 情報オーバーレイ初期作成
+        this.createUnitInfoOverlay(group, unit);
+
+        return group;
+    }
+
+    /**
+     * スプライトアニメーションを更新（個別ファイル版）
+     * @param {number} unitId - ユニットID
+     * @param {Object} unit - ユニットオブジェクト
+     * @param {string} animName - 切り替えるアニメーション名（省略時は現在のまま）
+     */
+    updateSpriteAnimation(unitId, unit = null, animName = null) {
+        const state = this.unitAnimationStates.get(unitId);
+        if (!state) return;
+
+        const now = Date.now();
+
+        // アニメーション切り替え
+        if (animName && animName !== state.anim && ANIMATIONS[animName]) {
+            state.anim = animName;
+            state.frame = 0;
+            state.lastUpdate = now;
+        }
+
+        const anim = ANIMATIONS[state.anim];
+        if (!anim) return;
+
+        // 方向更新
+        if (unit && unit.dir !== undefined) {
+            state.dir = unit.dir;
+        }
+
+        // フレーム更新
+        if (now - state.lastUpdate >= anim.speed) {
+            const frameCount = anim.frameIds.length;
+            state.frame++;
+            if (state.frame >= frameCount) {
+                state.frame = anim.loop ? 0 : frameCount - 1;
+            }
+            state.lastUpdate = now;
+        }
+
+        // テクスチャを切り替え（所属軍に応じた色）
+        const frameId = anim.frameIds[state.frame];
+        const spriteInfo = getSpriteInfo(state.dir, frameId);
+        // 寝返り対応: ユニットの現在のsideを使用（キャッシュされたstate.sideではなく）
+        const currentSide = unit && unit.side ? unit.side : state.side;
+        const textureKey = `${currentSide}:${spriteInfo.path}`;
+        const texture = this.spriteTextures.get(textureKey);
+
+        if (texture && state.material) {
+            state.material.map = texture;
+            state.material.needsUpdate = true;
+
+            // 反転が必要な場合はスケールでフリップ
+            if (state.mesh) {
+                state.mesh.scale.x = spriteInfo.flip ? -1 : 1;
+            }
+        }
+    }
+
+    /**
+     * ユニットの攻撃アニメーションをトリガー
+     * @param {string} attackerId - 攻撃者のユニットID
+     * @param {string} targetId - 攻撃対象のユニットID
+     */
+    triggerUnitAttackAnimation(attackerId, targetId) {
+        // 攻撃者にisAttackingフラグを立てる（一定時間後に解除）
+        if (window.game && window.game.unitManager) {
+            const units = window.game.unitManager.getUnits();
+            const attacker = units.find(u => u.id === attackerId);
+            if (attacker) {
+                attacker.isAttacking = true;
+                // 攻撃アニメーション終了後にフラグを解除
+                setTimeout(() => {
+                    attacker.isAttacking = false;
+                }, 900); // 攻撃アニメーションの持続時間
+            }
+        }
+    }
+
+    /**
+     * ユニットの被ダメージアニメーションをトリガー
+     * @param {string} unitId - ダメージを受けたユニットのID
+     */
+    triggerDamageAnimation(unitId) {
+        if (window.game && window.game.unitManager) {
+            const units = window.game.unitManager.getAllUnits();
+            const unit = units.find(u => u.id === unitId);
+            if (unit) {
+                unit.isDamaged = true;
+                // ダメージアニメーション後にフラグを解除
+                setTimeout(() => {
+                    unit.isDamaged = false;
+                }, 400); // ダメージアニメーションの持続時間
+            }
+        }
+    }
+
+    /**
+     * ユニットの死亡アニメーションをトリガー（倒れ + フェードアウト）
+     * @param {string} unitId - 死亡したユニットのID
+     */
+    triggerDeathAnimation(unitId) {
+        const mesh = this.unitMeshes.get(unitId);
+        if (!mesh) return;
+
+        // 死亡フラグを立てる
+        if (window.game && window.game.unitManager) {
+            const units = window.game.unitManager.getAllUnits();
+            const unit = units.find(u => u.id === unitId);
+            if (unit) {
+                unit.isDying = true;
+            }
+        }
+
+        // スプライトを取得してフェードアウト
+        const sprite = mesh.getObjectByName('unitSprite');
+        if (sprite && sprite.material) {
+            let opacity = 1.0;
+            const fadeInterval = setInterval(() => {
+                opacity -= 0.05;
+                sprite.material.opacity = Math.max(0, opacity);
+                sprite.material.needsUpdate = true;
+
+                if (opacity <= 0) {
+                    clearInterval(fadeInterval);
+                    // フェードアウト完了後にメッシュを非表示
+                    mesh.visible = false;
+                }
+            }, 50); // 50ms間隔で20回 = 1秒でフェードアウト
+        }
     }
 
     /**
@@ -589,18 +1334,18 @@ export class RenderingEngine3D {
         // 兵士ゲージ用スプライト
         const barSprite = this.createBarSprite(unit);
         barSprite.name = 'barSprite';
-        barSprite.position.set(0, 30, 0);
+        barSprite.position.set(0, 20, 0); // 高さ調整
         mesh.add(barSprite);
 
         // 本陣マーカーと名前
         if (unit.unitType === 'HEADQUARTERS') {
             const kSprite = this.createKamonSprite(unit);
-            kSprite.position.set(0, 45, 0);
+            kSprite.position.set(0, 35, 0); // 高さ調整
             mesh.add(kSprite);
 
             // 名前ラベル
             const nameSprite = this.createNameSprite(unit.name);
-            nameSprite.position.set(0, 60, 0); // 家紋の上
+            nameSprite.position.set(0, 50, 0); // 高さ調整
             mesh.add(nameSprite);
         }
     }
@@ -743,30 +1488,62 @@ export class RenderingEngine3D {
     }
 
     /**
-     * ヘックス座標を3D空間のXZ座標に変換
+     * グリッド座標(x, y)を3D空間のワールド座標に変換（クォータービュー/アイソメトリック）
+     * @param {number} x - グリッドX座標
+     * @param {number} y - グリッドY座標
+     * @param {number} z - 高さ（段数、オプション）
      */
-    hexToWorld3D(q, r) {
-        const x = HEX_SIZE * Math.sqrt(3) * (q + r / 2);
-        const z = HEX_SIZE * 3 / 2 * r;
-        return { x, y: 0, z };
+    gridToWorld3D(x, y, z = 0) {
+        // アイソメトリック変換（45度回転した菱形グリッド）
+        const worldX = (x - y) * TILE_SIZE / 2;
+        const worldZ = (x + y) * TILE_SIZE / 4;
+        const worldY = z * TILE_HEIGHT;
+        return { x: worldX, y: worldY, z: worldZ };
     }
 
     /**
-     * 六角形の頂点を取得（XZ平面）
+     * 指定グリッドの地面の高さを取得
+     */
+    getGroundHeight(x, y) {
+        if (this.hexHeights && this.hexHeights[y] && this.hexHeights[y][x] !== undefined) {
+            return this.hexHeights[y][x];
+        }
+        return 0;
+    }
+
+    /**
+     * 旧API互換：ヘックス座標を3D空間のXZ座標に変換
+     * @deprecated gridToWorld3Dを使用してください
+     */
+    hexToWorld3D(q, r) {
+        // q -> x, r -> y として新しい変換を使用
+        return this.gridToWorld3D(q, r, 0);
+    }
+
+    /**
+     * 六角形（菱形）の頂点を取得（XZ平面）
+     * アイソメトリック用に菱形の頂点を返す
      */
     getHexagonVertices(q, r) {
-        const center = this.hexToWorld3D(q, r);
-        const vertices = [];
+        // q, r は x, y
+        const center = this.gridToWorld3D(q, r);
+        const hw = TILE_SIZE / 2;
+        const hh = TILE_SIZE / 4;
 
-        for (let i = 0; i < 6; i++) {
-            const angle = (Math.PI / 3) * i + Math.PI / 6; // pointy-top
-            const x = center.x + HEX_SIZE * Math.cos(angle);
-            const z = center.z + HEX_SIZE * Math.sin(angle);
-            let y = 150; // 固定の高さ
-            vertices.push(new THREE.Vector3(x, y, z));
+        // 高さも考慮（できれば）
+        let y = 2; // デフォルト（地面すれすれ）
+        if (this.hexHeights && this.hexHeights[r] && this.hexHeights[r][q] !== undefined) {
+            y = this.hexHeights[r][q] + 2;
         }
 
-        return vertices;
+        // 菱形の4頂点 (中心からのオフセット)
+        // 北、東、南、西
+        return [
+            new THREE.Vector3(center.x, y, center.z - hh),
+            new THREE.Vector3(center.x + hw, y, center.z),
+            new THREE.Vector3(center.x, y, center.z + hh),
+            new THREE.Vector3(center.x - hw, y, center.z)
+        ];
     }
 
     /**
@@ -843,10 +1620,122 @@ export class RenderingEngine3D {
     }
 
     /**
+     * カーソルを作成（遅延初期化）
+     */
+    createCursor() {
+        const shape = new THREE.Shape();
+        const hw = TILE_SIZE / 2;
+        const hh = TILE_SIZE / 4;
+
+        // 菱形
+        shape.moveTo(0, -hh);
+        shape.lineTo(hw, 0);
+        shape.lineTo(0, hh);
+        shape.lineTo(-hw, 0);
+        shape.closePath();
+
+        const geometry = new THREE.ShapeGeometry(shape);
+        const edges = new THREE.EdgesGeometry(geometry);
+        const material = new THREE.LineBasicMaterial({
+            color: 0xffff00,
+            linewidth: 2,
+            transparent: true,
+            opacity: 0.8
+        });
+
+        this.cursorMesh = new THREE.LineSegments(edges, material);
+        this.cursorMesh.rotation.x = -Math.PI / 2;
+        this.cursorMesh.visible = false;
+        // 常に最前面に表示されるように深度テストをオフにするか検討したが、
+        // 地形に隠れるべき時は隠れたほうが自然なのでオンのまま。
+        // ただし少し浮かす。
+        this.scene.add(this.cursorMesh);
+    }
+
+    /**
+     * カーソル位置を更新
+     * @param {number|null} q 
+     * @param {number|null} r 
+     * @param {string|null} text - 表示するテキスト（ターン数など）
+     */
+    updateCursorPosition(q, r, text = null) {
+        if (q === null || r === null) {
+            if (this.cursorMesh) this.cursorMesh.visible = false;
+            if (this.cursorTextSprite) this.cursorTextSprite.visible = false;
+            return;
+        }
+
+        if (!this.cursorMesh) this.createCursor();
+
+        const pos = this.gridToWorld3D(q, r);
+        let y = 0;
+        if (this.hexHeights && this.hexHeights[r] && this.hexHeights[r][q] !== undefined) {
+            y = this.hexHeights[r][q];
+        }
+
+        this.cursorMesh.position.set(pos.x, y + 2, pos.z);
+        this.cursorMesh.visible = true;
+
+        // テキスト表示の更新
+        if (text) {
+            if (!this.cursorTextSprite) {
+                this.cursorTextSprite = this.createCursorTextSprite();
+                this.scene.add(this.cursorTextSprite);
+            }
+
+            this.updateTextSpriteContent(this.cursorTextSprite, text);
+            this.cursorTextSprite.position.set(pos.x, y + 20, pos.z);
+            this.cursorTextSprite.visible = true;
+        } else {
+            if (this.cursorTextSprite) this.cursorTextSprite.visible = false;
+        }
+    }
+
+    createCursorTextSprite() {
+        const canvas = document.createElement('canvas'); // Small size
+        canvas.width = 128;
+        canvas.height = 64;
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false });
+        const sprite = new THREE.Sprite(material);
+        sprite.scale.set(30, 15, 1);
+        sprite.renderOrder = 9999;
+
+        sprite.userData = { canvas, context: canvas.getContext('2d'), texture };
+        return sprite;
+    }
+
+    updateTextSpriteContent(sprite, text) {
+        const { canvas, context, texture } = sprite.userData;
+        context.clearRect(0, 0, canvas.width, canvas.height);
+
+        // 背景
+        context.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        context.beginPath();
+        context.roundRect(10, 10, 108, 44, 10);
+        context.fill();
+
+        // テキスト
+        context.font = 'bold 24px sans-serif';
+        context.fillStyle = '#ffffff';
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.fillText(text, 64, 34); // Yは微調整
+
+        texture.needsUpdate = true;
+    }
+
+    /**
      * アニメーションループ
      */
     animate() {
         requestAnimationFrame(() => this.animate());
+
+        // 外部からのレンダリング上書き（エディタモード等）
+        if (this.renderOverride) {
+            this.renderOverride();
+            return;
+        }
 
         // 画面端でのカメラ回転処理
         this.handleEdgeRotation();
@@ -871,13 +1760,18 @@ export class RenderingEngine3D {
     }
 
     /**
-     * ウィンドウリサイズ対応
-     */
+ * ウィンドウリサイズ対応
+ */
     resize() {
         const width = window.innerWidth;
         const height = window.innerHeight;
+        const aspect = width / height;
 
-        this.camera.aspect = width / height;
+        // OrthographicCamera用リサイズ処理
+        this.camera.left = this.frustumSize * aspect / -2;
+        this.camera.right = this.frustumSize * aspect / 2;
+        this.camera.top = this.frustumSize / 2;
+        this.camera.bottom = this.frustumSize / -2;
         this.camera.updateProjectionMatrix();
 
         this.renderer.setSize(width, height);
@@ -923,13 +1817,35 @@ export class RenderingEngine3D {
 
     createBeam(data) {
         // data: { start: {q,r} or {x,y,z}, end: {q,r} or {x,y,z}, color: hex }
-        // 座標変換が必要な場合に対応
-        const startPos = data.start.x !== undefined ? data.start : this.hexToWorld3D(data.start.q, data.start.r);
-        const endPos = data.end.x !== undefined ? data.end : this.hexToWorld3D(data.end.q, data.end.r);
+
+        const resolvePos = (p) => {
+            if (p instanceof THREE.Vector3) return p;
+            if (p.z !== undefined) return p; // ワールド座標
+            // 以下、グリッド座標からの変換
+            // x, yプロパティがあればそれを優先（SquareGrid）
+            if (p.x !== undefined && p.y !== undefined) {
+                const pos = this.gridToWorld3D(p.x, p.y);
+                const h = this.getGroundHeight(p.x, p.y);
+                pos.y = h;
+                return pos;
+            }
+            // q, rがあれば（旧仕様互換）
+            if (p.q !== undefined) {
+                const pos = this.hexToWorld3D(p.q, p.r);
+                // hexToWorld3Dはz=0を返すので高さを補正
+                const h = this.getGroundHeight(p.q, p.r);
+                pos.y = h;
+                return pos;
+            }
+            return p;
+        };
+
+        const startPos = resolvePos(data.start);
+        const endPos = resolvePos(data.end);
 
         // 高さを調整（ユニットの胸元あたり）
-        if (startPos.y < 10) startPos.y = 30;
-        if (endPos.y < 10) endPos.y = 30;
+        if (startPos.y < 1000) startPos.y += 30; // 既に十分高い場合は加算しない
+        if (endPos.y < 1000) endPos.y += 30;
 
         const points = [new THREE.Vector3(startPos.x, startPos.y, startPos.z), new THREE.Vector3(endPos.x, endPos.y, endPos.z)];
         const geometry = new THREE.BufferGeometry().setFromPoints(points);
@@ -1106,7 +2022,7 @@ export class RenderingEngine3D {
     createBubble(data) {
         // data: { unit: unitObject, text: string }
         const unit = data.unit;
-        const pos = this.hexToWorld3D(unit.q, unit.r);
+        const pos = this.hexToWorld3D(unit.x, unit.y);
         pos.y = 180; // 頭上高め
 
         const canvas = document.createElement('canvas');
@@ -1217,8 +2133,8 @@ export class RenderingEngine3D {
             const unit = window.gameState.units.find(u => u.id === unitId);
             if (!unit) return;
 
-            const startPos = this.hexToWorld3D(unit.q, unit.r);
-            const targetPos = this.hexToWorld3D(targetUnit.q, targetUnit.r);
+            const startPos = this.hexToWorld3D(unit.x, unit.y);
+            const targetPos = this.hexToWorld3D(targetUnit.x, targetUnit.y);
 
             // ターゲット方向へのベクトル
             const dir = new THREE.Vector3().subVectors(targetPos, startPos);
@@ -1364,25 +2280,49 @@ export class RenderingEngine3D {
             const depthTest = isSelected ? false : true; // 選択中は地形を貫通、非選択は地形に隠れる
             const renderOrder = isSelected ? 999 : 0;
 
-            const startPos = this.hexToWorld3D(unit.q, unit.r);
+            const startPos = this.hexToWorld3D(unit.x, unit.y);
             startPos.y = 30; // 地面近くに下げる
 
             let endPos = null;
             let color = 0xffffff;
 
             if (unit.order.type === 'MOVE' && unit.order.targetHex) {
-                endPos = this.hexToWorld3D(unit.order.targetHex.q, unit.order.targetHex.r);
+                endPos = this.hexToWorld3D(unit.order.targetHex.x, unit.order.targetHex.y);
                 color = 0x00ff00; // 緑
             } else if ((unit.order.type === 'ATTACK' || unit.order.type === 'PLOT') && unit.order.targetId) {
                 const target = window.gameState.units.find(u => u.id === unit.order.targetId);
                 if (target) {
-                    endPos = this.hexToWorld3D(target.q, target.r);
+                    endPos = this.hexToWorld3D(target.x, target.y);
                     color = unit.order.type === 'ATTACK' ? 0xff0000 : 0x00ffff; // 赤 or 水色
                 }
             }
 
             if (endPos) {
-                endPos.y = 30;
+                // endPosは hexToWorld3D で取得されているが、y=0 の可能性がある
+                // あるいは既に高さ情報を持っているかもしれないが、念のためユニットの高さに合わせて再調整
+                // ただし、hexToWorld3Dの実装によっては getGroundHeight を呼ばないといけない
+                // ここでは targetHex から高さを取り直すのが確実
+
+                let targetX, targetY;
+                if (unit.order.type === 'MOVE' && unit.order.targetHex) {
+                    targetX = unit.order.targetHex.x;
+                    targetY = unit.order.targetHex.y;
+                }
+                else if (unit.order.targetId) {
+                    const t = window.gameState.units.find(u => u.id === unit.order.targetId);
+                    if (t) { targetX = t.x; targetY = t.y; }
+                }
+
+                if (targetX !== undefined) {
+                    const h = this.getGroundHeight(targetX, targetY);
+                    endPos.y = h + 30;
+                } else {
+                    endPos.y = 30; // フォールバック
+                }
+
+                // startPosも高さ調整
+                const startH = this.getGroundHeight(unit.x, unit.y);
+                startPos.y = startH + 30;
 
                 // 矢印の軸
                 const points = [new THREE.Vector3(startPos.x, startPos.y, startPos.z), new THREE.Vector3(endPos.x, endPos.y, endPos.z)];
@@ -1489,8 +2429,8 @@ export class RenderingEngine3D {
             // 接敵距離（約3HEX）より遠い場合はラインを出さない（移動中は矢印のみ）
             if (dist > 3) return;
 
-            const startPos = this.hexToWorld3D(unit.q, unit.r);
-            const endPos = this.hexToWorld3D(target.q, target.r);
+            const startPos = this.hexToWorld3D(unit.x, unit.y);
+            const endPos = this.hexToWorld3D(target.x, target.y);
 
             startPos.y = 40;
             endPos.y = 40;
@@ -1580,22 +2520,39 @@ export class RenderingEngine3D {
         const unitIntersects = raycaster.intersectObjects(unitMeshesArray, true); // trueで再帰的に子要素もチェック
 
         if (unitIntersects.length > 0) {
+            console.log("Raycast Hit Unit Object:", unitIntersects[0].object.name, unitIntersects[0].point);
             // 最も手前のオブジェクトを取得
             // 親を辿ってメインのMeshを探す（userData.unitIdを持っているはず）
             let target = unitIntersects[0].object;
             while (target) {
-                if (target.userData && target.userData.unitId) {
+                if (target.userData && target.userData.unitId !== undefined) {
                     // ユニットIDからユニット情報を取得して座標を返す
                     const unit = window.gameState.units.find(u => u.id === target.userData.unitId);
                     if (unit) {
-                        return { q: unit.q, r: unit.r };
+                        return { q: unit.x, r: unit.y }; // x,y を返す
                     }
                 }
+                // hitBoxなど子要素の場合、親を辿る
                 target = target.parent;
+                // Sceneまで到達したら終了
+                if (target && target.type === 'Scene') break;
             }
         }
 
-        // 2. 地形との交差判定（フォールバック）
+        // 2. 地形との交差判定（タイルグループに対して実施）
+        // これにより高さのある地形でも正確に判定可能
+        const tileIntersects = raycaster.intersectObjects(this.tileGroup.children);
+
+        if (tileIntersects.length > 0) {
+            // 最も手前のタイル
+            const target = tileIntersects[0].object;
+            console.log("Raycast Hit Tile:", target.userData);
+            if (target.userData && target.userData.x !== undefined) {
+                return { q: target.userData.x, r: target.userData.y };
+            }
+        }
+
+        // フォールバック: groundMesh（平面）との判定
         const intersects = raycaster.intersectObject(this.groundMesh);
 
         if (intersects.length > 0) {
@@ -1612,10 +2569,10 @@ export class RenderingEngine3D {
      * @returns {{x: number, y: number}|null} スクリーン座標、または画面外/計算不能ならnull
      */
     getUnitScreenPosition(unit) {
-        if (unit.q === undefined || unit.r === undefined) return null;
+        if (unit.x === undefined || unit.y === undefined) return null;
 
         // 3D位置を取得
-        const pos = this.hexToWorld3D(unit.q, unit.r);
+        const pos = this.hexToWorld3D(unit.x, unit.y);
 
         // ユニットの高さ（概算）
         // ユニットの足元(0)〜中心(30)あたりを基準にする
@@ -1643,35 +2600,113 @@ export class RenderingEngine3D {
     }
 
     /**
-     * 3Dワールド座標(x, z)をHEX座標(q, r)に変換
+     * 3Dワールド座標(x, z)をグリッド座標(x, y)に変換（クォータービュー）
      */
-    world3DToHex(x, z) {
-        // axial coordinatesへの変換
-        const q = (Math.sqrt(3) / 3 * x - 1 / 3 * z) / HEX_SIZE;
-        const r = (2 / 3 * z) / HEX_SIZE;
-
-        return this.axialRound(q, r);
+    world3DToGrid(worldX, worldZ) {
+        // アイソメトリック逆変換
+        const gx = (worldX / (TILE_SIZE / 2) + worldZ / (TILE_SIZE / 4)) / 2;
+        const gy = (worldZ / (TILE_SIZE / 4) - worldX / (TILE_SIZE / 2)) / 2;
+        return { x: Math.round(gx), y: Math.round(gy) };
     }
 
     /**
-     * Axial座標の丸め処理
+     * 旧API互換：3Dワールド座標(x, z)をHEX座標(q, r)に変換
+     * @deprecated world3DToGridを使用してください
+     */
+    world3DToHex(x, z) {
+        const result = this.world3DToGrid(x, z);
+        return { q: result.x, r: result.y };
+    }
+
+    /**
+     * 旧API互換（未使用だが念のため残す）
+     * @deprecated
      */
     axialRound(q, r) {
-        let s = -q - r;
-        let roundQ = Math.round(q);
-        let roundR = Math.round(r);
-        let roundS = Math.round(s);
+        return { q: Math.round(q), r: Math.round(r) };
+    }
 
-        const qDiff = Math.abs(roundQ - q);
-        const rDiff = Math.abs(roundR - r);
-        const sDiff = Math.abs(roundS - s);
+    /**
+     * デバッグ用カメラ情報オーバーレイを作成
+     */
+    createCameraDebugOverlay() {
+        if (document.getElementById('camera-debug')) return;
 
-        if (qDiff > rDiff && qDiff > sDiff) {
-            roundQ = -roundR - roundS;
-        } else if (rDiff > sDiff) {
-            roundR = -roundQ - roundS;
+        const div = document.createElement('div');
+        div.id = 'camera-debug';
+        div.style.position = 'absolute';
+        div.style.top = '10px';
+        div.style.left = '10px';
+        div.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+        div.style.color = 'lime';
+        div.style.padding = '10px';
+        div.style.fontFamily = 'monospace';
+        div.style.fontSize = '14px';
+        div.style.pointerEvents = 'none'; // クリック透過
+        div.style.zIndex = '9999';
+        div.style.display = 'none'; // デフォルト非表示
+        document.body.appendChild(div);
+    }
+
+    /**
+     * デバッグ表示切り替え
+     */
+    toggleCameraDebugOverlay() {
+        const el = document.getElementById('camera-debug');
+        if (el) {
+            el.style.display = el.style.display === 'none' ? 'block' : 'none';
+            if (el.style.display === 'block') {
+                this.updateCameraDebugInfo();
+            }
+        }
+    }
+
+    /**
+     * カメラ情報を更新
+     */
+    updateCameraDebugInfo() {
+        const el = document.getElementById('camera-debug');
+        if (!el) return;
+
+        const p = this.camera.position;
+        const t = this.controls.target;
+        const z = this.camera.zoom;
+
+        el.innerHTML = `
+            <strong>Camera Settings</strong><br>
+            Position: (x=${Math.round(p.x)}, y=${Math.round(p.y)}, z=${Math.round(p.z)})<br>
+            Target: (x=${Math.round(t.x)}, y=${Math.round(t.y)}, z=${Math.round(t.z)})<br>
+            Zoom: ${z.toFixed(2)}<br>
+        `;
+    }
+
+    /**
+     * スクリーン座標から地面へのレイキャスト
+     */
+    raycastToGround(screenX, screenY) {
+        if (!this.raycaster) this.raycaster = new THREE.Raycaster();
+
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        const x = ((screenX - rect.left) / rect.width) * 2 - 1;
+        const y = -((screenY - rect.top) / rect.height) * 2 + 1;
+
+        this.raycaster.setFromCamera({ x, y }, this.camera);
+
+        // 1. 地形タイルとの交差
+        if (this.tileGroup && this.tileGroup.children.length > 0) {
+            const intersects = this.raycaster.intersectObjects(this.tileGroup.children);
+            if (intersects.length > 0) {
+                return intersects[0];
+            }
         }
 
-        return { q: roundQ, r: roundR };
+        // 2. 平面との交差（フォールバック）
+        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        const target = new THREE.Vector3();
+        if (this.raycaster.ray.intersectPlane(plane, target)) {
+            return { point: target };
+        }
+
+        return null;
     }
 }

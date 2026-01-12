@@ -4,18 +4,22 @@
  */
 
 import { HEX_SIZE, C_EAST, C_WEST, C_SEL_BOX, C_SEL_BORDER, WARLORDS, UNIT_TYPE_HEADQUARTERS, FORMATION_HOKO, FORMATION_KAKUYOKU, FORMATION_GYORIN } from './constants.js?v=10';
+import * as THREE from 'three';
 import { AudioEngine } from './audio.js';
-import { MapSystem } from './map.js?v=2';
-import { RenderingEngine3D } from './rendering3d.js?v=28';
+import { MapSystem } from './map.js?v=3';
+import { RenderingEngine3D } from './rendering3d.js?v=58';
 import { generatePortrait } from './rendering.js?v=2';
-import { CombatSystem } from './combat.js?v=13';
+import { CombatSystem } from './combat.js?v=25';
 import { AISystem } from './ai.js';
-import { UnitManager } from './unit-manager.js?v=3';
-import { hexToPixel, pixelToHex, isValidHex, getDistRaw } from './pathfinding.js';
-import { FORMATION_INFO, getAvailableFormations } from './formation.js?v=3';
+import { UnitManager } from './unit-manager.js?v=4';
+import { hexToPixel, pixelToHex, isValidHex, getDistRaw, getReachableTiles, estimateTurns } from './pathfinding.js';
+import { FORMATION_INFO, getAvailableFormations } from './formation.js?v=4';
+import { BuildingSystem } from './building.js?v=17';
+import { BuildingEditor } from './editor/building-editor.js';
+import { StageLoader } from './stage-loader.js';
 
 // Main Game Logic
-console.log("Main JS Version: 20 Loaded (Debug)");
+console.log("Main JS Version: 25 Loaded (Debug)");
 
 export class Game {
     constructor() {
@@ -41,6 +45,14 @@ export class Game {
         this.combatSystem = null;
         this.aiSystem = new AISystem();
         this.unitManager = new UnitManager();
+        this.buildingSystem = null;  // 建物システム
+        this.stageLoader = null;     // ステージローダー
+
+
+        // Placement State
+        this.placementData = null;
+        this.placementGhost = null;
+        this.placementRotation = 0; // 0,1,2,3 (90度刻み)
     }
 
     init() {
@@ -53,6 +65,16 @@ export class Game {
         this.renderingEngine.setMapSystem(this.mapSystem); // MapSystemを渡す
         this.combatSystem = new CombatSystem(this.audioEngine);
         this.combatSystem.setRenderingEngine(this.renderingEngine);
+        this.combatSystem.setMapSystem(this.mapSystem);
+
+        // 建物システム初期化（レンダリングエンジンへの参照を渡す）
+        this.buildingSystem = new BuildingSystem(this.renderingEngine.scene, this.renderingEngine);
+
+        // ステージローダー初期化
+        this.stageLoader = new StageLoader(this);
+
+        // 建物エディタ（Architect Mode）
+        this.buildingEditor = new BuildingEditor(this);
 
         this.resize();
         window.addEventListener('resize', () => this.resize());
@@ -63,7 +85,7 @@ export class Game {
         window.addEventListener('keydown', (e) => this.onKeyDown(e));
 
         // タッチ操作のリスナーを追加
-        this.canvas.addEventListener('touchstart', (e) => this.onTouchStart(e), { passive: false });
+        this.canvas.addEventListener('touchstart', (e) => this.onTouchStart(e), { passive: false, capture: true });
         // touchmoveとtouchendはwindowで受けて、ドラッグが画面外に出ても追跡できるようにする
         window.addEventListener('touchmove', (e) => this.onTouchMove(e), { passive: false });
         window.addEventListener('touchend', (e) => this.onTouchEnd(e), { passive: false });
@@ -79,6 +101,36 @@ export class Game {
         document.body.appendChild(this.selectionBox);
 
         requestAnimationFrame(() => this.loop());
+    }
+
+    /**
+     * 特定のステージをロードして開始
+     * @param {Object} stageData - ステージJSON
+     * @param {string} playerSide - 'EAST' or 'WEST'
+     */
+    startStage(stageData, playerSide = 'EAST') {
+        this.audioEngine.init();
+        this.audioEngine.playBGM();
+        this.playerSide = playerSide;
+        this.combatSystem.setPlayerSide(playerSide);
+        document.getElementById('start-screen').style.display = 'none';
+
+        // ステージローダーで構築
+        this.stageLoader.loadStage(stageData);
+
+        // UI更新など初期化処理
+        this.updateHUD();
+        this.updateSelectionUI([]);
+
+        // 最初のフェーズ開始
+        this.gameState = 'ORDER';
+        document.getElementById('action-btn').style.display = 'block';
+        document.getElementById('phase-text').innerText = "目標設定フェイズ";
+
+        // 3Dユニット描画更新
+        if (this.renderingEngine && this.renderingEngine.drawUnits) {
+            this.renderingEngine.drawUnits();
+        }
     }
 
     resize() {
@@ -102,6 +154,11 @@ export class Game {
         WARLORDS.forEach((warlord, warlordId) => {
             this.unitManager.createUnitsFromWarlord(warlord, warlordId, WARLORDS, this.mapSystem);
         });
+
+        // 3Dレンダラーのマップ情報を更新（高さキャッシュの再計算）
+        if (this.renderingEngine) {
+            this.renderingEngine.createIsometricTiles();
+        }
 
         // 全ユニットを取得
         this.units = this.unitManager.getAllUnits();
@@ -129,6 +186,11 @@ export class Game {
         // 3Dユニットを描画
         if (this.renderingEngine && this.renderingEngine.drawUnits) {
             this.renderingEngine.drawUnits();
+        }
+
+        // テスト: 建物を配置（グリッド座標を指定するだけで高さは自動計算）
+        if (this.buildingSystem) {
+            this.buildingSystem.placeBuildingAtGrid('house_small', 35, 35);
         }
     }
 
@@ -173,6 +235,9 @@ export class Game {
         try {
             // 調略フラグをリセット（新しいターン開始）
             this.warlordPlotUsed = {};
+
+            // 全ユニットの行動済みフラグをリセット（未行動状態に戻す）
+            this.units.forEach(u => u.hasActed = false);
 
             // ユニット単位でソート（残り兵数が少ない順）
             const queue = [...this.units].sort((a, b) => a.soldiers - b.soldiers);
@@ -259,6 +324,18 @@ export class Game {
 
     // Input handling
     onMouseDown(e) {
+        if (this.buildingEditor && this.buildingEditor.isActive) return;
+
+        // 建物配置モード
+        if (this.gameState === 'PLACEMENT') {
+            if (e.button === 0) { // Left Click
+                this.placeCurrentBuilding();
+            } else if (e.button === 2) { // Right Click
+                this.cancelPlacementMode();
+            }
+            return;
+        }
+
         // 右クリックはOrbitControlsが処理するので何もしない
         if (e.button === 0) {
             this.input.isLeftDown = true;
@@ -268,6 +345,14 @@ export class Game {
     }
 
     onMouseMove(e) {
+        if (this.buildingEditor && this.buildingEditor.isActive) return;
+
+        // 建物配置モード: ゴースト移動
+        if (this.gameState === 'PLACEMENT') {
+            this.updatePlacementGhost(e.clientX, e.clientY);
+            return;
+        }
+
         // 右ドラッグ（カメラ移動）はOrbitControlsが処理する
         if (this.input.isLeftDown) {
             this.input.curr = { x: e.clientX, y: e.clientY };
@@ -275,10 +360,41 @@ export class Game {
             // 選択ボックスを描画
             this.updateSelectionBox();
         }
+
+        // 3Dカーソル更新
+        if (this.renderingEngine && this.renderingEngine.updateCursorPosition && this.renderingEngine.getHexFromScreenCoordinates) {
+            const h = this.renderingEngine.getHexFromScreenCoordinates(e.clientX, e.clientY);
+
+            let cursorText = null;
+            // ユニット選択中で、カーソル有効ならターン計算
+            // 頻繁なA*計算は重いので、カーソル位置が変わったときだけやるべきだが、
+            // ここでは簡易的に毎回計算（最適化の余地あり）
+            if (h && this.selectedUnits.length > 0) {
+                const leader = this.selectedUnits.find(unit => unit.unitType === UNIT_TYPE_HEADQUARTERS) || this.selectedUnits[0];
+
+                // 自分の位置以外なら計算
+                if (leader.x !== h.q || leader.y !== h.r) {
+                    // 敵ユニットなどは避ける計算を行う
+                    const units = window.gameState ? window.gameState.units : [];
+                    // 簡易計算（キャッシュしてないので重くなる可能性あり）
+                    const turns = estimateTurns(leader, h.q, h.r, this.mapSystem, units);
+
+                    if (turns !== Infinity) {
+                        cursorText = `${turns} Turn${turns > 1 ? 's' : ''}`;
+                    } else {
+                        cursorText = "X";
+                    }
+                }
+            }
+
+            this.renderingEngine.updateCursorPosition(h ? h.q : null, h ? h.r : null, cursorText);
+        }
     }
 
     onMouseUp(e) {
+        if (this.buildingEditor && this.buildingEditor.isActive) return;
         if (this.input.isLeftDown && e.button === 0) {
+
             this.input.isLeftDown = false;
 
             // 選択ボックスを隠す
@@ -300,16 +416,24 @@ export class Game {
 
     // タッチ操作のハンドリング
     onTouchStart(e) {
+        if (this.buildingEditor && this.buildingEditor.isActive) return;
         // 1本指の場合のみ、選択操作として処理
-        // OrbitControlsの設定でONE: nullにしているので回転とは競合しないはず
+        // OrbitControlsの設定でONE: nullにしているので回転とは競合しないはずだが、
+        // 念のためcaptureフェーズでイベントを捕捉し、伝播を止める
         if (e.touches.length === 1) {
-            // e.preventDefault(); // これを呼ぶとクリックなどが発火しなくなる場合があるので注意
-            // ただし、スクロールなどを防ぐ意味では呼んだほうが良い
+            e.preventDefault(); // スクロール等のデフォルト動作を防止
+            e.stopImmediatePropagation(); // OrbitControlsへの伝播を完全に阻止
 
             this.input.isLeftDown = true;
             const touch = e.touches[0];
             this.input.start = { x: touch.clientX, y: touch.clientY };
             this.input.curr = { x: touch.clientX, y: touch.clientY };
+        } else {
+            // 2本指以上になった場合は選択操作をキャンセル（OrbitControlsに任せる）
+            if (this.input.isLeftDown) {
+                this.input.isLeftDown = false;
+                this.selectionBox.style.display = 'none';
+            }
         }
     }
 
@@ -377,10 +501,30 @@ export class Game {
     }
 
     onKeyDown(e) {
+        if (this.gameState === 'PLACEMENT' && e.key === 'Escape') {
+            this.cancelPlacementMode();
+            return;
+        }
+
+        // Shift + B でエディタモード切替
+        if (e.key === 'B' && e.shiftKey) {
+            if (this.buildingEditor) {
+                if (this.buildingEditor.isActive) {
+                    this.buildingEditor.exit();
+                } else {
+                    this.buildingEditor.enter();
+                }
+            }
+            return;
+        }
+
         // ESCキーで選択解除とパネルを閉じる
         if (e.key === 'Escape') {
             this.selectedUnits = [];
             this.updateSelectionUI([]);
+            if (this.renderingEngine && this.renderingEngine.clearMoveRange) {
+                this.renderingEngine.clearMoveRange();
+            }
             document.getElementById('context-menu').style.display = 'none';
         }
     }
@@ -400,8 +544,9 @@ export class Game {
 
         // クリック位置に近いユニットを探す
         // 3Dの場合、HEX座標の一致で判定する方が確実
+        // UnitManager改修によりプロパティは q,r ではなく x,y になっている
         const u = this.units.find(x =>
-            !x.dead && x.q === h.q && x.r === h.r
+            !x.dead && x.x === h.q && x.y === h.r
         );
 
         const menu = document.getElementById('context-menu');
@@ -413,6 +558,15 @@ export class Game {
                 const warlordUnits = this.unitManager.getUnitsByWarlordId(u.warlordId);
                 this.selectedUnits = warlordUnits.filter(unit => !unit.dead);
                 this.updateSelectionUI(this.selectedUnits, null); // ターゲット情報はクリア
+
+                // 移動範囲表示（本陣を基準）
+                const leader = this.selectedUnits.find(unit => unit.unitType === UNIT_TYPE_HEADQUARTERS) || this.selectedUnits[0];
+                if (leader && this.renderingEngine && this.renderingEngine.showMoveRange) {
+                    this.renderingEngine.clearMoveRange();
+                    const range = leader.move || 6; // デフォルト移動力
+                    const tiles = getReachableTiles(leader.x, leader.y, range, this.mapSystem);
+                    this.renderingEngine.showMoveRange(tiles, 0x4466ff);
+                }
                 // 陣形はユニットカード内に表示される
             } else {
                 // 敵クリック
@@ -444,13 +598,16 @@ export class Game {
             if (this.selectedUnits.length > 0 && this.selectedUnits[0].side === this.playerSide) {
                 // 移動命令を設定（選択は維持）
                 this.selectedUnits.forEach(su =>
-                    su.order = { type: 'MOVE', targetHex: { q: h.q, r: h.r } }
+                    su.order = { type: 'MOVE', targetHex: { x: h.q, y: h.r } }
                 );
                 // 選択を維持して陣形パネルも維持
             } else {
                 // 選択状態でなければ、選択解除
                 this.selectedUnits = [];
                 this.updateSelectionUI([], null); // ターゲット情報はクリア
+                if (this.renderingEngine && this.renderingEngine.clearMoveRange) {
+                    this.renderingEngine.clearMoveRange();
+                }
             }
         }
     }
@@ -482,6 +639,15 @@ export class Game {
             this.selectedUnits = selected;
             this.updateSelectionUI(this.selectedUnits, null); // ターゲット情報はクリア
 
+            // 移動範囲表示（先頭ユニット基準）
+            if (this.selectedUnits.length > 0 && this.renderingEngine && this.renderingEngine.showMoveRange) {
+                this.renderingEngine.clearMoveRange();
+                const leader = this.selectedUnits.find(unit => unit.unitType === UNIT_TYPE_HEADQUARTERS) || this.selectedUnits[0];
+                const range = leader.move || 6;
+                const tiles = getReachableTiles(leader.x, leader.y, range, this.mapSystem);
+                this.renderingEngine.showMoveRange(tiles, 0x4466ff);
+            }
+
             // コンテキストメニューは閉じる
             this.closeCtx();
         } else {
@@ -507,6 +673,114 @@ export class Game {
     closeCtx() {
         document.getElementById('context-menu').style.display = 'none';
         // 陣形パネルは閉じない（選択を維持）
+    }
+
+    /**
+     * 建物配置モードを開始
+     */
+    enterBuildingPlacementMode(buildingData) {
+        if (this.buildingEditor.isActive) {
+            this.buildingEditor.exit();
+        }
+
+        console.log("Entering Placement Mode", buildingData);
+        this.gameState = 'PLACEMENT';
+        this.placementData = buildingData;
+
+        // ゴースト生成
+        if (this.placementGhost) {
+            this.renderingEngine.scene.remove(this.placementGhost);
+        }
+
+        // BuildingSystemを使ってメッシュ生成（仮位置）
+        this.placementGhost = this.buildingSystem.createBuildingMesh({ name: "Ghost", ...buildingData }, 0, 0, 0);
+
+        // 半透明にする
+        this.placementGhost.traverse(c => {
+            if (c.isMesh) {
+                c.material = c.material.clone();
+                c.material.transparent = true;
+                c.material.opacity = 0.6;
+                c.material.emissive = new THREE.Color(0x004400);
+            }
+        });
+
+        this.renderingEngine.scene.add(this.placementGhost);
+    }
+
+    cancelPlacementMode() {
+        if (this.gameState !== 'PLACEMENT') return;
+
+        this.gameState = 'PLAY'; // or previous state? Default to PLAY logic
+        this.placementData = null;
+        if (this.placementGhost) {
+            this.renderingEngine.scene.remove(this.placementGhost);
+            this.placementGhost = null;
+        }
+    }
+
+    updatePlacementGhost(screenX, screenY) {
+        if (!this.placementGhost || !this.renderingEngine) return;
+
+        const h = this.renderingEngine.getHexFromScreenCoordinates(screenX, screenY);
+        // getHexFromScreenCoordinates returns Hex coords (q,r), but we likely want Grid coords for buildings?
+        // Building system uses square grid logic inside placeBuildingAtGrid?
+        // Wait, renderingEngine has gridToWorld3D(gridX, gridY).
+        // Let's assume we map screen to ground plane, then to grid.
+
+        // Raycast to plane
+        const intersects = this.renderingEngine.raycastToGround(screenX, screenY);
+        if (intersects) {
+            const p = intersects.point;
+            // Convert to Grid
+            // Assuming building blockSize = 8.
+            // But we need consistency with `placeCustomBuildingAtGrid`.
+            // Let's implement worldToGrid logic here or use renderingEngine helper if exists.
+
+            // For now, map world pos to grid:
+            const blockSize = 8.0; // Same as building system
+            const bx = Math.round(p.x / (blockSize / 2));
+            const bz = Math.round(p.z / (blockSize / 4));
+            // This is complex because of shearing.
+
+            // Simpler: Just get the world position and determine grid index.
+            // Let's reuse BuildingEditor logic? No, main.js shouldn't depend on Editor inner logic.
+            // Let's look at `renderingEngine.getHexFromScreenCoordinates`.
+
+            // Wait, Sekigahara v3 is Hex?
+            // "distinct field shape (square grid with height differences instead of hex)" - Request says SQUARE.
+            // But main.js variable says `HEX_SIZE`.
+            // And `getHexFromScreenCoordinates`.
+            // BUT Building uses "sheared geometry".
+
+            // Let's assume we pass approximate grid coordinates to `placeCustomBuildingAtGrid`.
+            // Or just place at World Position.
+            // `placeCustomBuilding` takes world coords.
+
+            this.placementGhost.position.set(p.x, p.y, p.z);
+            this.currentPlacementPos = p;
+        }
+    }
+
+    placeCurrentBuilding() {
+        if (!this.placementData || !this.currentPlacementPos) return;
+
+        // Snap logic here if needed.
+        // For now, just place at cursor.
+        const p = this.currentPlacementPos;
+
+        // Align to height map? center?
+        // The buildSystem logic usually calculates height.
+        // Let's try to infer grid coordinates roughly or just pass world coords.
+        // placeCustomBuilding(data, wx, wz, y);
+        this.buildingSystem.placeCustomBuilding(this.placementData, p.x, p.z, p.y);
+
+        // Sound?
+        // this.audioEngine.play('build'); 
+
+        // Keep placement mode active for multiple? Or exit?
+        // Exit for now.
+        this.cancelPlacementMode();
     }
 
     /**
@@ -811,6 +1085,182 @@ export class Game {
 
             container.appendChild(d);
         });
+    }
+
+    /**
+     * キーボード入力ハンドラー
+     */
+    onKeyDown(e) {
+        // 配置モード中の回転
+        if (this.state === 'PLACEMENT' && (e.key === 'r' || e.key === 'R')) {
+            this.placementRotation = (this.placementRotation + 1) % 4;
+            console.log(`Rotation: ${this.placementRotation * 90}°`);
+            this.updatePlacementGhost();
+        }
+
+        // エスケープキーで配置モードをキャンセル
+        if (e.key === 'Escape' && this.state === 'PLACEMENT') {
+            this.cancelPlacementMode();
+        }
+
+        // マップ保存 (Shift+P)
+        if (e.key === 'P' && e.shiftKey) {
+            this.exportMapData();
+        }
+    }
+
+    /**
+     * 建物配置モードに入る
+     */
+    enterBuildingPlacementMode(buildingData) {
+        console.log("Enter Placement Mode");
+        this.state = 'PLACEMENT';
+        this.placementData = buildingData;
+        this.placementRotation = 0;
+        this.updatePlacementGhost();
+    }
+
+    /**
+     * 配置モードをキャンセル
+     */
+    cancelPlacementMode() {
+        console.log("Cancel Placement Mode");
+        this.state = 'PLAYING';
+        this.placementData = null;
+        this.placementRotation = 0;
+
+        if (this.placementGhost) {
+            this.renderingEngine.scene.remove(this.placementGhost);
+            this.placementGhost = null;
+        }
+    }
+
+    /**
+     * 配置ゴーストを更新
+     */
+    updatePlacementGhost() {
+        // 古いゴーストを削除
+        if (this.placementGhost) {
+            this.renderingEngine.scene.remove(this.placementGhost);
+            this.placementGhost = null;
+        }
+
+        if (!this.placementData) return;
+
+        // 回転を適用
+        const { blocks, size } = this.buildingSystem.rotateBlocks(
+            this.placementData.blocks,
+            this.placementData.size,
+            this.placementRotation
+        );
+        const tempTemplate = { ...this.placementData, blocks, size };
+
+        // ゴースト作成
+        const mesh = this.buildingSystem.createBuildingMesh(tempTemplate, 0, 0, 0);
+
+        // 半透明化
+        mesh.traverse((child) => {
+            if (child.isMesh) {
+                child.material = child.material.clone();
+                child.material.transparent = true;
+                child.material.opacity = 0.5;
+                child.material.depthWrite = false;
+            }
+        });
+
+        this.placementGhost = mesh;
+        this.renderingEngine.scene.add(this.placementGhost);
+    }
+
+    /**
+     * 現在の建物を配置
+     */
+    placeCurrentBuilding() {
+        if (!this.placementData || !this.input.hoverHex) return;
+
+        const hex = this.input.hoverHex;
+
+        this.buildingSystem.placeCustomBuildingAtGrid(
+            this.placementData,
+            hex.x,
+            hex.y,
+            this.placementRotation
+        );
+
+        console.log(`Placed building at (${hex.x}, ${hex.y}) Rotation: ${this.placementRotation * 90}°`);
+    }
+
+    /**
+     * マウス移動イベントハンドラー
+     */
+    onMouseMove(e) {
+        // 配置モード中のゴースト更新
+        if (this.state === 'PLACEMENT') {
+            const intersect = this.renderingEngine.raycastToGround(e.clientX, e.clientY);
+            if (intersect && intersect.object && intersect.object.userData) {
+                const hex = { x: intersect.object.userData.x, y: intersect.object.userData.y };
+                this.input.hoverHex = hex;
+
+                // ゴーストの位置を更新
+                if (this.placementGhost) {
+                    const pos = this.renderingEngine.gridToWorld3D(hex.x, hex.y, 0);
+                    const h = this.renderingEngine.mapSystem.getGroundHeight(hex.x, hex.y);
+                    this.placementGhost.position.set(pos.x, h, pos.z);
+                }
+            }
+            return; // 配置モード中は他の処理をスキップ
+        }
+
+        // 通常のマウス処理（必要に応じて追加）
+    }
+
+    /**
+     * マウスクリックイベントハンドラー
+     */
+    onMouseDown(e) {
+        // 配置モード中の処理
+        if (this.state === 'PLACEMENT') {
+            if (e.button === 0) { // 左クリック
+                this.placeCurrentBuilding();
+            } else if (e.button === 2) { // 右クリック
+                this.cancelPlacementMode();
+            }
+            e.preventDefault();
+            return;
+        }
+
+        // 通常のクリック処理（必要に応じて追加）
+    }
+
+    /**
+     * マウスアップイベントハンドラー
+     */
+    onMouseUp(e) {
+        // 必要に応じて実装
+    }
+
+    /**
+     * マウスホイールイベントハンドラー
+     */
+    onWheel(e) {
+        // 必要に応じて実装
+    }
+
+    /**
+     * マップデータをエクスポート
+     */
+    exportMapData() {
+        const buildings = this.buildingSystem.getPlacedBuildingsData();
+        const data = {
+            version: '1.0',
+            timestamp: new Date().toISOString(),
+            buildings: buildings
+        };
+        const json = JSON.stringify(data, null, 2);
+        console.log("=== EXPORTED MAP DATA ===");
+        console.log(json);
+        console.log("=========================");
+        alert("マップデータをコンソールに出力しました。\nF12キーを押してコンソールを開き、データをコピーしてください。");
     }
 }
 

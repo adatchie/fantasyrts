@@ -10,6 +10,9 @@ import { generatePortrait } from './rendering.js';
 export const UNIT_TYPE_HEADQUARTERS = 'HEADQUARTERS'; // 本陣
 export const UNIT_TYPE_NORMAL = 'NORMAL';             // 通常ユニット
 
+// 定数インポート
+import { MAP_W, MAP_H } from './constants.js';
+
 // 1ユニットあたりの標準兵力
 export const SOLDIERS_PER_UNIT = 1000;
 
@@ -30,20 +33,27 @@ export class UnitManager {
      * @param {Array} allWarlords - 全武将データ（配置重複チェック用）
      * @returns {Array} 生成されたユニット配列
      */
+    /**
+     * 武将データから複数ユニットを生成
+     * @param {Object} warlord - 武将データ（WARLORDS配列の要素）
+     * @param {number} warlordId - 武将ID
+     * @param {Array} allWarlords - 全武将データ（配置重複チェック用）
+     * @returns {Array} 生成されたユニット配列
+     */
     createUnitsFromWarlord(warlord, warlordId, allWarlords = [], mapSystem = null) {
         // 必要なユニット数を計算
         const totalUnits = Math.ceil(warlord.soldiers / SOLDIERS_PER_UNIT);
 
         // 本陣の初期位置を決定（重複回避）
         const hqPosition = this.findNonOverlappingPosition(
-            warlord.q,
-            warlord.r,
+            warlord.x,
+            warlord.y,
             totalUnits,
             allWarlords.filter(w => w !== warlord)
         );
 
         // 螺旋状の配置座標を生成
-        const positions = this.generateSpiralPositions(hqPosition.q, hqPosition.r, totalUnits, mapSystem);
+        const positions = this.generateSpiralPositions(hqPosition.x, hqPosition.y, totalUnits, mapSystem);
 
         // 各ユニットに兵力を分配
         const soldierDistribution = this.distributeSoldiers(warlord.soldiers, totalUnits);
@@ -75,9 +85,15 @@ export class UnitManager {
                 maxSoldiers: soldierDistribution[i],
 
                 // 位置情報
-                q: positions[i].q,
-                r: positions[i].r,
-                pos: hexToPixel(positions[i].q, positions[i].r),
+                x: positions[i].x,
+                y: positions[i].y,
+                // 後方互換性のためq,rも設定しておくが、基本はx,yを使用
+                q: positions[i].x,
+                r: positions[i].y,
+
+                // ピクセル座標はレンダリング側で計算（必要なら）
+                // pos: hexToPixel(positions[i].q, positions[i].r), // 廃止
+
                 dir: warlord.side === 'EAST' ? 3 : 0,
 
                 // ゲーム状態
@@ -85,9 +101,12 @@ export class UnitManager {
                 dead: false,
                 formation: null, // 陣形（本陣のみ使用: HOKO/KAKUYOKU/GYORIN）
 
-                // 描画情報 - すべて1HEXサイズ
+                // 描画情報
                 radius: 0.45,
                 size: 1,
+
+                // 移動力 (Action Points)
+                movePower: 6,  // 平地なら6マス、丘陵なら3マス移動可能
 
                 // 画像は本陣のみ生成
                 imgCanvas: isHeadquarters ? generatePortrait(warlord) : null
@@ -105,29 +124,29 @@ export class UnitManager {
 
     /**
      * 他の武将と重ならない本陣位置を見つける
-     * @param {number} originalQ - 元のQ座標
-     * @param {number} originalR - 元のR座標
+     * @param {number} originalX - 元のX座標
+     * @param {number} originalY - 元のY座標
      * @param {number} unitCount - 配置するユニット数
      * @param {Array} otherWarlords - 他の武将データ
-     * @returns {{q: number, r: number}} 調整後の座標
+     * @returns {{x: number, y: number}} 調整後の座標
      */
-    findNonOverlappingPosition(originalQ, originalR, unitCount, otherWarlords) {
+    findNonOverlappingPosition(originalX, originalY, unitCount, otherWarlords) {
         // 必要な半径を計算（螺旋の最大半径）
         const requiredRadius = Math.ceil(Math.sqrt(unitCount)) + 1;
 
         // まず元の位置で重複チェック
-        if (!this.checkOverlap(originalQ, originalR, requiredRadius, otherWarlords)) {
-            return { q: originalQ, r: originalR };
+        if (!this.checkOverlap(originalX, originalY, requiredRadius, otherWarlords)) {
+            return { x: originalX, y: originalY };
         }
 
         // 重複する場合、螺旋状に探索
         let searchRadius = 1;
-        while (searchRadius < 15) { // 最大15HEX探索
-            const searchPositions = this.generateSpiralPositions(originalQ, originalR, searchRadius * 6);
+        while (searchRadius < 15) { // 最大15タイル探索
+            const searchPositions = this.generateSpiralPositions(originalX, originalY, searchRadius * 8); // およそ外周分
 
             for (const pos of searchPositions) {
-                if (!this.checkOverlap(pos.q, pos.r, requiredRadius, otherWarlords)) {
-                    console.log(`Position adjusted: (${originalQ},${originalR}) -> (${pos.q},${pos.r})`);
+                if (!this.checkOverlap(pos.x, pos.y, requiredRadius, otherWarlords)) {
+                    console.log(`Position adjusted: (${originalX},${originalY}) -> (${pos.x},${pos.y})`);
                     return pos;
                 }
             }
@@ -136,24 +155,24 @@ export class UnitManager {
         }
 
         // 見つからなければ元の位置を返す（最悪のケース）
-        console.warn(`Could not find non-overlapping position for (${originalQ},${originalR})`);
-        return { q: originalQ, r: originalR };
+        console.warn(`Could not find non-overlapping position for (${originalX},${originalY})`);
+        return { x: originalX, y: originalY };
     }
 
     /**
      * 指定位置が他の武将と重複するかチェック
-     * @param {number} q - チェックするQ座標
-     * @param {number} r - チェックするR座標
+     * @param {number} x - チェックするX座標
+     * @param {number} y - チェックするY座標
      * @param {number} radius - 必要な半径
      * @param {Array} otherWarlords - 他の武将データ
      * @returns {boolean} 重複する場合true
      */
-    checkOverlap(q, r, radius, otherWarlords) {
+    checkOverlap(x, y, radius, otherWarlords) {
         for (const other of otherWarlords) {
-            const distance = this.hexDistance(q, r, other.q, other.r);
+            const distance = this.gridDistance(x, y, other.x, other.y);
             const otherRadius = Math.ceil(Math.sqrt(Math.ceil(other.soldiers / SOLDIERS_PER_UNIT))) + 1;
 
-            // 2つの円が重なるかチェック
+            // 2つの領域が重なるかチェック
             if (distance < radius + otherRadius) {
                 return true; // 重複
             }
@@ -162,71 +181,71 @@ export class UnitManager {
     }
 
     /**
-     * HEX距離を計算
+     * グリッド距離（チェビシェフ距離: MAX(|dx|, |dy|)）を計算
+     * 斜め移動も1歩と数える
      */
-    hexDistance(q1, r1, q2, r2) {
-        const dq = q2 - q1;
-        const dr = r2 - r1;
-        return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
+    gridDistance(x1, y1, x2, y2) {
+        const dx = Math.abs(x2 - x1);
+        const dy = Math.abs(y2 - y1);
+        return Math.max(dx, dy);
     }
 
     /**
-     * 時計回りの螺旋状に座標を生成
-     * @param {number} centerQ - 中心のQ座標（本陣の位置）
-     * @param {number} centerR - 中心のR座標
+     * 時計回りの螺旋状に座標を生成（スクエアグリッド用）
+     * @param {number} centerX - 中心のX座標
+     * @param {number} centerY - 中心のY座標
      * @param {number} count - 生成する座標の数
-     * @returns {Array<{q: number, r: number}>} 座標配列
+     * @returns {Array<{x: number, y: number}>} 座標配列
      */
-    generateSpiralPositions(centerQ, centerR, count, mapSystem = null) {
-        const positions = [{ q: centerQ, r: centerR }];
-
+    generateSpiralPositions(centerX, centerY, count, mapSystem = null) {
+        const positions = [{ x: centerX, y: centerY }];
         if (count <= 1) return positions;
 
-        // HEXの6方向（時計回り: 東, 南東, 南西, 西, 北西, 北東）
-        const directions = [
-            { q: 1, r: 0 },   // 0: 東
-            { q: 0, r: 1 },   // 1: 南東  
-            { q: -1, r: 1 },  // 2: 南西
-            { q: -1, r: 0 },  // 3: 西
-            { q: 0, r: -1 },  // 4: 北西
-            { q: 1, r: -1 }   // 5: 北東
-        ];
+        // 右、下、左、上
+        const dirs = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+        let len = 1; // 直進する長さ
+        let x = centerX;
+        let y = centerY;
+        let d = 0; // 現在の方向インデックス
 
-        let currentQ = centerQ;
-        let currentR = centerR;
-        let ring = 1; // 現在のリング（中心からの距離）
-
+        let i = 0;
         while (positions.length < count) {
-            // リングの開始位置（北東方向に移動）
-            currentQ += directions[5].q;
-            currentR += directions[5].r;
+            // 現在の長さ分だけ進みたいが、各辺ごとにチェック
+            // 螺旋の各辺は2回ずつ長さが同じで、その後長さ+1される
+            // 右1, 下1, 左2, 上2, 右3, 下3...
 
-            // 6方向それぞれにring個ずつ配置
-            for (let dir = 0; dir < 6 && positions.length < count; dir++) {
-                for (let step = 0; step < ring && positions.length < count; step++) {
-                    // mapSystemがある場合、地形チェックを行う
+            for (let j = 0; j < 2; j++) {
+                for (let k = 0; k < len; k++) {
+                    x += dirs[d][0];
+                    y += dirs[d][1];
+
                     let isValidTerrain = true;
-                    if (mapSystem) {
-                        const tile = mapSystem.getTile(currentQ, currentR);
-                        if (tile && (tile.type === 'MTN' || tile.type === 'RIVER')) {
-                            // 山や川には配置しない
+
+                    // マップ境界チェック（必須）
+                    if (x < 0 || x >= MAP_W || y < 0 || y >= MAP_H) {
+                        isValidTerrain = false;
+                    }
+                    // 地形チェック（mapSystemがある場合）
+                    else if (mapSystem) {
+                        const tile = mapSystem.getTile ? mapSystem.getTile(x, y) : null;
+                        if (!tile || tile.type === 'MTN' || tile.type === 'RIVER' || tile.type === 'SEA') {
+                            // 山や川、海には配置しない
                             isValidTerrain = false;
                         }
                     }
 
                     if (isValidTerrain) {
-                        positions.push({ q: currentQ, r: currentR });
+                        positions.push({ x, y });
                     }
 
-                    // 次の位置へ移動
-                    currentQ += directions[dir].q;
-                    currentR += directions[dir].r;
+                    if (positions.length >= count) return positions;
                 }
+                d = (d + 1) % 4; // 方向転換
             }
+            len++; // 辺の長さを増やす
 
-            ring++;
-            // 安全策：無限ループ防止（あまりにも見つからない場合）
-            if (ring > 20) break;
+            // 安全策
+            if (len > 30) break;
         }
 
         return positions.slice(0, count);
@@ -322,8 +341,8 @@ export class UnitManager {
             return false;
         }
 
-        // 本陣が死亡している、または兵力が0の場合
-        if (hq.dead || hq.soldiers <= 0) {
+        // 本陣が死亡している、または兵力が0以下/NaNの場合
+        if (hq.dead || hq.soldiers <= 0 || isNaN(hq.soldiers)) {
             // 配下ユニットがまだ生きている場合のみ敗走処理
             const aliveUnits = units.filter(u => !u.dead);
 

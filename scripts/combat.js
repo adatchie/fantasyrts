@@ -3,7 +3,8 @@
  * 戦闘処理とユニット行動
  */
 
-import { getDist, getDistRaw, getFacingAngle, findPath } from './pathfinding.js';
+import { getDist, getDistRaw, getFacingAngle, findPath, getDistAttack } from './pathfinding.js';
+import { TERRAIN_TYPES } from './map.js';
 import { hexToPixel } from './pathfinding.js';
 import { DIALOGUE } from './constants.js';
 import { generatePortrait } from './rendering.js';
@@ -58,42 +59,45 @@ export class CombatSystem {
         const reach = (unit.size + (target ? target.size : 1)) / 2.0 + 0.5;
 
         if (unit.order.type === 'PLOT' && target && !target.dead) {
-            await this.processPlot(unit, target, allUnits, warlordPlotUsed);
+            await this.processPlot(unit, target, allUnits, warlordPlotUsed, map);
         } else if (unit.order.type === 'ATTACK' && target && !target.dead) {
             await this.processAttack(unit, target, allUnits, map, reach);
         } else if (unit.order.type === 'MOVE') {
-            await this.processMove(unit, allUnits);
+            await this.processMove(unit, allUnits, map);
         }
+
+        // 行動完了フラグを設定（行動フェイズで行動済みとして静止させる）
+        unit.hasActed = true;
     }
 
     /**
      * 調略を処理
      * マルチユニットシステム: 1武将1ターン1回のみ
      */
-    async processPlot(unit, target, allUnits, warlordPlotUsed = {}) {
+    async processPlot(unit, target, allUnits, warlordPlotUsed = {}, map) {
         // この武将がすでに調略を使用済みかチェック
         if (warlordPlotUsed[unit.warlordId]) {
             console.log(`${unit.warlordName} は今ターンすでに調略を使用済み`);
             // 調略をスキップして移動に切り替え
-            unit.order = { type: 'MOVE', targetHex: { q: target.q, r: target.r } };
-            await this.processMove(unit, allUnits);
+            unit.order = { type: 'MOVE', targetHex: { x: target.x, y: target.y } };
+            await this.processMove(unit, allUnits, map);
             return;
         }
 
-        const dist = getDist(unit, target);
+        const dist = getDistAttack(unit, target);
         console.log(`[processPlot] ${unit.name} -> ${target.name}, dist=${dist}`);
 
         // 調略射程(5) + 陣形解除距離(3)
         const engagementDist = 8.0;
 
         if (dist <= 5) {
-            unit.dir = getFacingAngle(unit.q, unit.r, target.q, target.r);
+            unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
             this.speak(unit, 'PLOT_DO');
             this.speak(target, 'PLOT_REC');
             await this.spawnEffect('WAVE', unit, target);
 
             // エフェクトを見せるためのウェイト
-            await this.wait(800);
+            await this.wait(400);
 
             // 戦況による調略成功率
             const eTotal = allUnits.filter(u => u.side === 'EAST' && !u.dead)
@@ -135,11 +139,33 @@ export class CombatSystem {
                     }
                 });
 
-                this.spawnText({ q: target.q, r: target.r }, "寝返り！", "#0f0", 60);
+                this.spawnText({ q: target.x, r: target.y }, "寝返り！", "#0f0", 60);
                 this.audioEngine.sfxArrangementSuccess(); // 調略成功SE
+
+                // 画面中央にフローメッセージを表示（潰走演出と同様）
+                const defectionMsg = (unit.side === this.playerSide)
+                    ? `${target.warlordName}が味方についた模様！`
+                    : `${target.warlordName}が敵に寝返った模様！`;
+                const defectionColor = (unit.side === this.playerSide) ? '#00ff88' : '#ff4444';
+
+                const div = document.createElement('div');
+                div.className = 'vic-title';
+                div.innerText = defectionMsg;
+                div.style.position = 'absolute';
+                div.style.top = '30%';
+                div.style.left = '50%';
+                div.style.transform = 'translate(-50%,-50%)';
+                div.style.color = defectionColor;
+                div.style.zIndex = 150;
+                div.style.pointerEvents = 'none';
+                div.style.whiteSpace = 'nowrap';
+                div.style.fontSize = '32px';
+                div.style.textShadow = '2px 2px 4px #000';
+                document.getElementById('game-container').appendChild(div);
+                setTimeout(() => div.remove(), 3000);
             } else {
                 console.log(`[processPlot] Failed.`);
-                this.spawnText({ q: target.q, r: target.r }, "失敗...", "#aaa", 40);
+                this.spawnText({ q: target.x, r: target.y }, "失敗...", "#aaa", 40);
                 this.audioEngine.sfxArrangementFail(); // 調略失敗SE
             }
 
@@ -147,7 +173,7 @@ export class CombatSystem {
             warlordPlotUsed[unit.warlordId] = true;
 
             unit.order = null;
-            await this.wait(800);
+            await this.wait(400);
         } else if (dist > engagementDist) {
             // まだ遠い場合は陣形を維持して移動
             console.log(`[processPlot] Target too far (${dist}), moving in formation.`);
@@ -155,11 +181,11 @@ export class CombatSystem {
             const originalOrder = unit.order;
             unit.order = {
                 type: 'MOVE',
-                targetHex: { q: target.q, r: target.r },
+                targetHex: { x: target.x, y: target.y },
                 originalTargetId: target.id
             };
 
-            await this.processMove(unit, allUnits);
+            await this.processMove(unit, allUnits, map);
 
             // 命令復帰
             if (unit.order === null && getDist(unit, target) > 5) {
@@ -169,7 +195,7 @@ export class CombatSystem {
             }
         } else {
             console.log(`[processPlot] Moving to plot range.`);
-            await this.moveUnitStep(unit, target, allUnits);
+            await this.moveUnitStep(unit, target, allUnits, map);
         }
     }
 
@@ -180,18 +206,17 @@ export class CombatSystem {
      * 攻撃を処理
      */
     async processAttack(unit, target, allUnits, map, reach) {
-        // 距離チェックを少し緩める（+1.0の猶予を持たせる）
-        // 3D化に伴う座標の微妙なズレを許容するため
-        const dist = getDist(unit, target);
+        // スクエアグリッドに伴い、距離判定を厳格化（チェビシェフ距離を使用）
+        const dist = getDistAttack(unit, target);
         console.log(`[processAttack] ${unit.name} -> ${target.name}, dist=${dist}, reach=${reach}`);
 
         // 接敵するまでは陣形で近づく
         // reach + 3.0 くらいまでは陣形で整然と近づき、そこから個別に襲いかかるイメージ
         const engagementDist = reach + 3.0;
 
-        if (dist <= reach + 1.0) {
+        if (dist <= reach) {
             // 攻撃射程内なら攻撃実行
-            unit.dir = getFacingAngle(unit.q, unit.r, target.q, target.r);
+            unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
             this.speak(unit, 'ATTACK');
             await this.combat(unit, target, allUnits, map);
         } else if (dist > engagementDist) {
@@ -203,16 +228,16 @@ export class CombatSystem {
             const originalOrder = unit.order;
             unit.order = {
                 type: 'MOVE',
-                targetHex: { q: target.q, r: target.r },
+                targetHex: { x: target.x, y: target.y },
                 // 元のターゲット情報を保持して、陣形計算時の本陣の向き決定などに使う
                 originalTargetId: target.id
             };
 
-            await this.processMove(unit, allUnits);
+            await this.processMove(unit, allUnits, map);
 
             // 命令を元に戻す（次ターンも攻撃を継続するため）
             // processMove内で目的地に着くとorderがnullになることがあるので注意
-            if (unit.order === null && getDist(unit, target) > reach + 1.0) {
+            if (unit.order === null && getDistAttack(unit, target) > reach) {
                 // まだ届いていないのにMove完了扱いでnullになった場合、攻撃命令を復帰させる
                 unit.order = originalOrder;
             } else {
@@ -221,11 +246,11 @@ export class CombatSystem {
             }
         } else {
             // 接敵距離に入ったら、個別にターゲットへ殺到する
-            const moved = await this.moveUnitStep(unit, target, allUnits);
+            const moved = await this.moveUnitStep(unit, target, allUnits, map);
             // 移動後に再チェック
-            const newDist = getDist(unit, target);
-            if (newDist <= reach + 1.0) {
-                unit.dir = getFacingAngle(unit.q, unit.r, target.q, target.r);
+            const newDist = getDistAttack(unit, target);
+            if (newDist <= reach) {
+                unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
                 this.speak(unit, 'ATTACK');
                 await this.combat(unit, target, allUnits, map);
             }
@@ -236,7 +261,7 @@ export class CombatSystem {
      * 移動を処理
      * 本陣の場合は陣形制限をチェック
      */
-    async processMove(unit, allUnits) {
+    async processMove(unit, allUnits, map) {
         console.log(`[processMove] START: ${unit.name}, unitType=${unit.unitType}, formation=${unit.formation}`);
 
         let dest = unit.order.targetHex;
@@ -258,11 +283,11 @@ export class CombatSystem {
                 let baseDir = hq.dir;
                 if (hq.order && hq.order.targetHex) {
                     // 移動目標がある場合はそちらを向く
-                    baseDir = getFacingAngle(hq.q, hq.r, hq.order.targetHex.q, hq.order.targetHex.r);
+                    baseDir = getFacingAngle(hq.x, hq.y, hq.order.targetHex.x, hq.order.targetHex.y);
                 }
 
-                // 陣形ターゲットを計算（本陣の現在位置を基準）
-                const targets = calculateFormationTargets({ ...hq, dir: baseDir }, subordinates);
+                // 陣形ターゲットを計算（本陣の現在位置を基準、地形考慮）
+                const targets = calculateFormationTargets({ ...hq, dir: baseDir }, subordinates, this.mapSystem);
 
                 if (targets && targets.has(unit.id)) {
                     const formDest = targets.get(unit.id);
@@ -274,15 +299,16 @@ export class CombatSystem {
             }
         }
         // ---------------------------------------------------------
-        if (getDistRaw(unit.q, unit.r, dest.q, dest.r) === 0) {
+        if (getDistRaw(unit.x, unit.y, dest.x, dest.y) === 0) {
             unit.order = null;
         } else {
+            // 本陣の場合、配下の追従を待つ（足並みを揃える）処理
             // 本陣の場合、配下の追従を待つ（足並みを揃える）処理
             if (unit.unitType === UNIT_TYPE_HEADQUARTERS && this.unitManager) {
                 // 1. 緊急回避チェック：近くに敵がいる場合はなりふり構わず動く
                 let enemyNearby = false;
                 for (const other of allUnits) {
-                    if (other.side !== unit.side && !other.dead && getDistRaw(unit.q, unit.r, other.q, other.r) <= 2) {
+                    if (other.side !== unit.side && !other.dead && getDistRaw(unit.x, unit.y, other.x, other.y) <= 2) {
                         enemyNearby = true;
                         break;
                     }
@@ -293,14 +319,14 @@ export class CombatSystem {
                         .filter(u => !u.dead && u.unitType !== UNIT_TYPE_HEADQUARTERS);
 
                     if (subordinates.length > 0) {
-                        // 周囲3HEX以内にいる配下をカウント
-                        const nearbySubordinates = subordinates.filter(u => getDistRaw(unit.q, unit.r, u.q, u.r) <= 3);
+                        // 周囲6HEX以内にいる配下をカウント（地形による遅れを考慮して緩和）
+                        const nearbySubordinates = subordinates.filter(u => getDistRaw(unit.x, unit.y, u.x, u.y) <= 6);
                         const ratio = nearbySubordinates.length / subordinates.length;
 
                         // 配下の50%以上が近くにいないなら、移動を待機
                         if (ratio < 0.5) {
                             console.log(`[本陣待機] ${unit.name}: 配下到着待ち (${nearbySubordinates.length}/${subordinates.length})`);
-                            this.spawnText({ q: unit.q, r: unit.r }, "待機...", "#aaa", 40);
+                            this.spawnText({ q: unit.x, r: unit.y }, "軍待ち...", "#aaa", 40);
                             await this.wait(200); // 少しだけウェイトを入れて雰囲気を出す
                             return; // 移動スキップ
                         }
@@ -308,7 +334,7 @@ export class CombatSystem {
                 }
             }
 
-            await this.moveUnitStep(unit, dest, allUnits);
+            await this.moveUnitStep(unit, dest, allUnits, map);
         }
     }
 
@@ -316,21 +342,21 @@ export class CombatSystem {
      * ユニットを移動（パスファインディング使用）
      * 包囲移動をサポート
      */
-    async moveUnitStep(unit, dest, allUnits) {
-        let targetQ = dest.q;
-        let targetR = dest.r;
+    async moveUnitStep(unit, dest, allUnits, map) {
+        let targetQ = dest.x;
+        let targetR = dest.y;
 
         // 目標がユニット（攻撃対象）の場合、包囲位置を探す
         if (dest.id !== undefined) {
             const surroundPos = this.findSurroundPosition(unit, dest, allUnits);
             if (surroundPos) {
-                targetQ = surroundPos.q;
-                targetR = surroundPos.r;
+                targetQ = surroundPos.x;
+                targetR = surroundPos.y;
             }
         }
 
-        const path = findPath(unit.q, unit.r, targetQ, targetR, allUnits, unit);
-        let moves = 3;
+        const path = findPath(unit.x, unit.y, targetQ, targetR, allUnits, unit, this.mapSystem);
+        let moves = unit.movePower || 6;
         let actuallyMoved = false;
 
         for (let i = 1; i < path.length && moves > 0; i++) {
@@ -340,7 +366,7 @@ export class CombatSystem {
             const blocker = allUnits.find(u =>
                 u.id !== unit.id &&
                 !u.dead &&
-                getDistRaw(next.q, next.r, u.q, u.r) < (unit.radius + u.radius)
+                getDistRaw(next.x, next.y, u.x, u.y) < (unit.radius + u.radius)
             );
 
             if (blocker) {
@@ -349,17 +375,17 @@ export class CombatSystem {
                     console.log(`🔄 位置交換 (Swap): ${unit.name} <-> ${blocker.name}`);
 
                     // blockerをunitの元いた位置に移動させる
-                    blocker.q = unit.q;
-                    blocker.r = unit.r;
-                    blocker.pos = hexToPixel(blocker.q, blocker.r);
+                    blocker.x = unit.x;
+                    blocker.y = unit.y;
+                    blocker.pos = hexToPixel(blocker.x, blocker.y);
                     // blockerの向きも反転させておく（すれ違った感が出る）
                     // blocker.dir = (unit.dir + 3) % 6; 
 
                     // unitは予定通りnextへ進む
-                    unit.dir = getFacingAngle(unit.q, unit.r, next.q, next.r);
-                    unit.q = next.q;
-                    unit.r = next.r;
-                    unit.pos = hexToPixel(unit.q, unit.r);
+                    unit.dir = getFacingAngle(unit.x, unit.y, next.x, next.y);
+                    unit.x = next.x;
+                    unit.y = next.y;
+                    unit.pos = hexToPixel(unit.x, unit.y);
 
                     actuallyMoved = true;
                     moves--; // コスト消費
@@ -370,13 +396,32 @@ export class CombatSystem {
                 }
             }
 
-            unit.dir = getFacingAngle(unit.q, unit.r, next.q, next.r);
-            unit.q = next.q;
-            unit.r = next.r;
-            unit.pos = hexToPixel(unit.q, unit.r);
-            actuallyMoved = true;
-            moves--;
-            await this.wait(20);
+            unit.dir = getFacingAngle(unit.x, unit.y, next.x, next.y);
+
+            // 移動コスト計算
+            let cost = 1;
+            if (map && map[next.y] && map[next.y][next.x]) {
+                const t = map[next.y][next.x];
+                if (TERRAIN_TYPES[t.type]) {
+                    cost = TERRAIN_TYPES[t.type].moveCost;
+                }
+            }
+
+            // 無限コスト（移動不可）なら停止
+            if (cost === Infinity) break;
+
+            if (moves >= cost) {
+                // 移動実行
+                unit.x = next.x;
+                unit.y = next.y;
+                unit.pos = hexToPixel(unit.x, unit.y);
+                actuallyMoved = true;
+                moves -= cost;
+                await this.wait(20);
+            } else {
+                // 移動力不足で停止（次のターンへ）
+                break;
+            }
         }
 
         return actuallyMoved;
@@ -392,22 +437,22 @@ export class CombatSystem {
             [-1, 0], [-1, +1], [0, +1]
         ];
 
-        // 目標の周囲6方向をチェック
+        // 目標の周囲6方向をチェック（スクエアグリッドでは4方向）
         const surroundPositions = [];
-        for (const [dq, dr] of directions) {
-            const q = target.q + dq;
-            const r = target.r + dr;
+        for (const [dx, dy] of directions) {
+            const nx = target.x + dx;
+            const ny = target.y + dy;
 
             // 空いているかチェック
             const isOccupied = allUnits.some(u =>
                 u.id !== unit.id &&
                 !u.dead &&
-                getDistRaw(q, r, u.q, u.r) < (unit.radius + u.radius)
+                getDistRaw(nx, ny, u.x, u.y) < (unit.radius + u.radius)
             );
 
             if (!isOccupied) {
-                const dist = getDistRaw(unit.q, unit.r, q, r);
-                surroundPositions.push({ q, r, dist });
+                const dist = getDistRaw(unit.x, unit.y, nx, ny);
+                surroundPositions.push({ x: nx, y: ny, dist });
             }
         }
 
@@ -422,7 +467,7 @@ export class CombatSystem {
      * 戦闘を実行
      */
     async combat(att, def, allUnits, map) {
-        att.dir = getFacingAngle(att.q, att.r, def.q, def.r);
+        att.dir = getFacingAngle(att.x, att.y, def.x, def.y);
 
         // 包囲攻撃の判定
         const siegers = allUnits.filter(u =>
@@ -436,7 +481,7 @@ export class CombatSystem {
         this.audioEngine.sfxBattleCry();
 
         // 攻撃側から防御側への攻撃線
-        this.addEffect('BEAM', { q: att.q, r: att.r }, { q: def.q, r: def.r }, '#ffaa00');
+        this.addEffect('BEAM', { q: att.x, r: att.y }, { q: def.x, r: def.y }, '#ffaa00');
 
         // 陣営色を取得するローカル関数
         const getSideColor = (side) => {
@@ -450,15 +495,15 @@ export class CombatSystem {
 
         siegers.forEach(s => {
             const siegeColor = getSideColor(s.side);
-            this.addEffect('BEAM', { q: s.q, r: s.r }, { q: def.q, r: def.r }, '#ffaa00');
+            this.addEffect('BEAM', { q: s.x, r: s.y }, { q: def.x, r: def.y }, '#ffaa00');
             // 包囲参加ユニットのHEXを点滅させる
-            this.addEffect('HEX_FLASH', { q: s.q, r: s.r, color: siegeColor });
+            this.addEffect('HEX_FLASH', { q: s.x, r: s.y, color: siegeColor });
             // ユニット自体も少し光らせる
             this.addEffect('UNIT_FLASH', { unitId: s.id, color: siegeColor, duration: 30 });
         });
 
         // 戦闘エフェクト: 土煙と火花を追加
-        this.addEffect('DUST', { q: def.q, r: def.r }, null, null);
+        this.addEffect('DUST', { q: def.x, r: def.y }, null, null);
         // 攻撃アニメーション（突撃）
         if (this.renderingEngine && this.renderingEngine.triggerUnitAttackAnimation) {
             this.renderingEngine.triggerUnitAttackAnimation(att.id, def.id);
@@ -468,16 +513,16 @@ export class CombatSystem {
         }
 
         // 突撃の予備動作時間（少し待ってからエフェクト）
-        await this.wait(300);
+        await this.wait(150);
 
         this.spawnSparks(att, def); // 攻撃側と防御側の間に火花
 
         this.audioEngine.sfxHit();
-        await this.wait(600);
+        await this.wait(300);
 
         // 地形ボーナス
-        const hAtt = map[att.r][att.q].h;
-        const hDef = map[def.r][def.q].h;
+        const hAtt = map[att.y][att.x].h;
+        const hDef = map[def.y][def.x].h;
         let mod = 1.0 + (hAtt > hDef ? 0.3 : 0) + (siegers.length * 0.2);
 
         // 方向ボーナス
@@ -494,7 +539,7 @@ export class CombatSystem {
             dirMsg = "側面攻撃!";
         }
 
-        if (dirMsg) this.spawnText({ q: def.q, r: def.r }, dirMsg, "#ffff00", 40);
+        if (dirMsg) this.spawnText({ q: def.x, r: def.y }, dirMsg, "#ffff00", 40);
 
         // 陣形によるステータス修正
         const attFormation = getFormationModifiers(att.formation);
@@ -502,16 +547,36 @@ export class CombatSystem {
         const finalAtkStat = att.atk + attFormation.atk;
         const finalDefStat = def.def + defFormation.def;
 
+        // 入力値の検証（NaN発生源の特定用）
+        if (typeof att.atk !== 'number' || typeof att.soldiers !== 'number' ||
+            typeof def.def !== 'number' || typeof def.soldiers !== 'number') {
+            console.error('[NaN DEBUG] Invalid unit data:', {
+                attacker: { name: att.name, atk: att.atk, soldiers: att.soldiers },
+                defender: { name: def.name, def: def.def, soldiers: def.soldiers }
+            });
+        }
+
         // ダメージ計算（陣形修正を適用）
-        let dmgToDef = Math.floor((Math.sqrt(att.soldiers) * finalAtkStat * mod * dirMod) / (finalDefStat / 15));
-        if (dmgToDef < 10) dmgToDef = 10;
+        // 安全な兵士数（負やNaNを防止）
+        const safeSoldiers = (typeof att.soldiers === 'number' && att.soldiers > 0) ? att.soldiers : 1;
+        let dmgToDef = Math.floor((Math.sqrt(safeSoldiers) * finalAtkStat * mod * dirMod) / (finalDefStat / 15));
+        if (!Number.isFinite(dmgToDef) || dmgToDef < 10) dmgToDef = 10;
         const dmgToAtt = Math.floor(dmgToDef * 0.2);
 
+        // ダメージ適用
         def.soldiers -= dmgToDef;
         att.soldiers -= dmgToAtt;
-        this.spawnText({ q: def.q, r: def.r }, `-${dmgToDef}`, '#ff3333', 60);
-        this.spawnText({ q: att.q, r: att.r }, `-${dmgToAtt}`, '#ff8888', 60);
+        this.spawnText({ q: def.x, r: def.y }, `-${dmgToDef}`, '#ff3333', 60);
+        this.spawnText({ q: att.x, r: att.y }, `-${dmgToAtt}`, '#ff8888', 60);
         this.speak(def, 'DAMAGED');
+
+        // 被ダメージアニメーションをトリガー
+        if (this.renderingEngine && this.renderingEngine.triggerDamageAnimation) {
+            this.renderingEngine.triggerDamageAnimation(def.id);
+            if (dmgToAtt > 0) {
+                this.renderingEngine.triggerDamageAnimation(att.id);
+            }
+        }
 
         // 3Dレンダラー側のユニット情報を更新（兵士数ゲージなど）
         if (this.renderingEngine && this.renderingEngine.updateUnitInfo) {
@@ -522,18 +587,27 @@ export class CombatSystem {
             if (defMesh) this.renderingEngine.updateUnitInfo(defMesh, def);
         }
 
-        if (def.soldiers <= 0) {
+        // 死亡判定（NaNの場合も死亡として扱う）
+        if (def.soldiers <= 0 || isNaN(def.soldiers)) {
             def.soldiers = 0;
             def.dead = true;
+            // 死亡アニメーションをトリガー（フェードアウト付き）
+            if (this.renderingEngine && this.renderingEngine.triggerDeathAnimation) {
+                this.renderingEngine.triggerDeathAnimation(def.id);
+            }
             await this.dramaticDeath(def, att.side);
         }
-        if (att.soldiers <= 0) {
+        if (att.soldiers <= 0 || isNaN(att.soldiers)) {
             att.soldiers = 0;
             att.dead = true;
+            // 死亡アニメーションをトリガー（フェードアウト付き）
+            if (this.renderingEngine && this.renderingEngine.triggerDeathAnimation) {
+                this.renderingEngine.triggerDeathAnimation(att.id);
+            }
             await this.dramaticDeath(att, def.side);
         }
 
-        await this.wait(400);
+        await this.wait(200);
         this.activeEffects = this.activeEffects.filter(e => e.type !== 'BEAM');
     }
 
@@ -680,9 +754,11 @@ export class CombatSystem {
         });
 
         if (type === 'DEATH') {
-            // 討ち死に演出: 表示 -> モノクロ -> 散る（拡散して消える）
+            // 討ち死に演出: ランダムで3パターンから選択
+            const variation = Math.floor(Math.random() * 3) + 1;
+
             setTimeout(() => {
-                // モノクロ化
+                // まずは共通でモノクロ化
                 img.style.filter = 'grayscale(100%) contrast(1.2) brightness(0.8)';
                 img.style.transition = 'filter 1.0s ease, transform 0.2s';
 
@@ -690,15 +766,97 @@ export class CombatSystem {
                 img.style.transform = 'translate(-50%, -50%) scale(1.05)';
                 setTimeout(() => img.style.transform = 'translate(-50%, -50%) scale(1.0)', 100);
 
-                // 散る演出
+                // 各演出へ分岐
                 setTimeout(() => {
-                    img.style.transition = 'all 1.5s ease-out';
-                    img.style.opacity = '0';
-                    img.style.transform = 'translate(-50%, -50%) scale(1.5)';
-                    img.style.filter = 'grayscale(100%) blur(10px)'; // ぼやけて消える
+                    if (variation === 1) {
+                        // 演出1: 散る（既存）
+                        img.style.transition = 'all 1.5s ease-out';
+                        img.style.opacity = '0';
+                        img.style.transform = 'translate(-50%, -50%) scale(1.5)';
+                        img.style.filter = 'grayscale(100%) blur(10px)'; // ぼやけて消える
 
-                    setTimeout(() => img.remove(), 1500);
+                        setTimeout(() => img.remove(), 1500);
+
+                    } else if (variation === 2) {
+                        // 演出2: 両断（左右に割れて上下にズレる）
+
+                        // 画像を複製して左右を作成
+                        // 左半分
+                        const left = img.cloneNode();
+                        left.style.clipPath = 'polygon(0% 0%, 50% 0%, 50% 100%, 0% 100%)';
+                        left.style.transition = 'all 1.2s ease-in';
+                        container.appendChild(left);
+
+                        // 右半分
+                        const right = img.cloneNode();
+                        right.style.clipPath = 'polygon(50% 0%, 100% 0%, 100% 100%, 50% 100%)';
+                        right.style.transition = 'all 1.2s ease-in';
+                        container.appendChild(right);
+
+                        // 元画像は隠す
+                        img.style.display = 'none';
+
+                        // アニメーション実行（左上・右下へスライドしながらフェードアウト）
+                        requestAnimationFrame(() => {
+                            left.style.transform = 'translate(-50%, calc(-50% - 100px)) scale(1.0)'; // 左は上へ
+                            left.style.opacity = '0';
+
+                            right.style.transform = 'translate(-50%, calc(-50% + 100px)) scale(1.0)'; // 右は下へ
+                            right.style.opacity = '0';
+                        });
+
+                        setTimeout(() => {
+                            left.remove();
+                            right.remove();
+                            img.remove();
+                        }, 1200);
+
+                    } else if (variation === 3) {
+                        // 演出3: 血しぶき（赤黒いエフェクト）
+
+                        // ベース画像を赤黒く変化させる
+                        // grayscale -> sepia -> hue-rotate(赤系) -> saturate(濃く) -> brightness(暗く)
+                        img.style.transition = 'all 0.5s ease-in';
+                        img.style.filter = 'grayscale(100%) sepia(100%) hue-rotate(-50deg) saturate(500%) contrast(1.5) brightness(0.4)';
+                        img.style.transform = 'translate(-50%, -50%) scale(1.02)';
+
+                        // 血のオーバーレイを追加
+                        const bloodOverlay = document.createElement('div');
+                        bloodOverlay.style.position = 'absolute';
+                        bloodOverlay.style.top = '50%';
+                        bloodOverlay.style.left = '50%';
+                        // 画像サイズを正確に取得するのは難しいので、画面中央に大きめの円形グラデーションを出す
+                        bloodOverlay.style.width = '600px';
+                        bloodOverlay.style.height = '600px';
+                        bloodOverlay.style.transform = 'translate(-50%, -50%)';
+                        bloodOverlay.style.background = 'radial-gradient(circle, rgba(180, 0, 0, 0.6) 0%, rgba(100, 0, 0, 0.0) 70%)';
+                        bloodOverlay.style.mixBlendMode = 'multiply';
+                        bloodOverlay.style.zIndex = 141;
+                        bloodOverlay.style.opacity = '0';
+                        bloodOverlay.style.pointerEvents = 'none';
+                        bloodOverlay.style.transition = 'opacity 0.2s ease-out';
+
+                        container.appendChild(bloodOverlay);
+
+                        requestAnimationFrame(() => {
+                            bloodOverlay.style.opacity = '1';
+                        });
+
+                        // フェードアウト
+                        setTimeout(() => {
+                            img.style.transition = 'all 1.5s ease-out';
+                            img.style.opacity = '0';
+                            bloodOverlay.style.transition = 'opacity 1.5s ease-out';
+                            bloodOverlay.style.opacity = '0';
+
+                            setTimeout(() => {
+                                img.remove();
+                                bloodOverlay.remove();
+                            }, 1500);
+                        }, 1000);
+                    }
                 }, 1200); // モノクロを見てる時間
+
             }, 800); // 最初の表示時間
 
         } else {
@@ -734,7 +892,7 @@ export class CombatSystem {
     }
 
     showFormation(unit, formationName) {
-        this.spawnText({ q: unit.q, r: unit.r }, formationName, "#00FFFF", 40);
+        this.spawnText({ q: unit.x, r: unit.y }, formationName, "#00FFFF", 40);
         this.speak(unit, 'FORMATION'); // 陣形変更時のセリフがあれば
     }
 
@@ -759,15 +917,15 @@ export class CombatSystem {
     spawnSparks(unit1, unit2) {
         if (this.renderingEngine) {
             this.renderingEngine.add3DEffect('SPARK', {
-                q: (unit1.q + unit2.q) / 2,
-                r: (unit1.r + unit2.r) / 2
+                q: (unit1.x + unit2.x) / 2,
+                r: (unit1.y + unit2.y) / 2
             });
         }
     }
 
     spawnEffect(type, unit1, unit2) {
         if (this.renderingEngine) {
-            this.renderingEngine.add3DEffect(type, { q: unit1.q, r: unit1.r }, { q: unit2.q, r: unit2.r });
+            this.renderingEngine.add3DEffect(type, { q: unit1.x, r: unit1.y }, { q: unit2.x, r: unit2.y });
         }
     }
 

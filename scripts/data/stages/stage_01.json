@@ -1,0 +1,29 @@
+{
+  "meta": {
+    "name": "Stage 1: Sekigahara Skirmish",
+    "version": "1.0",
+    "created_at": "2026-01-13T12:00:00Z"
+  },
+  "map": {
+    "width": 30,
+    "height": 30,
+    "seed": 12345
+  },
+  "buildings": [],
+  "units": [
+    {
+      "warlordId": 0,
+      "gridX": 10,
+      "gridY": 10,
+      "side": "EAST",
+      "formation": "HOKO"
+    },
+    {
+      "warlordId": 1,
+      "gridX": 20,
+      "gridY": 20,
+      "side": "WEST",
+      "formation": "GYORIN"
+    }
+  ]
+}

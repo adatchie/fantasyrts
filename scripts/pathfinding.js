@@ -1,78 +1,250 @@
 /**
- * SEKIGAHARA RTS - Pathfinding (Enhanced)
- * A*アルゴリズムによる障害物回避パスファインディング
+ * Fantasy RTS - Pathfinding (Square Grid)
+ * A*アルゴリズムによる障害物回避パスファインディング（スクエアグリッド対応）
  */
 
-import { HEX_SIZE, MAP_W, MAP_H } from './constants.js';
+import { TILE_SIZE, MAP_W, MAP_H } from './constants.js';
+import { TERRAIN_TYPES } from './map.js';
 
-// ヘックス座標ユーティリティ
-export function hexToPixel(q, r) {
+// 旧API互換性のためのエイリアス
+export const HEX_SIZE = TILE_SIZE;
+
+/**
+ * グリッド座標をピクセル座標に変換（アイソメトリック）
+ */
+export function gridToPixel(x, y) {
     return {
-        x: HEX_SIZE * Math.sqrt(3) * (q + r / 2),
-        y: HEX_SIZE * 3 / 2 * r
+        x: (x - y) * TILE_SIZE / 2,
+        z: (x + y) * TILE_SIZE / 4
     };
 }
 
+// 旧API互換
+export function hexToPixel(q, r) {
+    const result = gridToPixel(q, r);
+    return { x: result.x, y: result.z };
+}
+
+/**
+ * ピクセル座標をグリッド座標に変換（アイソメトリック逆変換）
+ */
+export function pixelToGrid(px, pz) {
+    const gx = (px / (TILE_SIZE / 2) + pz / (TILE_SIZE / 4)) / 2;
+    const gy = (pz / (TILE_SIZE / 4) - px / (TILE_SIZE / 2)) / 2;
+    return { x: Math.round(gx), y: Math.round(gy) };
+}
+
+// 旧API互換
 export function pixelToHex(mx, my, camera) {
-    let wx = (mx - camera.x) / camera.zoom;
-    let wy = (my - camera.y) / camera.zoom;
-    let q = (Math.sqrt(3) / 3 * wx - 1 / 3 * wy) / HEX_SIZE;
-    let r = (2 / 3 * wy) / HEX_SIZE;
-    return cubeRound({ q, r, s: -q - r });
+    // カメラオフセット適用（旧APIとの互換性のため）
+    let wx = camera ? (mx - camera.x) / camera.zoom : mx;
+    let wy = camera ? (my - camera.y) / camera.zoom : my;
+    const result = pixelToGrid(wx, wy);
+    return { q: result.x, r: result.y };
 }
 
+// 旧API互換（使用されなくなったが残す）
 export function cubeRound(c) {
-    let rx = Math.round(c.q), ry = Math.round(c.r), rz = Math.round(c.s);
-    let xd = Math.abs(rx - c.q), yd = Math.abs(ry - c.r), zd = Math.abs(rz - c.s);
-    if (xd > yd && xd > zd) rx = -ry - rz;
-    else if (yd > zd) ry = -rx - rz;
-    else rz = -rx - ry;
-    return { q: rx, r: ry };
+    return { q: Math.round(c.q), r: Math.round(c.r) };
 }
 
+/**
+ * 座標が有効範囲内かチェック
+ */
+export function isValidCoord(coord) {
+    return coord.x >= 0 && coord.x < MAP_W && coord.y >= 0 && coord.y < MAP_H;
+}
+
+// 旧API互換
 export function isValidHex(h) {
     return h.q >= 0 && h.q < MAP_W && h.r >= 0 && h.r < MAP_H;
 }
 
-export function getDistRaw(q1, r1, q2, r2) {
-    return (Math.abs(q1 - q2) + Math.abs(q1 + r1 - q2 - r2) + Math.abs(r1 - r2)) / 2;
+/**
+ * 2点間のマンハッタン距離を計算（スクエアグリッド用）
+ */
+export function getDistRaw(x1, y1, x2, y2) {
+    return Math.abs(x1 - x2) + Math.abs(y1 - y2);
 }
 
+/**
+ * ユニット間の距離を計算
+ */
 export function getDist(u1, u2) {
-    return getDistRaw(u1.q, u1.r, u2.q, u2.r);
+    return getDistRaw(u1.x, u1.y, u2.x, u2.y);
 }
 
-// 直線パス（シンプル版）
-export function getLine(q1, r1, q2, r2) {
-    let N = getDistRaw(q1, r1, q2, r2);
-    let res = [];
+/**
+ * チェビシェフ距離（斜め移動も距離1）
+ * 攻撃判定などに使用
+ */
+export function getDistChebyshev(u1, u2) {
+    return Math.max(Math.abs(u1.x - u2.x), Math.abs(u1.y - u2.y));
+}
+
+// 攻撃距離用エイリアス
+export const getDistAttack = getDistChebyshev;
+
+/**
+ * 直線パス（シンプル版、マンハッタン経路）
+ */
+export function getLine(x1, y1, x2, y2) {
+    const N = getDistRaw(x1, y1, x2, y2);
+    const res = [];
+    if (N === 0) {
+        return [{ x: x1, y: y1 }];
+    }
     for (let i = 0; i <= N; i++) {
-        let t = i / N;
-        res.push(cubeRound({
-            q: q1 + (q2 - q1) * t,
-            r: r1 + (r2 - r1) * t,
-            s: -(q1 + (q2 - q1) * t) - (r1 + (r2 - r1) * t)
-        }));
+        const t = i / N;
+        res.push({
+            x: Math.round(x1 + (x2 - x1) * t),
+            y: Math.round(y1 + (y2 - y1) * t)
+        });
     }
     return res;
 }
 
-// 隣接ヘックスを取得
-function getNeighbors(q, r) {
-    const directions = [
-        [+1, 0], [+1, -1], [0, -1],
-        [-1, 0], [-1, +1], [0, +1]
-    ];
-    return directions.map(([dq, dr]) => ({ q: q + dq, r: r + dr }))
-        .filter(isValidHex);
+/**
+ * 目標地点までの予想ターン数を計算
+ * @param {Object} unit - 移動するユニット
+ * @param {number} targetX - 目標X座標
+ * @param {number} targetY - 目標Y座標
+ * @param {Object} mapSystem - マップシステム
+ * @param {Array} units - 全ユニットリスト（障害物判定用）
+ * @returns {number} 予想ターン数 (Infinity if unreachable)
+ */
+export function estimateTurns(unit, targetX, targetY, mapSystem, units) {
+    if (unit.x === targetX && unit.y === targetY) return 0;
+
+    const path = findPath(unit.x, unit.y, targetX, targetY, units, unit, mapSystem);
+    if (!path || path.length < 2) return Infinity; // パスなし、または移動不要
+
+    // パスからコスト計算
+    let totalCost = 0;
+    // canFlyプロパティがあるか不明だが、あれば使う
+    const canFly = unit.canFly || false;
+
+    for (let i = 0; i < path.length - 1; i++) {
+        const p1 = path[i];
+        const p2 = path[i + 1];
+        // p2への移動コスト
+        let cost = mapSystem.getMoveCost(p1, p2, canFly);
+
+        // getMoveCostは 1.0, 1.5, Infinity 等を返す
+        if (cost === Infinity) cost = 999;
+
+        totalCost += cost;
+    }
+
+    const move = unit.movePower || unit.move || 6; // デフォルト6
+    // ターン数は ceil(総コスト / 移動力)
+    // ただし、移動力ちょうどの残りで次のターンに行けるかなどの細かいルールはあるが、
+    // ここでは単純な割り算で概算する。
+    // （例: Move 6, Cost 4+4=8 -> 2ターン）
+
+    // より正確には、毎ターン move だけ進んで、残りは持ち越せないルールならシミュレーションが必要。
+    // Fantasy RTSのルールでは「移動力使い切り」が一般的。
+    // Cost 4 の森に入ると残り移動力が 2 になり、次の Cost 4 の森には入れない -> 次ターン。
+    // ここまで厳密にやるにはシミュレーションが必要だが、今回は概算でOKとするか、シミュレーションするか。
+    // ユーザーは「予想ターン数」と言っているので、単純な割り算よりはシミュレーションの方が親切。
+
+    let turns = 1;
+    let currentMove = move;
+
+    for (let i = 0; i < path.length - 1; i++) {
+        const p1 = path[i];
+        const p2 = path[i + 1];
+        let cost = mapSystem.getMoveCost(p1, p2, canFly);
+        if (cost === Infinity) return Infinity;
+
+        if (currentMove >= cost) {
+            currentMove -= cost;
+        } else {
+            turns++;
+            currentMove = move - cost;
+            // 1歩も動けない場合（最大移動力 < コスト）は移動不可とみなすか、最低1歩は動けるとするか
+            if (currentMove < 0) return Infinity; // 移動不可
+        }
+    }
+
+    return turns;
 }
 
-// 他のユニットが障害物となるかチェック（味方と敵を区別）
-function getBlockingInfo(q, r, units, movingUnit) {
+/**
+ * 到達可能なタイルを取得（移動範囲表示用）
+ * @param {number} startX - 開始X座標
+ * @param {number} startY - 開始Y座標
+ * @param {number} maxMove - 最大移動力
+ * @param {Object} mapSystem - マップシステム（コスト計算用）
+ * @param {boolean} canFly - 飛行ユニットかどうか
+ * @returns {Array<{x:number, y:number}>} 到達可能なタイルのリスト
+ */
+export function getReachableTiles(startX, startY, maxMove, mapSystem, canFly = false) {
+    const reachable = [];
+    // 訪問済みセット: "x,y" => cost
+    const visited = new Map();
+
+    // 優先度付きキューの代わりに単純な配列とソートを使う（実装簡易化）
+    // { x, y, cost }
+    const queue = [{ x: startX, y: startY, cost: 0 }];
+    visited.set(`${startX},${startY}`, 0);
+
+    while (queue.length > 0) {
+        // コストが小さい順に処理
+        queue.sort((a, b) => a.cost - b.cost);
+        const current = queue.shift();
+
+        reachable.push({ x: current.x, y: current.y });
+
+        const neighbors = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+        for (const [dx, dy] of neighbors) {
+            const nx = current.x + dx;
+            const ny = current.y + dy;
+            const key = `${nx},${ny}`;
+
+            // マップ範囲外チェックはgetMoveCost内で行われるが、呼び出し前に弾くのもあり
+
+            // コスト計算
+            const moveCost = mapSystem.getMoveCost({ x: current.x, y: current.y }, { x: nx, y: ny }, canFly);
+
+            if (moveCost !== Infinity) {
+                const newCost = current.cost + moveCost;
+                if (newCost <= maxMove) {
+                    // より低コストで到達できるなら更新
+                    if (!visited.has(key) || visited.get(key) > newCost) {
+                        visited.set(key, newCost);
+                        queue.push({ x: nx, y: ny, cost: newCost });
+                    }
+                }
+            }
+        }
+    }
+    return reachable;
+}
+
+/**
+ * 隣接グリッドを取得（4方向）
+ */
+function getNeighbors(x, y) {
+    const directions = [
+        [1, 0],   // 右
+        [-1, 0],  // 左
+        [0, 1],   // 下
+        [0, -1]   // 上
+    ];
+    return directions
+        .map(([dx, dy]) => ({ x: x + dx, y: y + dy }))
+        .filter(coord => isValidCoord(coord));
+}
+
+/**
+ * 他のユニットが障害物となるかチェック（味方と敵を区別）
+ */
+function getBlockingInfo(x, y, units, movingUnit) {
     for (const u of units) {
         if (u.id === movingUnit.id || u.dead) continue;
 
-        const dist = getDistRaw(q, r, u.q, u.r);
+        const dist = getDistRaw(x, y, u.x, u.y);
         if (dist < (movingUnit.radius + u.radius)) {
             return {
                 blocked: true,
@@ -84,13 +256,15 @@ function getBlockingInfo(q, r, units, movingUnit) {
     return { blocked: false, isFriendly: false, unit: null };
 }
 
-// 従来のisBlocked関数（敵ユニットのみブロック）
-function isBlocked(q, r, units, movingUnitId, movingUnitRadius, movingUnitSide) {
+/**
+ * 従来のisBlocked関数（敵ユニットのみブロック）
+ */
+function isBlocked(x, y, units, movingUnitId, movingUnitRadius, movingUnitSide) {
     return units.some(u =>
         u.id !== movingUnitId &&
         !u.dead &&
         u.side !== movingUnitSide && // 敵のみブロック
-        getDistRaw(q, r, u.q, u.r) < (movingUnitRadius + u.radius)
+        getDistRaw(x, y, u.x, u.y) < (movingUnitRadius + u.radius)
     );
 }
 
@@ -98,19 +272,17 @@ function isBlocked(q, r, units, movingUnitId, movingUnitRadius, movingUnitSide) 
  * A*アルゴリズムによるパスファインディング
  * 他のユニットを避けるルートを探索
  */
-export function findPath(startQ, startR, goalQ, goalR, units, movingUnit, mapSystem) {
+export function findPath(startX, startY, goalX, goalY, units, movingUnit, mapSystem) {
     // 目標と同じ位置にいる場合
-    if (startQ === goalQ && startR === goalR) {
-        return [{ q: startQ, r: startR }];
+    if (startX === goalX && startY === goalY) {
+        return [{ x: startX, y: startY }];
     }
 
-    // 直線距離が近い場合は直線パスを試す（敵ユニットのみチェック）
-    // ただし、地形コストがある場合は直線パスが最適とは限らないため、
-    // 山岳がある場合はA*を優先すべきだが、簡易的に「直線上に山があればA*」とする
-    const straightPath = getLine(startQ, startR, goalQ, goalR);
+    // 直線距離が近い場合は直線パスを試す
+    const straightPath = getLine(startX, startY, goalX, goalY);
     let blocked = false;
     for (let i = 1; i < straightPath.length; i++) {
-        const blockInfo = getBlockingInfo(straightPath[i].q, straightPath[i].r, units, movingUnit);
+        const blockInfo = getBlockingInfo(straightPath[i].x, straightPath[i].y, units, movingUnit);
         // 敵ユニットのみブロック扱い
         if (blockInfo.blocked && !blockInfo.isFriendly) {
             blocked = true;
@@ -118,16 +290,14 @@ export function findPath(startQ, startR, goalQ, goalR, units, movingUnit, mapSys
         }
         // 地形チェック
         if (mapSystem) {
-            const tile = mapSystem.getTile(straightPath[i].q, straightPath[i].r);
-            if (tile && tile.type === 'MTN') {
-                blocked = true; // 山は通行不可（迂回させる）
+            let tile = null;
+            if (mapSystem.getTile) tile = mapSystem.getTile(straightPath[i].x, straightPath[i].y);
+            else if (Array.isArray(mapSystem) && mapSystem[straightPath[i].y]) tile = mapSystem[straightPath[i].y][straightPath[i].x];
+
+            if (tile && TERRAIN_TYPES[tile.type] && !TERRAIN_TYPES[tile.type].passable) {
+                blocked = true;
                 break;
             }
-            // HILLの場合は通行可能だがコストがかかるため、直線移動が最適とは限らない。
-            // しかし、ここでは「通行不可」かどうかだけを判定しているので、HILLはブロックしない。
-            // ただし、A*の方がコストを考慮したルートを選べるため、
-            // 厳密にはHILLがある場合もA*に任せた方が良いかもしれない。
-            // 一旦、HILLは直線移動OKとする（コスト計算は移動時に行われるため、結果的に遅くなるだけ）
         }
     }
     if (!blocked) {
@@ -135,54 +305,53 @@ export function findPath(startQ, startR, goalQ, goalR, units, movingUnit, mapSys
     }
 
     // A*探索
-    const openSet = [{ q: startQ, r: startR }];
+    const openSet = [{ x: startX, y: startY }];
     const closedSet = new Set();
     const cameFrom = new Map();
     const gScore = new Map();
     const fScore = new Map();
 
-    const key = (q, r) => `${q},${r}`;
-    gScore.set(key(startQ, startR), 0);
-    fScore.set(key(startQ, startR), getDistRaw(startQ, startR, goalQ, goalR));
+    const key = (x, y) => `${x},${y}`;
+    gScore.set(key(startX, startY), 0);
+    fScore.set(key(startX, startY), getDistRaw(startX, startY, goalX, goalY));
 
     let iterations = 0;
-    const maxIterations = 1000; // 探索範囲を少し広げる
+    const maxIterations = 1000;
 
     while (openSet.length > 0 && iterations < maxIterations) {
         iterations++;
 
         // fScoreが最小のノードを取得
         openSet.sort((a, b) =>
-            (fScore.get(key(a.q, a.r)) || Infinity) - (fScore.get(key(b.q, b.r)) || Infinity)
+            (fScore.get(key(a.x, a.y)) || Infinity) - (fScore.get(key(b.x, b.y)) || Infinity)
         );
         const current = openSet.shift();
-        const currentKey = key(current.q, current.r);
+        const currentKey = key(current.x, current.y);
 
         // ゴールに到達
-        if (current.q === goalQ && current.r === goalR) {
-            // パスを再構築
+        if (current.x === goalX && current.y === goalY) {
             const path = [];
             let node = current;
             while (node) {
                 path.unshift(node);
-                node = cameFrom.get(key(node.q, node.r));
+                node = cameFrom.get(key(node.x, node.y));
             }
             return path;
         }
 
         closedSet.add(currentKey);
 
-        // 隣接ノードを探索
-        for (const neighbor of getNeighbors(current.q, current.r)) {
-            const neighborKey = key(neighbor.q, neighbor.r);
+        // 隣接ノードを探索（4方向）
+        for (const neighbor of getNeighbors(current.x, current.y)) {
+            const neighborKey = key(neighbor.x, neighbor.y);
 
             if (closedSet.has(neighborKey)) continue;
 
             // ブロック情報を取得
-            const blockInfo = getBlockingInfo(neighbor.q, neighbor.r, units, movingUnit);
+            const blockInfo = getBlockingInfo(neighbor.x, neighbor.y, units, movingUnit);
 
             // ゴールでない場合の障害物チェック
-            if (!(neighbor.q === goalQ && neighbor.r === goalR)) {
+            if (!(neighbor.x === goalX && neighbor.y === goalY)) {
                 // 敵ユニットは完全にブロック
                 if (blockInfo.blocked && !blockInfo.isFriendly) {
                     continue;
@@ -192,27 +361,27 @@ export function findPath(startQ, startR, goalQ, goalR, units, movingUnit, mapSys
             // 移動コストを計算
             let moveCost = 1;
 
-            // 地形コスト
-            if (mapSystem) {
-                const tile = mapSystem.getTile(neighbor.q, neighbor.r);
-                if (tile) {
-                    if (tile.type === 'MTN') {
-                        moveCost = 999; // 山は実質通行不可
-                    } else if (tile.type === 'HILL') {
-                        moveCost = 3; // 丘陵はコスト増（平地の3倍）
-                    } else if (tile.type === 'RIVER') {
-                        moveCost = 5; // 川はさらにコスト増
-                    }
+            // mapSystem.getMoveCostが利用可能な場合はそれを使用（地形＋標高コスト）
+            if (mapSystem && mapSystem.getMoveCost) {
+                moveCost = mapSystem.getMoveCost(current, neighbor);
+            }
+            // 従来の配列/オブジェクト判定によるフォールバック
+            else if (mapSystem) {
+                let tile = null;
+                if (mapSystem.getTile) tile = mapSystem.getTile(neighbor.x, neighbor.y);
+                else if (Array.isArray(mapSystem) && mapSystem[neighbor.y]) tile = mapSystem[neighbor.y][neighbor.x];
+
+                if (tile && TERRAIN_TYPES[tile.type]) {
+                    moveCost = TERRAIN_TYPES[tile.type].moveCost;
                 }
             }
 
             // 味方ユニットがいる場合はコスト増（迂回を促すが、通行は可能）
-            // 陣形維持のための位置交換（Swap）を許容するため、コストは高すぎないようにする
             if (blockInfo.blocked && blockInfo.isFriendly) {
-                moveCost += 5; // コストを10から5に緩和（すれ違いやすくする）
+                moveCost += 5;
             }
 
-            // 山岳などでコストが極端に高い場合はスキップ（ただしゴールなら許容する場合もあるが、今回は山は完全不可とする）
+            // 山岳などでコストが極端に高い場合はスキップ
             if (moveCost >= 999) continue;
 
             const tentativeGScore = (gScore.get(currentKey) || Infinity) + moveCost;
@@ -220,9 +389,9 @@ export function findPath(startQ, startR, goalQ, goalR, units, movingUnit, mapSys
             if (tentativeGScore < (gScore.get(neighborKey) || Infinity)) {
                 cameFrom.set(neighborKey, current);
                 gScore.set(neighborKey, tentativeGScore);
-                fScore.set(neighborKey, tentativeGScore + getDistRaw(neighbor.q, neighbor.r, goalQ, goalR));
+                fScore.set(neighborKey, tentativeGScore + getDistRaw(neighbor.x, neighbor.y, goalX, goalY));
 
-                if (!openSet.some(n => n.q === neighbor.q && n.r === neighbor.r)) {
+                if (!openSet.some(n => n.x === neighbor.x && n.y === neighbor.y)) {
                     openSet.push(neighbor);
                 }
             }
@@ -230,21 +399,26 @@ export function findPath(startQ, startR, goalQ, goalR, units, movingUnit, mapSys
     }
 
     // パスが見つからない場合は、ゴールに向かって可能な限り近づく
-    // 直線パスの途中まで行けるところまで返す
     for (let i = straightPath.length - 1; i >= 0; i--) {
-        if (!isBlocked(straightPath[i].q, straightPath[i].r, units, movingUnit.id, movingUnit.radius)) {
+        if (!isBlocked(straightPath[i].x, straightPath[i].y, units, movingUnit.id, movingUnit.radius, movingUnit.side)) {
             return straightPath.slice(0, i + 1);
         }
     }
 
-    return [{ q: startQ, r: startR }];
+    return [{ x: startX, y: startY }];
 }
 
-export function getFacingAngle(q1, r1, q2, r2) {
-    let dx = (q2 - q1) * Math.sqrt(3) * HEX_SIZE + (r2 - r1) * Math.sqrt(3) * HEX_SIZE / 2;
-    let dy = (r2 - r1) * 3 / 2 * HEX_SIZE;
-    let angle = Math.atan2(dy, dx);
-    let deg = angle * 180 / Math.PI;
-    if (deg < 0) deg += 360;
-    return Math.round(deg / 60) % 6;
+/**
+ * 向き判定（4方向: 0=右, 1=下, 2=左, 3=上）
+ */
+export function getFacingAngle(x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+
+    // 絶対値で主方向を判定
+    if (Math.abs(dx) >= Math.abs(dy)) {
+        return dx >= 0 ? 0 : 2; // 右 or 左
+    } else {
+        return dy >= 0 ? 1 : 3; // 下 or 上
+    }
 }

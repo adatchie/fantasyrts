@@ -123,8 +123,8 @@ export class AISystem {
         score += (10000 - enemyStrength) / 100; // 最大100点
 
         // 3. 地形優位性
-        const unitHeight = map[unit.r]?.[unit.q]?.h || 0;
-        const enemyHeight = map[enemy.r]?.[enemy.q]?.h || 0;
+        const unitHeight = map[unit.y]?.[unit.x]?.h || 0;
+        const enemyHeight = map[enemy.y]?.[enemy.x]?.h || 0;
         if (unitHeight > enemyHeight) {
             score += 30; // 高所にいる
         }
@@ -202,16 +202,15 @@ export class AISystem {
         const isCommander = (hqUnit.name === '徳川家康' || hqUnit.name === '石田三成');
 
         if (isCommander) {
-            // 総大将は2倍以上の圧倒的優勢でない限り防御的な陣形
-            if (ratio >= 2.0) {
+            // 総大将は守りを固くする（ユーザー要望）
+            // 3倍以上の圧倒的優勢でない限り、基本は魚鱗（防御+20）で進む
+            if (ratio >= 3.0) {
                 console.log(`[総大将陣形] ${hqUnit.name}: 圧倒的優勢(${ratio.toFixed(2)}) → 鋒矢`);
-                return FORMATION_HOKO;      // 鋒矢（圧倒的優勢）
-            } else if (ratio <= 0.67) {
-                console.log(`[総大将陣形] ${hqUnit.name}: 劣勢(${ratio.toFixed(2)}) → 魚鱗`);
-                return FORMATION_GYORIN;    // 魚鱗（劣勢）
+                return FORMATION_HOKO;      // 鋒矢（一気に攻め滅ぼす）
             } else {
-                console.log(`[総大将陣形] ${hqUnit.name}: 通常(${ratio.toFixed(2)}) → 鶴翼`);
-                return FORMATION_KAKUYOKU;  // 鶴翼（通常時はこれ）
+                // 多少優勢でも防御優先
+                console.log(`[総大将陣形] ${hqUnit.name}: 防御重視(${ratio.toFixed(2)}) → 魚鱗`);
+                return FORMATION_GYORIN;    // 魚鱗（鉄壁の守り）
             }
         } else {
             // 通常の武将は従来通り
@@ -239,7 +238,7 @@ export class AISystem {
         for (const unit of allUnits) {
             if (unit.dead) continue;
 
-            const dist = getDistRaw(hqUnit.q, hqUnit.r, unit.q, unit.r);
+            const dist = getDistRaw(hqUnit.x, hqUnit.y, unit.x, unit.y);
             if (dist <= radius) {
                 if (unit.side === hqUnit.side) {
                     friendly += unit.soldiers;

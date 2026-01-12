@@ -1,10 +1,10 @@
 /**
  * SEKIGAHARA RTS - Formation System
- * 陣形システム: 本陣の移動制限とステータス修正
+ * 陣形システム: スクエアグリッド対応版
  */
 
-import { getDistRaw, getLine, hexToPixel } from './pathfinding.js';
-import { FORMATION_HOKO, FORMATION_KAKUYOKU, FORMATION_GYORIN } from './constants.js';
+import { MAP_W, MAP_H, FORMATION_HOKO, FORMATION_KAKUYOKU, FORMATION_GYORIN } from './constants.js';
+import { TERRAIN_TYPES } from './map.js';
 
 /**
  * 陣形情報を取得
@@ -19,17 +19,17 @@ export const FORMATION_INFO = {
         requiredSubordinates: 0,
         // Dir 0 (East) Base
         slots: [
-            { q: 1, r: 0 }, { q: 2, r: 0 }, { q: 3, r: 0 }, { q: 4, r: 0 }, { q: 5, r: 0 }, // Spine
-            { q: 1, r: -1 }, { q: 2, r: -1 }, { q: 3, r: -1 }, // Left Inner
-            { q: 0, r: 1 }, { q: 1, r: 1 }, { q: 2, r: 1 }, // Right Inner
-            { q: 1, r: -2 }, { q: 2, r: -2 }, // Left Outer
-            { q: -1, r: 2 }, { q: 0, r: 2 }, // Right Outer
-            { q: 1, r: -3 }, { q: -2, r: 3 }, // Tips
-            { q: 0, r: -1 }, { q: 0, r: -2 }, // Base Left
-            { q: -1, r: 1 }, { q: -1, r: 0 }, { q: -1, r: -1 }, // Back
-            { q: -2, r: 1 }, { q: -2, r: 2 }, { q: -2, r: 0 }, // Back Wide
-            { q: -3, r: 0 }, { q: -3, r: 1 }, { q: -3, r: 2 }, // Back Far
-            { q: -2, r: -1 }, { q: -2, r: -2 } // Back Fill
+            { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }, { x: 4, y: 0 }, { x: 5, y: 0 }, // Spine
+            { x: 1, y: -1 }, { x: 2, y: -1 }, { x: 3, y: -1 }, // Left Inner
+            { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }, // Right Inner
+            { x: 1, y: -2 }, { x: 2, y: -2 }, // Left Outer
+            { x: -1, y: 2 }, { x: 0, y: 2 }, // Right Outer
+            { x: 1, y: -3 }, { x: -2, y: 3 }, // Tips
+            { x: 0, y: -1 }, { x: 0, y: -2 }, // Base Left
+            { x: -1, y: 1 }, { x: -1, y: 0 }, { x: -1, y: -1 }, // Back
+            { x: -2, y: 1 }, { x: -2, y: 2 }, { x: -2, y: 0 }, // Back Wide
+            { x: -3, y: 0 }, { x: -3, y: 1 }, { x: -3, y: 2 }, // Back Far
+            { x: -2, y: -1 }, { x: -2, y: -2 } // Back Fill
         ]
     },
     [FORMATION_KAKUYOKU]: {
@@ -42,19 +42,19 @@ export const FORMATION_INFO = {
         // V-shape opening to East
         slots: [
             // Left Wing (NE)
-            { q: 0, r: -1 }, { q: 1, r: -2 }, { q: 2, r: -3 }, { q: 3, r: -4 }, { q: 4, r: -5 }, { q: 5, r: -6 },
+            { x: 0, y: -1 }, { x: 1, y: -2 }, { x: 2, y: -3 }, { x: 3, y: -4 }, { x: 4, y: -5 }, { x: 5, y: -6 },
             // Right Wing (SE)
-            { q: 0, r: 1 }, { q: 1, r: 2 }, { q: 2, r: 3 }, { q: 3, r: 4 }, { q: 4, r: 5 }, { q: 5, r: 6 },
+            { x: 0, y: 1 }, { x: 1, y: 2 }, { x: 2, y: 3 }, { x: 3, y: 4 }, { x: 4, y: 5 }, { x: 5, y: 6 },
             // Inner Left & Right
-            { q: 1, r: -3 }, { q: 2, r: -4 }, { q: 3, r: -5 },
-            { q: 1, r: 3 }, { q: 2, r: 4 }, { q: 3, r: 5 },
+            { x: 1, y: -3 }, { x: 2, y: -4 }, { x: 3, y: -5 },
+            { x: 1, y: 3 }, { x: 2, y: 4 }, { x: 3, y: 5 },
             // Body
-            { q: -1, r: -1 }, { q: -1, r: -2 }, { q: -2, r: -1 },
-            { q: -1, r: 2 }, { q: -2, r: 2 }, { q: -2, r: 1 },
+            { x: -1, y: -1 }, { x: -1, y: -2 }, { x: -2, y: -1 },
+            { x: -1, y: 2 }, { x: -2, y: 2 }, { x: -2, y: 1 },
             // Center Guard
-            { q: -1, r: 0 }, { q: -2, r: 0 }, { q: -3, r: 0 },
+            { x: -1, y: 0 }, { x: -2, y: 0 }, { x: -3, y: 0 },
             // Rear Extensions
-            { q: -3, r: -1 }, { q: -3, r: 1 }, { q: -4, r: 0 }
+            { x: -3, y: -1 }, { x: -3, y: 1 }, { x: -4, y: 0 }
         ]
     },
     [FORMATION_GYORIN]: {
@@ -67,13 +67,13 @@ export const FORMATION_INFO = {
         // Cluster around HQ
         slots: [
             // Ring 1
-            { q: 1, r: 0 }, { q: 0, r: 1 }, { q: -1, r: 1 }, { q: -1, r: 0 }, { q: 0, r: -1 }, { q: 1, r: -1 },
+            { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 1 }, { x: -1, y: 0 }, { x: 0, y: -1 }, { x: 1, y: -1 },
             // Ring 2
-            { q: 2, r: 0 }, { q: 1, r: 1 }, { q: 0, r: 2 }, { q: -1, r: 2 }, { q: -2, r: 2 }, { q: -2, r: 1 },
-            { q: -2, r: 0 }, { q: -1, r: -1 }, { q: 0, r: -2 }, { q: 1, r: -2 }, { q: 2, r: -2 }, { q: 2, r: -1 },
+            { x: 2, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 2 }, { x: -1, y: 2 }, { x: -2, y: 2 }, { x: -2, y: 1 },
+            { x: -2, y: 0 }, { x: -1, y: -1 }, { x: 0, y: -2 }, { x: 1, y: -2 }, { x: 2, y: -2 }, { x: 2, y: -1 },
             // Ring 3 (Front Heavy)
-            { q: 3, r: 0 }, { q: 2, r: 1 }, { q: 1, r: 2 }, { q: 0, r: 3 }, { q: 3, r: -1 }, { q: 2, r: -3 },
-            { q: -3, r: 0 }, { q: -3, r: 3 }, { q: -3, r: -3 }, { q: -1, r: 3 }, { q: -1, r: -3 }, { q: 1, r: -3 }
+            { x: 3, y: 0 }, { x: 2, y: 1 }, { x: 1, y: 2 }, { x: 0, y: 3 }, { x: 3, y: -1 }, { x: 2, y: -3 },
+            { x: -3, y: 0 }, { x: -3, y: 3 }, { x: -3, y: -3 }, { x: -1, y: 3 }, { x: -1, y: -3 }, { x: 1, y: -3 }
         ]
     }
 };
@@ -90,53 +90,94 @@ export function getFormationModifiers(formation) {
 }
 
 /**
- * 座標を回転させる (Hex Grid Rotation)
- * @param {number} q 
- * @param {number} r 
- * @param {number} rotation 0-5 (60 degree steps clockwise)
+ * 座標を回転させる (Square Grid Rotation)
+ * @param {number} x 
+ * @param {number} y 
+ * @param {number} rotation 0-3 (90 degree steps clockwise)
  */
-function rotateHex(q, r, rotation) {
-    let nq = q;
-    let nr = r;
+function rotateSquare(x, y, rotation) {
+    let nx = x;
+    let ny = y;
     for (let i = 0; i < rotation; i++) {
-        // Clockwise rotation: (q, r) -> (-r, q+r)
-        const temp = nq;
-        nq = -nr;
-        nr = temp + nr;
+        // Clockwise rotation: (x, y) -> (-y, x)
+        const temp = nx;
+        nx = -ny;
+        ny = temp;
     }
-    return { q: nq, r: nr };
+    return { x: nx, y: ny };
+}
+
+/**
+ * 座標が有効かつ通行可能かチェック
+ */
+function isValidPosition(x, y, mapSystem) {
+    if (x < 0 || x >= MAP_W || y < 0 || y >= MAP_H) return false;
+    if (mapSystem) {
+        const tile = mapSystem.getTile(x, y);
+        if (!tile) return false; // マップ範囲外
+        if (TERRAIN_TYPES[tile.type] && !TERRAIN_TYPES[tile.type].passable) return false; // 通行不可地形
+        if (tile.type === 'MTN') return false; // 念のため明示的チェック
+    }
+    // マップシステムが無い場合は単純な範囲チェックのみ
+    return true;
+}
+
+/**
+ * 最も近い有効な移動先を探す
+ */
+function findNearestValidPosition(bx, by, mapSystem) {
+    if (isValidPosition(bx, by, mapSystem)) return { x: bx, y: by };
+
+    // スパイラル探索オフセット（中心から近い順）
+    // 距離1, 距離2 (斜め含む)
+    const offsets = [
+        { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 0, y: -1 }, // 4方向
+        { x: 1, y: 1 }, { x: 1, y: -1 }, { x: -1, y: 1 }, { x: -1, y: -1 }, // 斜め
+        { x: 2, y: 0 }, { x: 0, y: 2 }, { x: -2, y: 0 }, { x: 0, y: -2 } // 距離2
+    ];
+
+    for (const d of offsets) {
+        const nx = bx + d.x;
+        const ny = by + d.y;
+        if (isValidPosition(nx, ny, mapSystem)) return { x: nx, y: ny };
+    }
+
+    // 見つからない場合は元の座標を返す（パスファインディングに任せる）
+    return { x: bx, y: by };
 }
 
 /**
  * 本陣と配下ユニットの陣形目標座標を計算
  * @param {Object} hq 本陣ユニット
  * @param {Array} subordinates 配下ユニットのリスト
+ * @param {Object} mapSystem マップシステム (地形チェック用)
  */
-export function calculateFormationTargets(hq, subordinates) {
+export function calculateFormationTargets(hq, subordinates, mapSystem) {
     const info = FORMATION_INFO[hq.formation];
     if (!info || !info.slots) return null;
 
-    const targets = new Map(); // unitId -> {q, r}
-    const dir = hq.dir !== undefined ? hq.dir : 0;
+    const targets = new Map(); // unitId -> {x, y}
+    const dir = hq.dir !== undefined ? hq.dir : 0; // 0-3
 
     // スロットを回転させて絶対座標に変換
     const availableSlots = info.slots.map(slot => {
-        const rotated = rotateHex(slot.q, slot.r, dir);
+        const rotated = rotateSquare(slot.x, slot.y, dir);
         return {
-            q: hq.q + rotated.q,
-            r: hq.r + rotated.r
+            x: hq.x + rotated.x,
+            y: hq.y + rotated.y
         };
     });
 
     // ユニットをスロットに割り当て
-    // 単純にリスト順、あるいは距離順などで割り当てる
-    // ここでは単純に配列の順番で割り当てる
     for (let i = 0; i < subordinates.length; i++) {
         if (i < availableSlots.length) {
-            targets.set(subordinates[i].id, availableSlots[i]);
+            // スロット座標が有効かチェックし、無効なら近くを探す
+            const slot = availableSlots[i];
+            const validPos = findNearestValidPosition(slot.x, slot.y, mapSystem);
+            targets.set(subordinates[i].id, validPos);
         } else {
-            // スロットが足りない場合は本陣の周囲に適当に配置（あるいは本陣と同じ位置）
-            targets.set(subordinates[i].id, { q: hq.q, r: hq.r });
+            // スロット不足時は本陣の位置（あるいは近く）
+            targets.set(subordinates[i].id, { x: hq.x, y: hq.y });
         }
     }
 
@@ -144,113 +185,76 @@ export function calculateFormationTargets(hq, subordinates) {
 }
 
 /**
- * HEX座標の6方向（pointy-top hexagon）
+ * グリッド4方向オフセット
  */
-const HEX_DIRECTIONS = [
-    { q: 1, r: 0 },   // 0: 東
-    { q: 0, r: 1 },   // 1: 南東  
-    { q: -1, r: 1 },  // 2: 南西
-    { q: -1, r: 0 },  // 3: 西
-    { q: 0, r: -1 },  // 4: 北西
-    { q: 1, r: -1 }   // 5: 北東
+const GRID_DIRECTIONS = [
+    { x: 1, y: 0 },   // 0: 東 (Right)
+    { x: 0, y: 1 },   // 1: 南 (Down)
+    { x: -1, y: 0 },  // 2: 西 (Left)
+    { x: 0, y: -1 }   // 3: 北 (Up)
 ];
 
 /**
- * 進行方向から最も近い6方向のインデックスを取得
- * @param {number} fromQ - 開始Q座標
- * @param {number} fromR - 開始R座標
- * @param {number} toQ - 目標Q座標
- * @param {number} toR - 目標R座標
- * @returns {number} 0-5の方向インデックス
+ * 進行方向から最も近い4方向のインデックスを取得
+ * @returns {number} 0-3の方向インデックス
  */
-function getDirectionIndex(fromQ, fromR, toQ, toR) {
-    const dq = toQ - fromQ;
-    const dr = toR - fromR;
+function getDirectionIndex(fromX, fromY, toX, toY) {
+    const dx = toX - fromX;
+    const dy = toY - fromY;
 
-    // 角度を計算（pixel座標系で）
-    const fromPos = hexToPixel(fromQ, fromR);
-    const toPos = hexToPixel(toQ, toR);
-    const dx = toPos.x - fromPos.x;
-    const dy = toPos.y - fromPos.y;
+    // y軸は下が正なので、atan2(dy, dx) で角度を得る
+    // 0度=右(1,0), 90度=下(0,1), 180度=左(-1,0), -90度=上(0,-1)
     let angle = Math.atan2(dy, dx) * 180 / Math.PI;
     if (angle < 0) angle += 360;
 
-    // 最も近い6方向に丸める（60度刻み、30度オフセット）
-    const dirIndex = Math.round(angle / 60) % 6;
-    return dirIndex;
+    // 0, 90, 180, 270 に近い値をインデックス化
+    // round(angle / 90) % 4
+    return Math.round(angle / 90) % 4;
 }
 
 /**
- * 進行方向の左右のHEXを取得
- * @param {number} hexQ - 基準HEX Q座標
- * @param {number} hexR - 基準HEX R座標
- * @param {number} dirIndex - 進行方向インデックス (0-5)
- * @returns {{left: {q, r}, right: {q, r}}} 左右のHEX座標
+ * 進行方向の左右のグリッド座標を取得
+ * @returns {{left: {x, y}, right: {x, y}}}
  */
-function getLeftRightHexes(hexQ, hexR, dirIndex) {
-    // 左: dirIndex + 1 (反時計回り)
-    // 右: dirIndex - 1 (時計回り)
-    const leftIndex = (dirIndex + 1) % 6;
-    const rightIndex = (dirIndex - 1 + 6) % 6;
+function getLeftRightTiles(x, y, dirIndex) {
+    // 0(右) -> 左は上(3), 右は下(1)
+    // 左: -1 (mod 4) -> +3 (mod 4)
+    // 右: +1 (mod 4)
+    const leftIndex = (dirIndex + 3) % 4;
+    const rightIndex = (dirIndex + 1) % 4;
 
     return {
         left: {
-            q: hexQ + HEX_DIRECTIONS[leftIndex].q,
-            r: hexR + HEX_DIRECTIONS[leftIndex].r
+            x: x + GRID_DIRECTIONS[leftIndex].x,
+            y: y + GRID_DIRECTIONS[leftIndex].y
         },
         right: {
-            q: hexQ + HEX_DIRECTIONS[rightIndex].q,
-            r: hexR + HEX_DIRECTIONS[rightIndex].r
+            x: x + GRID_DIRECTIONS[rightIndex].x,
+            y: y + GRID_DIRECTIONS[rightIndex].y
         }
     };
 }
 
 /**
- * 陣形要件を満たすか判定
- * @param {Object} hqUnit - 本陣ユニット
- * @param {Array} subordinateUnits - 配下ユニット（本陣を除く）
- * @param {number} targetQ - 目標Q座標
- * @param {number} targetR - 目標R座標
- * @param {string} formation - 陣形 (HOKO/KAKUYOKU/GYORIN)
- * @returns {boolean} 移動可能ならtrue
+ * 陣形要件を満たすか判定 (旧互換用、現在は常にtrue)
  */
-export function canMoveWithFormation(hqUnit, subordinateUnits, targetQ, targetR, formation) {
-    // 以前はここで厳密な陣形チェック（進行方向に配下がいるか等）を行っていたが、
-    // その条件が厳しすぎて本陣が動けなくなる（ずっと陣形を整え続ける）デッドロックが発生していた。
-    // そのため、チェックを廃止し、本陣は常に移動可能とする。
-    // 配下ユニットは自動追従ロジックで本陣を追いかけるため、結果的に陣形は維持・再構築される。
+export function canMoveWithFormation(hqUnit, subordinateUnits, targetX, targetY, formation) {
     return true;
 }
 
 /**
  * 配下ユニット数に基づいて選択可能な陣形を取得
- * @param {number} subordinateCount - 配下ユニット数（本陣を除く）
- * @returns {Array<string>} 選択可能な陣形の配列
  */
 export function getAvailableFormations(subordinateCount) {
     const available = [];
-
-    // 鋒矢は常に選択可能
     available.push(FORMATION_HOKO);
-
-    // 配下が1以上なら鶴翼も選択可能
-    if (subordinateCount >= 1) {
-        available.push(FORMATION_KAKUYOKU);
-    }
-
-    // 配下が2以上なら魚鱗も選択可能
-    if (subordinateCount >= 2) {
-        available.push(FORMATION_GYORIN);
-    }
-
+    if (subordinateCount >= 1) available.push(FORMATION_KAKUYOKU);
+    if (subordinateCount >= 2) available.push(FORMATION_GYORIN);
     return available;
 }
 
 /**
  * 本陣兵力に基づいて強制的に陣形を変更する必要があるかチェック
- * @param {number} hqSoldiers - 本陣の兵力
- * @param {string} currentFormation - 現在の陣形
- * @returns {{needsChange: boolean, newFormation: string|null}} 変更が必要ならnewFormationに陣形を返す
  */
 export function checkForcedFormationChange(hqSoldiers, currentFormation) {
     // 500以下 → 魚鱗に強制変更
@@ -265,6 +269,5 @@ export function checkForcedFormationChange(hqSoldiers, currentFormation) {
             return { needsChange: true, newFormation: FORMATION_KAKUYOKU };
         }
     }
-
     return { needsChange: false, newFormation: null };
 }
