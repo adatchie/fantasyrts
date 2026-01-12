@@ -19,7 +19,7 @@ import { BuildingEditor } from './editor/building-editor.js';
 import { StageLoader } from './stage-loader.js';
 
 // Main Game Logic
-console.log("Main JS Version: 25 Loaded (Debug)");
+console.log("Main JS Version: 26 Loaded (Debug)");
 
 export class Game {
     constructor() {
@@ -57,8 +57,58 @@ export class Game {
 
     init() {
         this.canvas = document.getElementById('gameCanvas');
-        // 2Dコンテキストは不要になる
-        // this.ctx = this.canvas.getContext('2d');
+
+        // イベントリスナー登録
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+
+        // 【重要】Canvasへの直接登録ではイベントが捕捉できない場合があるため（他ライブラリの干渉等）
+        // Windowレベルでキャプチャ(capture: true)し、Canvas上での操作のみをフィルタリングして処理する。
+        window.addEventListener('mousedown', (e) => {
+            console.log("Global MouseDown. Target:", e.target); // DEBUG
+            if (e.target === this.canvas || e.target.id === 'gameCanvas') {
+                console.log("Calling handleMouseDownInternal..."); // DEBUG
+                this.handleMouseDownInternal(e);
+            } else {
+                console.log("Ignored click on:", e.target.id || e.target.tagName); // DEBUG
+            }
+        }, true);
+
+        window.addEventListener('mousemove', (e) => {
+            if (e.target === this.canvas || e.target.id === 'gameCanvas' || this.input.isLeftDown) {
+                // Determine if we need to log (reduce spam)
+                if (this.input.isLeftDown) {
+                    // console.log("Calling handleMouseMoveInternal..."); // DEBUG (spammy)
+                }
+                this.handleMouseMoveInternal(e);
+            }
+        }, true);
+
+        window.addEventListener('mouseup', (e) => {
+            console.log("Global MouseUp. Target:", e.target, "Button:", e.button); // DEBUG
+            // mouseupはドラッグ終了判定のため、canvas外で離しても処理する必要がある
+            if (e.button === 0) {
+                console.log("Calling handleMouseUpInternal..."); // DEBUG
+                this.handleMouseUpInternal(e);
+            }
+        }, true);
+
+        this.canvas.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
+        // KeyDownも明示的なハンドラ名に変更
+        window.addEventListener('keydown', (e) => this.handleKeyDownInternal(e));
+
+        // タッチ操作のリスナーを追加
+        window.addEventListener('touchstart', (e) => {
+            console.log("Global TouchStart. Target:", e.target); // DEBUG
+            if (e.target === this.canvas || e.target.id === 'gameCanvas') {
+                this.onTouchStart(e);
+            }
+        }, { passive: false, capture: true });
+
+        window.addEventListener('touchmove', (e) => this.onTouchMove(e), { passive: false, capture: true });
+        window.addEventListener('touchend', (e) => this.onTouchEnd(e), { passive: false, capture: true });
+
+        // 3Dレンダラーに切り替え
 
         // 3Dレンダラーに切り替え
         this.renderingEngine = new RenderingEngine3D(this.canvas);
@@ -71,24 +121,14 @@ export class Game {
         this.buildingSystem = new BuildingSystem(this.renderingEngine.scene, this.renderingEngine);
 
         // ステージローダー初期化
-        this.stageLoader = new StageLoader(this);
+        try {
+            this.stageLoader = new StageLoader(this);
+        } catch (e) {
+            console.error("StageLoader init failed:", e);
+        }
 
         // 建物エディタ（Architect Mode）
         this.buildingEditor = new BuildingEditor(this);
-
-        this.resize();
-        window.addEventListener('resize', () => this.resize());
-        this.canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
-        window.addEventListener('mousemove', (e) => this.onMouseMove(e));
-        window.addEventListener('mouseup', (e) => this.onMouseUp(e));
-        this.canvas.addEventListener('wheel', (e) => this.onWheel(e));
-        window.addEventListener('keydown', (e) => this.onKeyDown(e));
-
-        // タッチ操作のリスナーを追加
-        this.canvas.addEventListener('touchstart', (e) => this.onTouchStart(e), { passive: false, capture: true });
-        // touchmoveとtouchendはwindowで受けて、ドラッグが画面外に出ても追跡できるようにする
-        window.addEventListener('touchmove', (e) => this.onTouchMove(e), { passive: false });
-        window.addEventListener('touchend', (e) => this.onTouchEnd(e), { passive: false });
 
         // 選択ボックス用要素を作成
         this.selectionBox = document.createElement('div');
@@ -308,6 +348,8 @@ export class Game {
         }
 
         const vs = document.getElementById('victory-screen');
+
+
         vs.style.display = 'flex';
         document.getElementById('vic-msg-1').innerText = msg;
         document.getElementById('vic-msg-2').innerText = winText;
@@ -323,8 +365,12 @@ export class Game {
     }
 
     // Input handling
-    onMouseDown(e) {
-        if (this.buildingEditor && this.buildingEditor.isActive) return;
+    handleMouseDownInternal(e) {
+        console.log("handleMouseDownInternal called! (Renamed)"); // DEBUG
+        if (this.buildingEditor && this.buildingEditor.isActive) {
+            console.log("Blocked by BuildingEditor"); // DEBUG
+            return;
+        }
 
         // 建物配置モード
         if (this.gameState === 'PLACEMENT') {
@@ -344,7 +390,7 @@ export class Game {
         }
     }
 
-    onMouseMove(e) {
+    handleMouseMoveInternal(e) {
         if (this.buildingEditor && this.buildingEditor.isActive) return;
 
         // 建物配置モード: ゴースト移動
@@ -358,6 +404,7 @@ export class Game {
             this.input.curr = { x: e.clientX, y: e.clientY };
 
             // 選択ボックスを描画
+            // console.log("Updating Selection Box:", this.input.start, this.input.curr); // DEBUG
             this.updateSelectionBox();
         }
 
@@ -391,8 +438,11 @@ export class Game {
         }
     }
 
-    onMouseUp(e) {
+    handleMouseUpInternal(e) {
         if (this.buildingEditor && this.buildingEditor.isActive) return;
+
+        console.log("handleMouseUpInternal called. isLeftDown:", this.input.isLeftDown); // DEBUG
+
         if (this.input.isLeftDown && e.button === 0) {
 
             this.input.isLeftDown = false;
@@ -401,7 +451,10 @@ export class Game {
             this.selectionBox.style.display = 'none';
 
             const dist = Math.hypot(e.clientX - this.input.start.x, e.clientY - this.input.start.y);
-            if (dist < 5) {
+            console.log("MouseUp distance:", dist); // DEBUG
+
+            if (dist < 15) { // 許容範囲を少し広げる
+                console.log("Distance OK, calling handleLeftClick"); // DEBUG
                 this.handleLeftClick(e.clientX, e.clientY);
             } else {
                 // ボックス選択実行
@@ -500,9 +553,32 @@ export class Game {
         }
     }
 
-    onKeyDown(e) {
+    handleKeyDownInternal(e) {
+        // DEBUG: Check what's under the cursor
+        if (e.key === 'D' && e.shiftKey) {
+            const el = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+            console.log("Element at center:", el);
+            console.log("Active Element:", document.activeElement);
+        }
+
         if (this.gameState === 'PLACEMENT' && e.key === 'Escape') {
             this.cancelPlacementMode();
+            return;
+        }
+
+        // 配置モード中の回転 (R)
+        if (this.gameState === 'PLACEMENT' && (e.key === 'r' || e.key === 'R')) {
+            this.placementRotation = (this.placementRotation + 1) % 4;
+            console.log(`Rotation: ${this.placementRotation * 90}°`);
+            if (this.placementGhost) {
+                this.placementGhost.rotation.y = -(Math.PI / 2) * this.placementRotation;
+            }
+            return;
+        }
+
+        // マップ保存 (Shift+P)
+        if (e.key === 'P' && e.shiftKey) {
+            this.exportMapData();
             return;
         }
 
@@ -529,82 +605,101 @@ export class Game {
         }
     }
 
-    handleLeftClick(mx, my) {
-        let h = null;
+    handleLeftClick() {
+        console.log("handleLeftClick called. GameState:", this.gameState); // DEBUG
 
-        // 3DレンダリングエンジンからHEX座標を取得
+        // 建物配置モード
+        if (this.gameState === 'PLACEMENT') {
+            this.placeCurrentBuilding();
+            return;
+        }
+
+        // クリック位置（Canvas内座標）- メニュー表示用
+        const rect = this.canvas.getBoundingClientRect();
+        const mx = this.input.start.x - rect.left;
+        const my = this.input.start.y - rect.top;
+
+        let h;
+
+        // 3Dモード用の判定（Raycaster使用）
         if (this.renderingEngine && this.renderingEngine.getHexFromScreenCoordinates) {
-            h = this.renderingEngine.getHexFromScreenCoordinates(mx, my);
+            console.log("Calling getHexFromScreenCoordinates with:", this.input.start.x, this.input.start.y); // DEBUG
+            h = this.renderingEngine.getHexFromScreenCoordinates(this.input.start.x, this.input.start.y);
+            console.log("Result hex:", h); // DEBUG
         } else {
             // フォールバック（2D用）
             h = pixelToHex(mx, my, this.camera);
         }
 
-        if (!h || !isValidHex(h)) return;
+        if (!h || !isValidHex(h)) {
+            console.log("Invalid hex or null"); // DEBUG
+            return;
+        }
 
         // クリック位置に近いユニットを探す
-        // 3Dの場合、HEX座標の一致で判定する方が確実
-        // UnitManager改修によりプロパティは q,r ではなく x,y になっている
-        const u = this.units.find(x =>
-            !x.dead && x.x === h.q && x.y === h.r
-        );
+        const u = this.units.find(x => !x.dead && x.x === h.q && x.y === h.r);
+        console.log("Unit found:", u); // DEBUG
+        if (!u) {
+            console.log("No unit at hex:", h.q, h.r);
+            console.log("Total units:", this.units.length);
+            // ユニット一覧の座標をダンプ（最初の3つ）
+            this.units.slice(0, 3).forEach(unit => console.log(`Unit ${unit.name}: ${unit.x}, ${unit.y}`));
+        }
 
         const menu = document.getElementById('context-menu');
         menu.style.display = 'none';
 
         if (u) {
+            // ユニットをクリックした場合
             if (u.side === this.playerSide) {
-                // 同じ武将の全ユニットを選択
+                console.log("Friend unit selected"); // DEBUG
+                // 味方ユニット選択
                 const warlordUnits = this.unitManager.getUnitsByWarlordId(u.warlordId);
                 this.selectedUnits = warlordUnits.filter(unit => !unit.dead);
-                this.updateSelectionUI(this.selectedUnits, null); // ターゲット情報はクリア
+                this.updateSelectionUI(this.selectedUnits, null);
 
-                // 移動範囲表示（本陣を基準）
+                // 移動範囲表示
                 const leader = this.selectedUnits.find(unit => unit.unitType === UNIT_TYPE_HEADQUARTERS) || this.selectedUnits[0];
                 if (leader && this.renderingEngine && this.renderingEngine.showMoveRange) {
                     this.renderingEngine.clearMoveRange();
-                    const range = leader.move || 6; // デフォルト移動力
+                    const range = leader.move || 6;
                     const tiles = getReachableTiles(leader.x, leader.y, range, this.mapSystem);
                     this.renderingEngine.showMoveRange(tiles, 0x4466ff);
                 }
-                // 陣形はユニットカード内に表示される
             } else {
-                // 敵クリック
-                // 既に味方を選択中なら、それをターゲットにする（攻撃/調略）
+                console.log("Enemy unit clicked"); // DEBUG
+                // 敵ユニットをクリックした場合
                 if (this.selectedUnits.length > 0 && this.selectedUnits[0].side === this.playerSide) {
+                    // ターゲット指定（攻撃・調略）
                     this.targetContextUnit = u;
                     menu.style.display = 'flex';
                     menu.style.left = mx + 'px';
                     menu.style.top = my + 'px';
 
-                    // ユーザー要望: 目標の部隊の情報も表示したい
-                    // 選択状態は維持しつつ、UI上だけ一時的にターゲット情報を表示する、あるいは
-                    // 選択UIにターゲット情報も追加する形が望ましいが、
-                    // ここではシンプルに「ターゲット情報のみを表示」してしまうと、自軍の操作ができなくなる。
-                    // 妥協案として、コンソールに情報を出すか、あるいは updateSelectionUI を拡張して「ターゲット情報」を表示できるようにする。
-                    // 今回は updateSelectionUI にターゲットユニットを渡して、両方表示するように変更する。
                     this.updateSelectionUI(this.selectedUnits, u);
-
                 } else {
-                    // 味方を選択していないなら、敵ユニットを選択（情報表示のみ）
-                    // この場合、敵の武将グループ全体を表示する
+                    // 敵情報の表示のみ
                     const warlordUnits = this.unitManager.getUnitsByWarlordId(u.warlordId);
-                    const enemyGroup = warlordUnits.filter(unit => !unit.dead);
-                    this.updateSelectionUI(enemyGroup);
-                    this.selectedUnits = []; // 操作対象としては保持しない
+                    this.updateSelectionUI(warlordUnits.filter(unit => !unit.dead));
+                    this.selectedUnits = [];
                 }
             }
         } else {
+            console.log("Ground clicked"); // DEBUG
+            // 地面をクリックした場合
             if (this.selectedUnits.length > 0 && this.selectedUnits[0].side === this.playerSide) {
-                // 移動命令を設定（選択は維持）
-                this.selectedUnits.forEach(su =>
-                    su.order = { type: 'MOVE', targetHex: { x: h.q, y: h.r } }
-                );
-                // 選択を維持して陣形パネルも維持
+                // 移動メニュー表示
+                this.targetContextUnit = null;
+                // メニューコマンドから参照できるように保存
+                this.input.targetHex = h;
+
+                menu.style.display = 'flex';
+                menu.style.left = mx + 'px';
+                menu.style.top = my + 'px';
             } else {
-                // 選択状態でなければ、選択解除
+                // 選択解除
                 this.selectedUnits = [];
-                this.updateSelectionUI([], null); // ターゲット情報はクリア
+                this.updateSelectionUI([], null);
                 if (this.renderingEngine && this.renderingEngine.clearMoveRange) {
                     this.renderingEngine.clearMoveRange();
                 }
@@ -694,18 +789,21 @@ export class Game {
 
         // BuildingSystemを使ってメッシュ生成（仮位置）
         this.placementGhost = this.buildingSystem.createBuildingMesh({ name: "Ghost", ...buildingData }, 0, 0, 0);
+        console.log("Ghost created:", this.placementGhost); // DEBUG
 
-        // 半透明にする
-        this.placementGhost.traverse(c => {
-            if (c.isMesh) {
-                c.material = c.material.clone();
-                c.material.transparent = true;
-                c.material.opacity = 0.6;
-                c.material.emissive = new THREE.Color(0x004400);
-            }
-        });
-
-        this.renderingEngine.scene.add(this.placementGhost);
+        if (this.placementGhost) {
+            // 半透明にする
+            this.placementGhost.traverse(c => {
+                if (c.isMesh) {
+                    c.material = c.material.clone();
+                    c.material.transparent = true;
+                    c.material.opacity = 0.5;
+                }
+            });
+            this.renderingEngine.scene.add(this.placementGhost);
+        } else {
+            console.error("Failed to create placement ghost!");
+        }
     }
 
     cancelPlacementMode() {
@@ -717,6 +815,23 @@ export class Game {
             this.renderingEngine.scene.remove(this.placementGhost);
             this.placementGhost = null;
         }
+    }
+
+    /**
+     * マップデータをエクスポート
+     */
+    exportMapData() {
+        const buildings = this.buildingSystem.getPlacedBuildingsData();
+        const data = {
+            version: '1.0',
+            timestamp: new Date().toISOString(),
+            buildings: buildings
+        };
+        const json = JSON.stringify(data, null, 2);
+        console.log("=== EXPORTED MAP DATA ===");
+        console.log(json);
+        console.log("=========================");
+        alert("マップデータをコンソールに出力しました。\\nF12キーを押してコンソールを開き、データをコピーしてください。");
     }
 
     updatePlacementGhost(screenX, screenY) {
@@ -1086,182 +1201,8 @@ export class Game {
             container.appendChild(d);
         });
     }
-
-    /**
-     * キーボード入力ハンドラー
-     */
-    onKeyDown(e) {
-        // 配置モード中の回転
-        if (this.state === 'PLACEMENT' && (e.key === 'r' || e.key === 'R')) {
-            this.placementRotation = (this.placementRotation + 1) % 4;
-            console.log(`Rotation: ${this.placementRotation * 90}°`);
-            this.updatePlacementGhost();
-        }
-
-        // エスケープキーで配置モードをキャンセル
-        if (e.key === 'Escape' && this.state === 'PLACEMENT') {
-            this.cancelPlacementMode();
-        }
-
-        // マップ保存 (Shift+P)
-        if (e.key === 'P' && e.shiftKey) {
-            this.exportMapData();
-        }
-    }
-
-    /**
-     * 建物配置モードに入る
-     */
-    enterBuildingPlacementMode(buildingData) {
-        console.log("Enter Placement Mode");
-        this.state = 'PLACEMENT';
-        this.placementData = buildingData;
-        this.placementRotation = 0;
-        this.updatePlacementGhost();
-    }
-
-    /**
-     * 配置モードをキャンセル
-     */
-    cancelPlacementMode() {
-        console.log("Cancel Placement Mode");
-        this.state = 'PLAYING';
-        this.placementData = null;
-        this.placementRotation = 0;
-
-        if (this.placementGhost) {
-            this.renderingEngine.scene.remove(this.placementGhost);
-            this.placementGhost = null;
-        }
-    }
-
-    /**
-     * 配置ゴーストを更新
-     */
-    updatePlacementGhost() {
-        // 古いゴーストを削除
-        if (this.placementGhost) {
-            this.renderingEngine.scene.remove(this.placementGhost);
-            this.placementGhost = null;
-        }
-
-        if (!this.placementData) return;
-
-        // 回転を適用
-        const { blocks, size } = this.buildingSystem.rotateBlocks(
-            this.placementData.blocks,
-            this.placementData.size,
-            this.placementRotation
-        );
-        const tempTemplate = { ...this.placementData, blocks, size };
-
-        // ゴースト作成
-        const mesh = this.buildingSystem.createBuildingMesh(tempTemplate, 0, 0, 0);
-
-        // 半透明化
-        mesh.traverse((child) => {
-            if (child.isMesh) {
-                child.material = child.material.clone();
-                child.material.transparent = true;
-                child.material.opacity = 0.5;
-                child.material.depthWrite = false;
-            }
-        });
-
-        this.placementGhost = mesh;
-        this.renderingEngine.scene.add(this.placementGhost);
-    }
-
-    /**
-     * 現在の建物を配置
-     */
-    placeCurrentBuilding() {
-        if (!this.placementData || !this.input.hoverHex) return;
-
-        const hex = this.input.hoverHex;
-
-        this.buildingSystem.placeCustomBuildingAtGrid(
-            this.placementData,
-            hex.x,
-            hex.y,
-            this.placementRotation
-        );
-
-        console.log(`Placed building at (${hex.x}, ${hex.y}) Rotation: ${this.placementRotation * 90}°`);
-    }
-
-    /**
-     * マウス移動イベントハンドラー
-     */
-    onMouseMove(e) {
-        // 配置モード中のゴースト更新
-        if (this.state === 'PLACEMENT') {
-            const intersect = this.renderingEngine.raycastToGround(e.clientX, e.clientY);
-            if (intersect && intersect.object && intersect.object.userData) {
-                const hex = { x: intersect.object.userData.x, y: intersect.object.userData.y };
-                this.input.hoverHex = hex;
-
-                // ゴーストの位置を更新
-                if (this.placementGhost) {
-                    const pos = this.renderingEngine.gridToWorld3D(hex.x, hex.y, 0);
-                    const h = this.renderingEngine.mapSystem.getGroundHeight(hex.x, hex.y);
-                    this.placementGhost.position.set(pos.x, h, pos.z);
-                }
-            }
-            return; // 配置モード中は他の処理をスキップ
-        }
-
-        // 通常のマウス処理（必要に応じて追加）
-    }
-
-    /**
-     * マウスクリックイベントハンドラー
-     */
-    onMouseDown(e) {
-        // 配置モード中の処理
-        if (this.state === 'PLACEMENT') {
-            if (e.button === 0) { // 左クリック
-                this.placeCurrentBuilding();
-            } else if (e.button === 2) { // 右クリック
-                this.cancelPlacementMode();
-            }
-            e.preventDefault();
-            return;
-        }
-
-        // 通常のクリック処理（必要に応じて追加）
-    }
-
-    /**
-     * マウスアップイベントハンドラー
-     */
-    onMouseUp(e) {
-        // 必要に応じて実装
-    }
-
-    /**
-     * マウスホイールイベントハンドラー
-     */
-    onWheel(e) {
-        // 必要に応じて実装
-    }
-
-    /**
-     * マップデータをエクスポート
-     */
-    exportMapData() {
-        const buildings = this.buildingSystem.getPlacedBuildingsData();
-        const data = {
-            version: '1.0',
-            timestamp: new Date().toISOString(),
-            buildings: buildings
-        };
-        const json = JSON.stringify(data, null, 2);
-        console.log("=== EXPORTED MAP DATA ===");
-        console.log(json);
-        console.log("=========================");
-        alert("マップデータをコンソールに出力しました。\nF12キーを押してコンソールを開き、データをコピーしてください。");
-    }
 }
+
+
 
 
