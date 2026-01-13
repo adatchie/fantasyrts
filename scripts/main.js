@@ -119,6 +119,7 @@ export class Game {
 
         // 建物システム初期化（レンダリングエンジンへの参照を渡す）
         this.buildingSystem = new BuildingSystem(this.renderingEngine.scene, this.renderingEngine);
+        this.mapSystem.setBuildingSystem(this.buildingSystem); // MapSystemにBuildingSystemを設定
 
         // ステージローダー初期化
         try {

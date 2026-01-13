@@ -26,7 +26,16 @@ export const TERRAIN_TYPES = {
 export class MapSystem {
     constructor() {
         this.tiles = [];
+        this.buildingSystem = null; // 建物システムへの参照
         this.generateSquareMap();
+    }
+
+    /**
+     * 建物システムを設定
+     * @param {Object} buildingSystem - BuildingSystemインスタンス
+     */
+    setBuildingSystem(buildingSystem) {
+        this.buildingSystem = buildingSystem;
     }
 
     /**
@@ -139,6 +148,23 @@ export class MapSystem {
     }
 
     /**
+     * 指定座標の実効高さを取得（地形高さ + 建物高さ）
+     * @param {number} x - X座標
+     * @param {number} y - Y座標
+     * @returns {number} 実効高さ
+     */
+    getEffectiveHeight(x, y) {
+        const terrainHeight = this.getHeight(x, y);
+        let buildingHeight = 0;
+
+        if (this.buildingSystem && this.buildingSystem.getBuildingHeightAtGrid) {
+            buildingHeight = this.buildingSystem.getBuildingHeightAtGrid(x, y);
+        }
+
+        return terrainHeight + buildingHeight;
+    }
+
+    /**
      * 座標が有効範囲内かチェック
      */
     isValidCoord(x, y) {
@@ -219,9 +245,12 @@ export class MapSystem {
 
         // 高低差コスト（飛行ユニットは無視）
         if (!canFly) {
-            const heightDiff = Math.abs(fromTile.z - toTile.z);
+            // 実効高さ（地形高さ + 建物高さ）を使用
+            const fromHeight = this.getEffectiveHeight(from.x, from.y);
+            const toHeight = this.getEffectiveHeight(to.x, to.y);
+            const heightDiff = Math.abs(fromHeight - toHeight);
 
-            // 2段以上の高低差は通行不可
+            // 2段以上の高低差は通行不可（建物の高さも考慮）
             if (heightDiff > 2) {
                 return Infinity;
             }

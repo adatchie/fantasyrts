@@ -354,6 +354,79 @@ export class BuildingSystem {
     }
 
     /**
+     * 指定されたグリッド座標にある建物の高さを取得
+     * @param {number} gridX - グリッドX座標
+     * @param {number} gridY - グリッドY座標
+     * @returns {number} 建物の高さ（ブロック数）、建物がない場合は0
+     */
+    getBuildingHeightAtGrid(gridX, gridY) {
+        if (!this.renderingEngine) return 0;
+
+        // 各建物についてチェック
+        for (const building of this.buildings) {
+            // ワールド座標からグリッド座標への変換
+            const buildingGridX = this.renderingEngine.worldToGrid(building.position.x, building.position.z).q;
+            const buildingGridY = this.renderingEngine.worldToGrid(building.position.x, building.position.z).r;
+
+            // カスタムデータの場合はグリッド座標を保存している
+            if (building.customData) {
+                const placedData = this.placedBuildings.find(p => p.name === building.customData.name);
+                if (placedData) {
+                    const rotatedSize = placedData.rotation % 2 === 0
+                        ? building.customData.size
+                        : { x: building.customData.size.y, y: building.customData.size.x, z: building.customData.size.z };
+
+                    const footprintX = Math.ceil(rotatedSize.x * this.blockSize / 32);
+                    const footprintY = Math.ceil(rotatedSize.y * this.blockSize / 32);
+                    const offsetX = Math.floor(footprintX / 2);
+                    const offsetY = Math.floor(footprintY / 2);
+
+                    // グリッド座標が建物のフットプリント内にあるかチェック
+                    if (gridX >= placedData.gridX - offsetX &&
+                        gridX < placedData.gridX + footprintX - offsetX &&
+                        gridY >= placedData.gridY - offsetY &&
+                        gridY < placedData.gridY + footprintY - offsetY) {
+
+                        // 建物の高さ（Z方向のブロック数）を返す
+                        return building.customData.size.z || 0;
+                    }
+                }
+            } else {
+                // テンプレート建物の場合
+                const template = BUILDING_TEMPLATES[building.templateId];
+                if (template) {
+                    const footprintX = Math.ceil(template.size.x * this.blockSize / 32);
+                    const footprintY = Math.ceil(template.size.y * this.blockSize / 32);
+                    const offsetX = Math.floor(footprintX / 2);
+                    const offsetY = Math.floor(footprintY / 2);
+
+                    // グリッド座標が建物のフットプリント内にあるかチェック
+                    if (gridX >= buildingGridX - offsetX &&
+                        gridX < buildingGridX + footprintX - offsetX &&
+                        gridY >= buildingGridY - offsetY &&
+                        gridY < buildingGridY + footprintY - offsetY) {
+
+                        // 建物の高さ（Z方向のブロック数）を返す
+                        return template.size.z || 0;
+                    }
+                }
+            }
+        }
+
+        return 0; // 建物がない
+    }
+
+    /**
+     * 指定されたグリッド座標に建物が存在するかチェック
+     * @param {number} gridX - グリッドX座標
+     * @param {number} gridY - グリッドY座標
+     * @returns {boolean} 建物が存在する場合はtrue
+     */
+    hasBuildingAtGrid(gridX, gridY) {
+        return this.getBuildingHeightAtGrid(gridX, gridY) > 0;
+    }
+
+    /**
      * カスタムデータから建物を配置（エディタ用）
      * @param {Object} customData - {size, blocks}
      * @param {number} gridX
