@@ -844,6 +844,11 @@ export class RenderingEngine3D {
                 mesh = this.createUnitMesh(unit);
                 this.unitMeshes.set(unit.id, mesh);
                 this.scene.add(mesh);
+
+                // 初期位置を記録（移動検出用）
+                mesh.userData.lastX = unit.x;
+                mesh.userData.lastY = unit.y;
+                mesh.userData.lastHeight = 0;
             }
 
             // アニメーション処理
@@ -879,20 +884,64 @@ export class RenderingEngine3D {
             // アニメーション適用時は強制更新したいので、距離チェック条件を変更
             const rawPos = this.gridToWorld3D(unit.x, unit.y);
             const targetPos = new THREE.Vector3(rawPos.x, rawPos.y, rawPos.z);
+
+            // 現在の地面の高さを取得
+            let groundHeight = 0;
+            if (this.hexHeights && this.hexHeights[unit.y] && this.hexHeights[unit.y][unit.x] !== undefined) {
+                groundHeight = this.hexHeights[unit.y][unit.x];
+            }
+
+            // 段差移動検出：グリッド位置が変わった場合
+            const positionChanged = (mesh.userData.lastX !== unit.x || mesh.userData.lastY !== unit.y);
+
+            if (positionChanged) {
+                // 前回の高さと現在の高さが異なる場合、ジャンプアニメーションを開始
+                const heightDiff = Math.abs(groundHeight - mesh.userData.lastHeight);
+                if (heightDiff > 0.1) {
+                    mesh.userData.jumpAnim = {
+                        active: true,
+                        progress: 0,
+                        duration: 15, // フレーム数
+                        startHeight: mesh.userData.lastHeight,
+                        endHeight: groundHeight,
+                        heightDiff: heightDiff
+                    };
+                }
+
+                // 位置を記録
+                mesh.userData.lastX = unit.x;
+                mesh.userData.lastY = unit.y;
+                mesh.userData.lastHeight = groundHeight;
+            }
+
+            // ジャンプアニメーション処理
+            let jumpOffset = 0;
+            if (mesh.userData.jumpAnim && mesh.userData.jumpAnim.active) {
+                const jump = mesh.userData.jumpAnim;
+                jump.progress++;
+
+                // 0.0 -> 1.0 の進行度
+                const t = Math.min(jump.progress / jump.duration, 1.0);
+
+                // 放物線状のジャンプ（sin波）
+                // t=0で0, t=0.5で1（最高点）, t=1で0
+                jumpOffset = Math.sin(t * Math.PI) * (jump.heightDiff * 0.5 + 1.5);
+
+                if (t >= 1.0) {
+                    jump.active = false;
+                    jumpOffset = 0;
+                }
+            }
+
             targetPos.add(animOffset);
+            targetPos.y += jumpOffset;
 
             // 現在位置とターゲット位置が離れている場合のみ更新（パフォーマンス最適化）
             // アニメーション中は常に更新
-            if (animOffset.lengthSq() > 0 || Math.abs(mesh.position.x - targetPos.x) > 0.1 || Math.abs(mesh.position.z - targetPos.z) > 0.1) {
+            if (animOffset.lengthSq() > 0 || jumpOffset > 0 || Math.abs(mesh.position.x - targetPos.x) > 0.1 || Math.abs(mesh.position.z - targetPos.z) > 0.1) {
                 mesh.position.x = targetPos.x;
                 mesh.position.z = targetPos.z;
-
-                // 高さ合わせ（キャッシュ使用）
-                let groundHeight = 0;
-                if (this.hexHeights && this.hexHeights[unit.y] && this.hexHeights[unit.y][unit.x] !== undefined) {
-                    groundHeight = this.hexHeights[unit.y][unit.x];
-                }
-                mesh.position.y = groundHeight + 2; // オフセット調整
+                mesh.position.y = targetPos.y + 2; // オフセット調整
             }
 
             // 画面正対ビルボード - スプライトがカメラのビュー平面に完全に平行
