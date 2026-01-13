@@ -354,6 +354,68 @@ export class BuildingSystem {
     }
 
     /**
+     * 指定グリッド位置にある建物の高さを取得
+     * @param {number} gridX - グリッドX座標
+     * @param {number} gridY - グリッドY座標
+     * @returns {number|null} 建物の高さ（建物がない場合はnull）
+     */
+    getBuildingHeightAtGrid(gridX, gridY) {
+        if (!this.renderingEngine) return null;
+
+        for (const building of this.buildings) {
+            // 建物のテンプレート情報を取得
+            let template;
+            if (building.templateId === 'custom' && building.customData) {
+                template = building.customData;
+            } else if (building.templateId && BUILDING_TEMPLATES[building.templateId]) {
+                template = BUILDING_TEMPLATES[building.templateId];
+            } else {
+                continue;
+            }
+
+            const { size } = template;
+            const blockSize = this.blockSize;
+
+            // 建物のグリッド座標を計算（worldPositionから逆算）
+            // ワールド座標をグリッド座標に変換するための近似計算
+            const buildingWorldX = building.position.x;
+            const buildingWorldZ = building.position.z;
+
+            // 建物のフットプリント（グリッド単位）
+            const footprintX = Math.ceil(size.x * blockSize / 32);
+            const footprintY = Math.ceil(size.y * blockSize / 32);
+            const offsetX = Math.floor(footprintX / 2);
+            const offsetY = Math.floor(footprintY / 2);
+
+            // 建物のグリッド座標を推定（配置時の逆算）
+            const buildingGridX = Math.round((buildingWorldX / (32 / 2) + buildingWorldZ / (32 / 4)) / 2);
+            const buildingGridY = Math.round((buildingWorldZ / (32 / 4) - buildingWorldX / (32 / 2)) / 2);
+
+            // 指定座標が建物のフットプリント内にあるかチェック
+            const dx = gridX - buildingGridX;
+            const dy = gridY - buildingGridY;
+
+            if (dx >= -offsetX && dx < footprintX - offsetX &&
+                dy >= -offsetY && dy < footprintY - offsetY) {
+                // 建物の高さを返す（Z軸のブロック数）
+                return size.z;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * 指定グリッド位置に建物があるかチェック
+     * @param {number} gridX - グリッドX座標
+     * @param {number} gridY - グリッドY座標
+     * @returns {boolean} 建物が存在するかどうか
+     */
+    hasBuildingAtGrid(gridX, gridY) {
+        return this.getBuildingHeightAtGrid(gridX, gridY) !== null;
+    }
+
+    /**
      * カスタムデータから建物を配置（エディタ用）
      * @param {Object} customData - {size, blocks}
      * @param {number} gridX

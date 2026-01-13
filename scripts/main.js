@@ -120,6 +120,9 @@ export class Game {
         // 建物システム初期化（レンダリングエンジンへの参照を渡す）
         this.buildingSystem = new BuildingSystem(this.renderingEngine.scene, this.renderingEngine);
 
+        // MapSystemにBuildingSystemを設定（建物の高さ判定用）
+        this.mapSystem.setBuildingSystem(this.buildingSystem);
+
         // ステージローダー初期化
         try {
             this.stageLoader = new StageLoader(this);
