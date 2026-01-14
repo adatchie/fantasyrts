@@ -925,12 +925,98 @@ export class RenderingEngine3D {
             this._tempVec3.set(rawPos.x, groundHeight + 2, rawPos.z);
             this._tempVec3.add(this._tempAnimOffset);
 
-            // 現在位置とターゲット位置が離れている場合のみ更新
-            if (this._tempAnimOffset.lengthSq() > 0 || Math.abs(mesh.position.x - this._tempVec3.x) > 0.1 || Math.abs(mesh.position.z - this._tempVec3.z) > 0.1 || Math.abs(mesh.position.y - this._tempVec3.y) > 0.1) {
-                mesh.position.x = this._tempVec3.x;
-                mesh.position.z = this._tempVec3.z;
+            // グリッド移動検出（位置追跡を初期化）
+            if (!mesh.userData.lastGridX) {
+                mesh.userData.lastGridX = unit.x;
+                mesh.userData.lastGridY = unit.y;
+                mesh.userData.lastGroundHeight = groundHeight;
+            }
+
+            // グリッド位置が変わった場合
+            const gridChanged = (mesh.userData.lastGridX !== unit.x || mesh.userData.lastGridY !== unit.y);
+            const heightDiff = groundHeight - mesh.userData.lastGroundHeight;
+
+            if (gridChanged && Math.abs(heightDiff) > 0.01) {
+                // 段差移動アニメーション開始
+                mesh.userData.elevAnim = {
+                    active: true,
+                    progress: 0,
+                    duration: 6, // 非常に短い（約100ms）
+                    startX: mesh.position.x,
+                    startZ: mesh.position.z,
+                    startY: mesh.position.y,
+                    targetX: rawPos.x,
+                    targetZ: rawPos.z,
+                    targetBaseY: groundHeight + 2,
+                    heightDiff: heightDiff,
+                    lastHeight: mesh.userData.lastGroundHeight
+                };
+            }
+
+            // 段差移動アニメーション処理
+            let elevYOffset = 0;
+            if (mesh.userData.elevAnim && mesh.userData.elevAnim.active) {
+                const anim = mesh.userData.elevAnim;
+                anim.progress++;
+
+                if (anim.progress >= anim.duration) {
+                    // アニメーション完了
+                    anim.active = false;
+                } else {
+                    const t = anim.progress / anim.duration;
+
+                    // 水平位置は線形補間（カクッと動かす）
+                    mesh.position.x = anim.startX + (anim.targetX - anim.startX) * t;
+                    mesh.position.z = anim.startZ + (anim.targetZ - anim.startZ) * t;
+
+                    // 垂直方向：段差に沿って移動 + 小さなジャンプ
+                    // 前半で旧高さから新高度へ、後半でそこから目標位置へ
+                    // その途中で微小なジャンプ（高さ0.3程度、持続時間の中央付近）
+                    const prevHeight = anim.lastHeight + 2;
+                    const newHeight = anim.targetBaseY;
+
+                    // 基本の高さ変化（段差に沿った移動）
+                    let baseY;
+                    if (t < 0.5) {
+                        // 前半：旧高さから中間点へ
+                        baseY = prevHeight + (newHeight - prevHeight) * (t * 2);
+                    } else {
+                        // 後半：中間点から新高さへ
+                        baseY = newHeight;
+                    }
+
+                    // 小さなジャンプ（正弦波、中央の短い区間のみ）
+                    // t=0.35-0.65の間だけで発動、最大高さ0.3
+                    let jumpOffset = 0;
+                    const jumpCenter = 0.5;
+                    const jumpWidth = 0.15; // ジャンプの幅（狭くする）
+                    if (Math.abs(t - jumpCenter) < jumpWidth) {
+                        const jumpT = (t - (jumpCenter - jumpWidth)) / (jumpWidth * 2); // 0 to 1 within jump window
+                        jumpOffset = Math.sin(jumpT * Math.PI) * 0.3; // 最大0.3のジャンプ
+                    }
+
+                    elevYOffset = baseY + jumpOffset - anim.targetBaseY;
+                }
+            }
+
+            this._tempVec3.y += elevYOffset;
+
+            // 現在位置とターゲット位置が離れている場合のみ更新（段差アニメ中は常に更新）
+            if (mesh.userData.elevAnim?.active || this._tempAnimOffset.lengthSq() > 0 ||
+                Math.abs(mesh.position.x - this._tempVec3.x) > 0.1 ||
+                Math.abs(mesh.position.z - this._tempVec3.z) > 0.1 ||
+                Math.abs(mesh.position.y - this._tempVec3.y) > 0.1) {
+                if (!mesh.userData.elevAnim?.active) {
+                    mesh.position.x = this._tempVec3.x;
+                    mesh.position.z = this._tempVec3.z;
+                }
                 mesh.position.y = this._tempVec3.y;
             }
+
+            // 位置情報を更新
+            mesh.userData.lastGridX = unit.x;
+            mesh.userData.lastGridY = unit.y;
+            mesh.userData.lastGroundHeight = groundHeight;
 
             // 画面正対ビルボード - スプライトがカメラのビュー平面に完全に平行
             // 画面上では常にまっすぐ立って見える
