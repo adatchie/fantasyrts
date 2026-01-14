@@ -48,6 +48,8 @@ export class Game {
         this.buildingSystem = null;  // 建物システム
         this.stageLoader = null;     // ステージローダー
 
+        // 行動フェイズ速度設定 (1x, 1.5x, 2x)
+        this.actionSpeed = 1.0;  // デフォルトは1倍速
 
         // Placement State
         this.placementData = null;
@@ -116,6 +118,7 @@ export class Game {
         this.combatSystem = new CombatSystem(this.audioEngine);
         this.combatSystem.setRenderingEngine(this.renderingEngine);
         this.combatSystem.setMapSystem(this.mapSystem);
+        this.combatSystem.setGame(this);  // Gameインスタンスを設定（速度設定取得用）
 
         // 建物システム初期化（レンダリングエンジンへの参照を渡す）
         this.buildingSystem = new BuildingSystem(this.renderingEngine.scene, this.renderingEngine);
@@ -166,6 +169,10 @@ export class Game {
         this.gameState = 'ORDER';
         document.getElementById('action-btn').style.display = 'block';
         document.getElementById('phase-text').innerText = "目標設定フェイズ";
+
+        // 速度制御UIを初期化（非表示）
+        this.showSpeedControl(false);
+        this.updateSpeedControlUI();
 
         // 3Dユニット描画更新
         if (this.renderingEngine && this.renderingEngine.drawUnits) {
@@ -223,6 +230,10 @@ export class Game {
         this.gameState = 'ORDER';
         this.updateHUD();
 
+        // 速度制御UIを初期化（非表示）
+        this.showSpeedControl(false);
+        this.updateSpeedControlUI();
+
         // 3Dユニットを描画
         if (this.renderingEngine && this.renderingEngine.drawUnits) {
             this.renderingEngine.drawUnits();
@@ -267,6 +278,9 @@ export class Game {
         document.getElementById('action-btn').style.display = 'none';
         document.getElementById('phase-text').innerText = "行動フェイズ";
         this.closeCtx();
+
+        // 速度制御UIを表示
+        this.showSpeedControl(true);
 
         await this.resolveTurn();
     }
@@ -321,6 +335,8 @@ export class Game {
                 document.getElementById('action-btn').style.display = 'block';
                 document.getElementById('phase-text').innerText = "目標設定フェイズ";
                 this.updateHUD();
+                // 速度制御UIを非表示
+                this.showSpeedControl(false);
             }
         }
     }
@@ -984,6 +1000,44 @@ export class Game {
         const warlordUnits = this.unitManager.getUnitsByWarlordId(hqUnit.warlordId);
         const subordinates = warlordUnits.filter(u => !u.dead && u.unitType !== UNIT_TYPE_HEADQUARTERS);
         this.showFormationPanel(hqUnit, subordinates);
+    }
+
+    /**
+     * 行動フェイズの速度を設定
+     * @param {number} speed - 速度倍率 (1.0, 1.5, 2.0)
+     */
+    setActionSpeed(speed) {
+        this.actionSpeed = speed;
+        this.updateSpeedControlUI();
+    }
+
+    /**
+     * 速度制御UIを更新
+     */
+    updateSpeedControlUI() {
+        const container = document.getElementById('speed-control');
+        if (!container) return;
+
+        const buttons = container.querySelectorAll('.speed-btn');
+        buttons.forEach(btn => {
+            const speed = parseFloat(btn.dataset.speed);
+            if (speed === this.actionSpeed) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+    }
+
+    /**
+     * 速度制御UIの表示/非表示を切り替え
+     * @param {boolean} show - 表示するかどうか
+     */
+    showSpeedControl(show) {
+        const container = document.getElementById('speed-control');
+        if (container) {
+            container.style.display = show ? 'flex' : 'none';
+        }
     }
 
     updateHUD() {

@@ -437,6 +437,44 @@
             pointer-events: none;
             background: rgba(0, 0, 0, 0.5);
         }
+
+        #speed-control {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            display: none;
+            gap: 5px;
+            z-index: 100;
+            pointer-events: auto;
+        }
+
+        .speed-btn {
+            width: 45px;
+            height: 35px;
+            font-size: 18px;
+            background: rgba(20, 20, 30, 0.9);
+            border: 2px solid #666;
+            color: #ddd;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+        }
+
+        .speed-btn:hover {
+            background: rgba(40, 40, 50, 0.95);
+            border-color: #888;
+        }
+
+        .speed-btn.active {
+            background: rgba(100, 50, 0, 0.95);
+            border-color: #ffd700;
+            color: #ffd700;
+            box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+        }
     </style>
 </head>
 
@@ -468,6 +506,11 @@
                 <div class="formation-title">陣形選択</div>
                 <div id="formation-buttons"></div>
                 <div id="formation-tooltip"></div>
+            </div>
+            <div id="speed-control">
+                <button class="speed-btn" data-speed="1.0" onclick="setActionSpeed(1.0)" title="1倍速">▶</button>
+                <button class="speed-btn" data-speed="1.5" onclick="setActionSpeed(1.5)" title="1.5倍速">▶▶</button>
+                <button class="speed-btn" data-speed="2.0" onclick="setActionSpeed(2.0)" title="2倍速">▶▶▶</button>
             </div>
         </div>
 
@@ -546,6 +589,15 @@
             };
 
             window.closeCtx = () => window.game.closeCtx();
+
+            window.setActionSpeed = (speed) => {
+                try {
+                    window.game.setActionSpeed(speed);
+                } catch (e) {
+                    console.error("SetActionSpeed failed", e);
+                    throw e;
+                }
+            };
 
         } catch (e) {
             console.error("Module setup failed", e);

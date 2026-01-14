@@ -18,6 +18,7 @@ export class CombatSystem {
         this.activeBubbles = [];
         this.playerSide = 'EAST'; // デフォルト値
         this.unitManager = unitManager; // 陣形チェック用
+        this.game = null; // Gameインスタンス（速度設定取得用）
     }
 
     setPlayerSide(side) {
@@ -34,6 +35,21 @@ export class CombatSystem {
 
     setMapSystem(mapSystem) {
         this.mapSystem = mapSystem;
+    }
+
+    setGame(game) {
+        this.game = game;
+    }
+
+    /**
+     * 現在のアクション速度を取得
+     * @returns {number} 速度倍率 (1.0, 1.5, 2.0)
+     */
+    getActionSpeed() {
+        if (this.game && this.game.actionSpeed) {
+            return this.game.actionSpeed;
+        }
+        return 1.0; // デフォルトは1倍速
     }
 
     /**
@@ -960,7 +976,10 @@ export class CombatSystem {
     }
 
     wait(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
+        // 速度倍率を適用して待ち時間を調整
+        const speedMultiplier = this.getActionSpeed();
+        const adjustedMs = ms / speedMultiplier;
+        return new Promise(resolve => setTimeout(resolve, adjustedMs));
     }
 
     updateEffects() {
