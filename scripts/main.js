@@ -48,6 +48,8 @@ export class Game {
         this.buildingSystem = null;  // 建物システム
         this.stageLoader = null;     // ステージローダー
 
+        // Action Speed Control (1.0, 1.5, 2.0)
+        this.actionSpeed = 1.0;
 
         // Placement State
         this.placementData = null;
@@ -116,6 +118,7 @@ export class Game {
         this.combatSystem = new CombatSystem(this.audioEngine);
         this.combatSystem.setRenderingEngine(this.renderingEngine);
         this.combatSystem.setMapSystem(this.mapSystem);
+        this.combatSystem.setGame(this); // Gameインスタンスを設定（速度制御用）
 
         // 建物システム初期化（レンダリングエンジンへの参照を渡す）
         this.buildingSystem = new BuildingSystem(this.renderingEngine.scene, this.renderingEngine);
@@ -268,6 +271,9 @@ export class Game {
         document.getElementById('phase-text').innerText = "行動フェイズ";
         this.closeCtx();
 
+        // 速度制御UIを表示
+        this.showSpeedControl(true);
+
         await this.resolveTurn();
     }
 
@@ -321,6 +327,8 @@ export class Game {
                 document.getElementById('action-btn').style.display = 'block';
                 document.getElementById('phase-text').innerText = "目標設定フェイズ";
                 this.updateHUD();
+                // 速度制御UIを非表示
+                this.showSpeedControl(false);
             }
         }
     }
@@ -1206,6 +1214,42 @@ export class Game {
 
             container.appendChild(d);
         });
+    }
+
+    /**
+     * アクション速度を設定
+     * @param {number} speed - 速度倍率 (1.0, 1.5, 2.0)
+     */
+    setActionSpeed(speed) {
+        this.actionSpeed = speed;
+        this.updateSpeedControlUI();
+        console.log(`Action speed set to ${speed}x`);
+    }
+
+    /**
+     * 速度制御UIのボタン状態を更新
+     */
+    updateSpeedControlUI() {
+        const buttons = document.querySelectorAll('.speed-btn');
+        buttons.forEach(btn => {
+            const btnSpeed = parseFloat(btn.getAttribute('data-speed'));
+            if (btnSpeed === this.actionSpeed) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+    }
+
+    /**
+     * 速度制御UIの表示/非表示を切り替え
+     * @param {boolean} show - 表示するかどうか
+     */
+    showSpeedControl(show) {
+        const speedControl = document.getElementById('speed-control');
+        if (speedControl) {
+            speedControl.style.display = show ? 'flex' : 'none';
+        }
     }
 }
 

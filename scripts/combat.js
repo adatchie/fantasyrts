@@ -36,6 +36,18 @@ export class CombatSystem {
         this.mapSystem = mapSystem;
     }
 
+    setGame(game) {
+        this.game = game;
+    }
+
+    /**
+     * 現在のアクション速度を取得
+     * @returns {number} 速度倍率 (1.0, 1.5, 2.0)
+     */
+    getActionSpeed() {
+        return this.game ? this.game.actionSpeed : 1.0;
+    }
+
     /**
      * ユニットの行動を処理
      */
@@ -960,7 +972,10 @@ export class CombatSystem {
     }
 
     wait(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
+        // 速度倍率を適用 (速度が高いほど待機時間が短くなる)
+        const speedMultiplier = this.getActionSpeed();
+        const adjustedMs = ms / speedMultiplier;
+        return new Promise(resolve => setTimeout(resolve, adjustedMs));
     }
 
     updateEffects() {
