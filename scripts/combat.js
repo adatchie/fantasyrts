@@ -214,13 +214,35 @@ export class CombatSystem {
         // reach + 3.0 くらいまでは陣形で整然と近づき、そこから個別に襲いかかるイメージ
         const engagementDist = reach + 3.0;
 
+        // 弓攻撃の射程計算
+        const attZ = map[unit.y]?.[unit.x]?.z || 0;
+        const defZ = map[target.y]?.[target.x]?.z || 0;
+        const bowRange = this.calculateBowRange(attZ, defZ, 8); // 基本射程8
+        const bowMinRange = 3; // 最小射程3（タクティクスオウガ風：1-2マスは射程外）
+
+        // 弓が使える距離かどうか判定
+        const canUseBow = (d) => d >= bowMinRange && d <= bowRange + 1;
+
         if (dist <= reach) {
-            // 攻撃射程内なら攻撃実行
+            // 攻撃射程内なら近接攻撃実行
             unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
             this.speak(unit, 'ATTACK');
             await this.combat(unit, target, allUnits, map);
+        } else if (canUseBow(dist)) {
+            // 弓攻撃射程内（最小射程以上、最大射程+1まで）なら遠距離攻撃
+            console.log(`[processAttack] Ranged attack: dist=${dist}, bowRange=${bowMinRange}-${bowRange}`);
+            unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
+            await this.rangedCombat(unit, target, map);
         } else if (dist > engagementDist) {
-            // まだ遠い場合は陣形を維持して移動
+            // まだ遠い場合でも、弓射程内なら先に弓を撃つ
+            if (canUseBow(dist)) {
+                console.log(`[processAttack] Ranged attack before advance: dist=${dist}, bowRange=${bowMinRange}-${bowRange}`);
+                unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
+                await this.rangedCombat(unit, target, map);
+                // 弓攻撃後、まだ距離があれば陣形で近づく
+            }
+
+            // 陣形を維持して移動
             // 一時的にMOVE命令のフリをしてprocessMoveを呼ぶ（ただしターゲットは維持）
             // processMoveは内部で陣形位置を計算して移動する
 
@@ -253,6 +275,10 @@ export class CombatSystem {
                 unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
                 this.speak(unit, 'ATTACK');
                 await this.combat(unit, target, allUnits, map);
+            } else if (canUseBow(newDist)) {
+                // 移動後に弓射程内なら遠距離攻撃
+                unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
+                await this.rangedCombat(unit, target, map);
             }
         }
     }
@@ -871,6 +897,7 @@ export class CombatSystem {
 
     // ユーティリティ関数
     speak(unit, type, force = false) {
+        if (!unit) return; // Null check
         if (!force && Math.random() > 0.4) return;
         const lines = DIALOGUE[unit.p]?.[type];
         if (!lines) return;
@@ -883,9 +910,12 @@ export class CombatSystem {
             });
         }
 
+        // 3D版は unit.x/unit.y を直接使用、2D版は unit.pos を使用
+        const posX = unit.pos?.x ?? unit.x ?? 0;
+        const posY = unit.pos?.y ?? unit.y ?? 0;
         this.activeBubbles.push({
-            x: unit.pos.x,
-            y: unit.pos.y - 40,
+            x: posX,
+            y: posY - 40,
             text: text,
             life: 100
         });
@@ -950,5 +980,151 @@ export class CombatSystem {
 
         this.activeBubbles.forEach(b => b.life--);
         this.activeBubbles = this.activeBubbles.filter(b => b.life > 0);
+    }
+
+    // =====================================
+    // 弓攻撃システム (Bow Attack System)
+    // =====================================
+
+    /**
+     * 弓の有効射程を計算（高低差による変動）
+     * @param {number} attackerZ - 攻撃者の高さ
+     * @param {number} targetZ - 対象の高さ
+     * @param {number} baseRange - 基本射程（デフォルト5）
+     * @returns {number} 有効射程
+     */
+    calculateBowRange(attackerZ, targetZ, baseRange = 5) {
+        const heightDiff = attackerZ - targetZ;
+        // 高所からは射程が伸び、低所からは射程が縮む
+        // 最小1、最大 baseRange + 3
+        return Math.max(1, Math.min(baseRange + 3, baseRange + heightDiff));
+    }
+
+    /**
+     * 矢の軌道が障害物で遮られるかチェック
+     * @param {Object} from - 発射元ユニット
+     * @param {Object} to - 対象ユニット
+     * @param {Array} map - マップデータ
+     * @returns {{blocked: boolean, blockPos: {x,y,z}|null}} 遮蔽情報
+     */
+    isArrowPathBlocked(from, to, map) {
+        // 放物線の頂点を計算
+        const dist = getDistRaw(from.x, from.y, to.x, to.y);
+        const fromZ = map[from.y]?.[from.x]?.z || 0;
+        const toZ = map[to.y]?.[to.x]?.z || 0;
+
+        // 放物線の最高点（距離の半分の地点で最も高くなる）
+        const arcHeight = dist * 0.5; // 距離に比例した弧の高さ
+        const midZ = Math.max(fromZ, toZ) + arcHeight;
+
+        // 軌道上の各グリッドをチェック
+        const steps = Math.ceil(dist);
+        for (let i = 1; i < steps; i++) {
+            const t = i / steps;
+            const checkX = Math.round(from.x + (to.x - from.x) * t);
+            const checkY = Math.round(from.y + (to.y - from.y) * t);
+
+            // マップ範囲チェック
+            if (!map[checkY] || !map[checkY][checkX]) continue;
+
+            const tileZ = map[checkY][checkX].z || 0;
+
+            // 放物線上の高さを計算（パラボラ: 4 * h * t * (1 - t)）
+            const arcZ = fromZ + (toZ - fromZ) * t + 4 * arcHeight * t * (1 - t);
+
+            // 地形が矢の軌道より高ければ遮蔽
+            if (tileZ > arcZ) {
+                return { blocked: true, blockPos: { x: checkX, y: checkY, z: tileZ } };
+            }
+        }
+
+        return { blocked: false, blockPos: null };
+    }
+
+    /**
+     * 遠距離攻撃を実行
+     * @param {Object} att - 攻撃者
+     * @param {Object} def - 防御者
+     * @param {Array} map - マップデータ
+     */
+    async rangedCombat(att, def, map) {
+        console.log(`[rangedCombat] START: ${att.name} -> ${def.name}`);
+        att.dir = getFacingAngle(att.x, att.y, def.x, def.y);
+
+        const attZ = map[att.y]?.[att.x]?.z || 0;
+        const defZ = map[def.y]?.[def.x]?.z || 0;
+        console.log(`[rangedCombat] attZ=${attZ}, defZ=${defZ}`);
+
+        // 矢のアニメーションを発射
+        console.log(`[rangedCombat] renderingEngine exists: ${!!this.renderingEngine}, spawnArrowAnimation exists: ${!!(this.renderingEngine && this.renderingEngine.spawnArrowAnimation)}`);
+        if (this.renderingEngine && this.renderingEngine.spawnArrowAnimation) {
+            const blockInfo = this.isArrowPathBlocked(att, def, map);
+            console.log(`[rangedCombat] Spawning arrow animation, blockInfo:`, blockInfo);
+            await this.renderingEngine.spawnArrowAnimation(att, def, blockInfo);
+            console.log(`[rangedCombat] Arrow animation complete`);
+        } else {
+            console.warn(`[rangedCombat] Cannot spawn arrow: renderingEngine or spawnArrowAnimation missing!`);
+        }
+
+        // 遮蔽チェック
+        const blockCheck = this.isArrowPathBlocked(att, def, map);
+        if (blockCheck.blocked) {
+            // 矢が遮られた
+            this.spawnText({ q: blockCheck.blockPos.x, r: blockCheck.blockPos.y }, "遮蔽!", '#888', 40);
+            console.log(`[rangedCombat] Arrow blocked at (${blockCheck.blockPos.x}, ${blockCheck.blockPos.y})`);
+            await this.wait(300);
+            return;
+        }
+
+        // 弓攻撃SE
+        this.audioEngine.sfxHit();
+
+        // 高低差によるダメージ倍率
+        const heightDiff = attZ - defZ;
+        let heightMod = 1.0;
+        if (heightDiff > 0) {
+            heightMod = 1.0 + (heightDiff * 0.15); // 高所から: +15%/段
+        } else if (heightDiff < 0) {
+            heightMod = Math.max(0.5, 1.0 + (heightDiff * 0.15)); // 低所から: -15%/段 (最低50%)
+        }
+
+        // 陣形によるステータス修正
+        const attFormation = getFormationModifiers(att.formation);
+        const defFormation = getFormationModifiers(def.formation);
+        const finalAtkStat = att.atk + attFormation.atk;
+        const finalDefStat = def.def + defFormation.def;
+
+        // ダメージ計算（近接より低め、ただし反撃なし）
+        const safeSoldiers = (typeof att.soldiers === 'number' && att.soldiers > 0) ? att.soldiers : 1;
+        let dmgToDef = Math.floor((Math.sqrt(safeSoldiers) * finalAtkStat * heightMod * 0.7) / (finalDefStat / 15));
+        if (!Number.isFinite(dmgToDef) || dmgToDef < 5) dmgToDef = 5;
+
+        // ダメージ適用（反撃なし）
+        def.soldiers -= dmgToDef;
+        this.spawnText({ q: def.x, r: def.y }, `-${dmgToDef}`, '#ff6600', 60);
+        this.speak(def, 'DAMAGED');
+
+        // 被ダメージアニメーションをトリガー
+        if (this.renderingEngine && this.renderingEngine.triggerDamageAnimation) {
+            this.renderingEngine.triggerDamageAnimation(def.id);
+        }
+
+        // 3Dレンダラー側のユニット情報を更新
+        if (this.renderingEngine && this.renderingEngine.updateUnitInfo) {
+            const defMesh = this.renderingEngine.unitMeshes.get(def.id);
+            if (defMesh) this.renderingEngine.updateUnitInfo(defMesh, def);
+        }
+
+        // 死亡判定
+        if (def.soldiers <= 0 || isNaN(def.soldiers)) {
+            def.soldiers = 0;
+            def.dead = true;
+            if (this.renderingEngine && this.renderingEngine.triggerDeathAnimation) {
+                this.renderingEngine.triggerDeathAnimation(def.id);
+            }
+            await this.dramaticDeath(def, att.side);
+        }
+
+        await this.wait(200);
     }
 }

@@ -688,14 +688,18 @@ export class Game {
             console.log("Ground clicked"); // DEBUG
             // 地面をクリックした場合
             if (this.selectedUnits.length > 0 && this.selectedUnits[0].side === this.playerSide) {
-                // 移動メニュー表示
+                // 地面クリック時は即座に移動命令を発行（RTSの標準挙動）
                 this.targetContextUnit = null;
-                // メニューコマンドから参照できるように保存
                 this.input.targetHex = h;
 
-                menu.style.display = 'flex';
-                menu.style.left = mx + 'px';
-                menu.style.top = my + 'px';
+                // 全選択ユニットに移動命令を発行
+                this.selectedUnits.forEach(u => {
+                    u.order = { type: 'MOVE', targetHex: { x: h.q, y: h.r } };
+                    console.log(`[Ground Click] Move order issued: ${u.name} -> (${h.q}, ${h.r})`);
+                });
+
+                // メニューは表示しない（即座に命令発行）
+                menu.style.display = 'none';
             } else {
                 // 選択解除
                 this.selectedUnits = [];
@@ -874,6 +878,7 @@ export class Game {
 
             this.placementGhost.position.set(p.x, p.y, p.z);
             this.currentPlacementPos = p;
+            this.currentPlacementGrid = h; // グリッド座標を保存
         }
     }
 
@@ -884,11 +889,12 @@ export class Game {
         // For now, just place at cursor.
         const p = this.currentPlacementPos;
 
-        // Align to height map? center?
-        // The buildSystem logic usually calculates height.
-        // Let's try to infer grid coordinates roughly or just pass world coords.
-        // placeCustomBuilding(data, wx, wz, y);
-        this.buildingSystem.placeCustomBuilding(this.placementData, p.x, p.z, p.y);
+        // mapSystem/RenderEngineのグリッド座標を使用
+        const gx = this.currentPlacementGrid ? this.currentPlacementGrid.q : 0;
+        const gy = this.currentPlacementGrid ? this.currentPlacementGrid.r : 0;
+
+        // placeCustomBuilding(data, wx, wz, y, gridX, gridY);
+        this.buildingSystem.placeCustomBuilding(this.placementData, p.x, p.z, p.y, gx, gy);
 
         // Sound?
         // this.audioEngine.play('build'); 

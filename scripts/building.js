@@ -173,6 +173,89 @@ export class BuildingSystem {
     }
 
     /**
+     * 指定座標の建物の高さを取得（ユニット配置用）
+     * @param {number} x グリッドX
+     * @param {number} y グリッドY
+     * @returns {number} 建物の高さ（y座標オフセット）
+     */
+    getBuildingHeight(x, y) {
+        for (const building of this.buildings) {
+            // gridX, gridY が設定されていない場合はスキップ
+            if (building.gridX === undefined || building.gridY === undefined) continue;
+
+            // テンプレートからサイズを取得（回転は未実装のためrotation=0と仮定）
+            // 将来的に rotation 対応が必要
+            const template = building.template || BUILDING_TEMPLATES[building.templateId];
+            if (!template) continue;
+
+            // サイズ（グリッド単位換算）
+            // template.size はブロック数。this.blockSize=8。
+            // タイルサイズ=32? renderingのTILE_SIZEによるが...
+            // placeBuildingAtGridでのfootprint計算を参照
+            // const footprintX = Math.ceil(template.size.x * this.blockSize / 32);
+            // 32は定数TILE_SIZEと仮定（constants.js読み込んでる？）
+            // TILE_SIZEがインポートされていないので、building.js内では不明確。
+            // しかし placeBuildingAtGrid のロジックと合わせるべき。
+
+            const footprintX = Math.ceil(template.size.x * this.blockSize / 32);
+            const footprintY = Math.ceil(template.size.y * this.blockSize / 32);
+
+            // 建物の配置基準は左下（gridX, gridY）から、X正・Y負方向へ？
+            // placeBuildingAtGridのループ:
+            //   for (let dy = -offsetY; dy < footprintY - offsetY; dy++)
+            //   getGroundHeight(gridX + dx, ...
+            // これは「中心」基準で配置している。 gridXが中心。
+
+            const offsetX = Math.floor(footprintX / 2);
+            const offsetY = Math.floor(footprintY / 2); // Yは?
+
+            // placeBuildingAtGridでは gridX が中心指定。
+            // 範囲： [gridX - offsetX, gridX + footprintX - offsetX - 1]
+
+            const minX = building.gridX - offsetX;
+            const maxX = building.gridX + footprintX - offsetX - 1; // inclusive
+
+            const minY = building.gridY - offsetY;
+            const maxY = building.gridY + footprintY - offsetY - 1;
+
+            if (x >= minX && x <= maxX && y >= minY && y <= maxY) {
+                // ヒットした
+                // 高さはブロック段数 * ブロック高さ * スケール？
+                // レンダリングエンジンのスケールに合わせる必要がある。
+                // unitsのyは worldPos.y。
+                // 建物の天辺は building.position.y + height
+                // height = template.size.z * this.blockSize
+
+                // ただし、ユニットの足元座標系に合わせる。
+                // ブロック高さ8、ユニット高さは？
+                // 単純にジオメトリ高さを返す。
+                const buildingHeightWorld = template.size.z * this.blockSize;
+
+                // 建物のベース高さも考慮
+                // (building.position.y はベース高さ)
+                // return building.position.y + buildingHeightWorld;
+
+                // しかし呼び出し元は getGroundHeight() + buildingHeight なので、
+                // 地形からの相対高さ（追加分）を返すべきか？
+                // rendering3d.js で mesh.position.y = hexHeight + offset している。
+                // hexHeight は地形高さ。
+
+                // もし建物が埋まっているなら、その分を引かないといけないが、
+                // 簡略化して「建物の天辺の高さ - 地形高さ」を返したいが、地形高さは場所による。
+
+                // ここでは「建物の厚み」を返すのが無難だが、
+                // ユニットが「建物のベース高さ + 建物高さ」に乗るべき。
+                // return (building.position.y + buildingHeightWorld) - 地形高さ(x,y) ?
+                // 地形高さがわからないので、絶対高さ(Absolute Height)を返すAPIにするか？
+                // あるいは、BuildingSystemとしては「この座標には建物（天辺Y=...）がある」と返す。
+
+                return { isBuilding: true, height: building.position.y + buildingHeightWorld };
+            }
+        }
+        return null;
+    }
+
+    /**
      * グリッド座標を指定して建物を配置（推奨API）
      * レンダリングエンジンを使って座標と高さを自動計算
      * 建物フットプリント内の最低地形高さに配置
@@ -220,7 +303,16 @@ export class BuildingSystem {
 
         console.log(`[BuildingSystem] placeBuildingAtGrid: grid(${gridX}, ${gridY}), footprint: ${footprintX}x${footprintY}, minHeight: ${minHeight}`);
 
-        return this.placeBuilding(templateId, worldPos.x, worldPos.z, minHeight);
+        const building = this.placeBuilding(templateId, worldPos.x, worldPos.z, minHeight);
+
+        // グリッド座標を記録（高さ判定用）
+        if (building) {
+            building.gridX = gridX;
+            building.gridY = gridY;
+            building.template = template; // テンプレート参照も保持
+        }
+
+        return building;
     }
 
     /**
