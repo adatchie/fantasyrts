@@ -437,6 +437,46 @@
             pointer-events: none;
             background: rgba(0, 0, 0, 0.5);
         }
+
+        /* Speed Control Styles */
+        #speed-control {
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            display: flex;
+            gap: 8px;
+            pointer-events: auto;
+            z-index: 60;
+        }
+
+        .speed-btn {
+            background: rgba(20, 20, 30, 0.85);
+            border: 1px solid #888;
+            color: #ffd700;
+            padding: 8px 12px;
+            font-size: 18px;
+            cursor: pointer;
+            font-family: serif;
+            transition: 0.2s;
+            border-radius: 2px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+            min-width: 45px;
+        }
+
+        .speed-btn:hover {
+            background: rgba(40, 40, 60, 0.9);
+            border-color: #ffd700;
+        }
+
+        .speed-btn.active {
+            background: rgba(85, 68, 0, 0.9);
+            border-color: #ffd700;
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
+        }
+
+        .speed-btn:active {
+            transform: translateY(1px);
+        }
     </style>
 </head>
 
@@ -450,6 +490,13 @@
         <div id="error-log"></div>
 
         <div id="ui-layer">
+            <!-- Speed Control UI -->
+            <div id="speed-control" style="display: none;">
+                <button class="speed-btn active" data-speed="1.0" onclick="window.setActionSpeed(1.0)">▶</button>
+                <button class="speed-btn" data-speed="1.5" onclick="window.setActionSpeed(1.5)">▶▶</button>
+                <button class="speed-btn" data-speed="2.0" onclick="window.setActionSpeed(2.0)">▶▶▶</button>
+            </div>
+
             <div id="top-bar" class="hud-panel">
                 <span id="phase-text" style="color:#ffd700">関ヶ原の戦い</span>
                 <span id="status-text" style="font-size:14px; color:#ccc; margin-top:4px;">東軍: -- / 西軍: --</span>
@@ -502,7 +549,7 @@
     </script>
 
     <script type="module">
-        import { Game } from './scripts/main.js?v=47';
+        import { Game } from './scripts/main.js?v=48';
 
         try {
             // グローバルスコープにGameインスタンスを作成
@@ -546,6 +593,15 @@
             };
 
             window.closeCtx = () => window.game.closeCtx();
+
+            window.setActionSpeed = (speed) => {
+                try {
+                    window.game.setActionSpeed(speed);
+                } catch (e) {
+                    console.error("SetActionSpeed failed", e);
+                    throw e;
+                }
+            };
 
         } catch (e) {
             console.error("Module setup failed", e);
