@@ -868,7 +868,8 @@ export class RenderingEngine3D {
         const activeIds = new Set();
 
         window.gameState.units.forEach(unit => {
-            if (unit.dead) return;
+            // isDyingがtrueなら死亡アニメーション中なので描画を続ける
+            if (unit.dead && !unit.isDying) return;
             activeIds.add(unit.id);
 
             let mesh = this.unitMeshes.get(unit.id);
@@ -883,7 +884,9 @@ export class RenderingEngine3D {
             this._tempAnimOffset.set(0, 0, 0);
             if (mesh.userData.attackAnim && mesh.userData.attackAnim.active) {
                 const anim = mesh.userData.attackAnim;
-                anim.progress++;
+                // 速度倍率を適用
+                const speedMultiplier = (window.game && window.game.actionSpeed) ? window.game.actionSpeed : 1.0;
+                anim.progress += speedMultiplier;
 
                 const t = anim.progress / anim.duration;
                 let scale = 0;
@@ -1349,22 +1352,32 @@ export class RenderingEngine3D {
         // スプライトを取得
         const sprite = mesh.getObjectByName('unitSprite');
         if (sprite && sprite.material) {
+            // 速度倍率を取得
+            const speedMultiplier = (window.game && window.game.actionSpeed) ? window.game.actionSpeed : 1.0;
+
             // まず倒れスプライトを見せるために少し待つ
             setTimeout(() => {
                 // フェードアウト開始
                 let opacity = 1.0;
                 const fadeInterval = setInterval(() => {
-                    opacity -= 0.05;
+                    opacity -= 0.05 * speedMultiplier; // 速度に応じてフェードを速く
                     sprite.material.opacity = Math.max(0, opacity);
                     sprite.material.needsUpdate = true;
 
                     if (opacity <= 0) {
                         clearInterval(fadeInterval);
-                        // フェードアウト完了後にメッシュを非表示
+                        // フェードアウト完了後にメッシュを非表示、isDyingをクリアして削除可能に
                         mesh.visible = false;
+                        if (window.game && window.game.unitManager) {
+                            const units = window.game.unitManager.getAllUnits();
+                            const unit = units.find(u => u.id === unitId);
+                            if (unit) {
+                                unit.isDying = false; // これによりupdateUnitsでメッシュが削除される
+                            }
+                        }
                     }
-                }, 50); // 50ms間隔で20回 = 1秒でフェードアウト
-            }, 800); // 800ms後にフェードアウト開始（倒れスプライトを見せる時間）
+                }, 50 / speedMultiplier); // 速度に応じて間隔を短く
+            }, 800 / speedMultiplier); // 800ms後にフェードアウト開始（速度調整）
         }
     }
 
@@ -2898,7 +2911,9 @@ export class RenderingEngine3D {
             const dx = endPos.x - fromPos.x;
             const dz = endPos.z - fromPos.z;
             const distance = Math.sqrt(dx * dx + dz * dz);
-            const duration = Math.max(800, Math.min(1800, distance * 12));
+            // 速度倍率を適用 (window.game.actionSpeedを参照)
+            const speedMultiplier = (window.game && window.game.actionSpeed) ? window.game.actionSpeed : 1.0;
+            const duration = Math.max(800, Math.min(1800, distance * 12)) / speedMultiplier;
 
             // 放物線の高さ（高く弧を描いて落下するように）
             const arcHeight = Math.min(distance * 0.5, 100);
@@ -2912,7 +2927,20 @@ export class RenderingEngine3D {
 
             const animate = () => {
                 const elapsed = Date.now() - startTime;
-                const t = Math.min(1, elapsed / duration);
+                const linearT = Math.min(1, elapsed / duration);
+
+                // 頂点を過ぎたら加速するイージング
+                // 前半（t < 0.4）は線形、後半は加速
+                let t;
+                if (linearT < 0.4) {
+                    // 前半: 0〜0.4 をゆっくり進む
+                    t = linearT * 1.0;
+                } else {
+                    // 後半: 0.4〜1.0 を加速して進む（二次曲線で加速）
+                    const normalizedT = (linearT - 0.4) / 0.6; // 0〜1に正規化
+                    const accelerated = normalizedT * normalizedT; // 二乗で加速
+                    t = 0.4 + accelerated * 0.6;
+                }
 
                 // 線形補間でXZ位置を計算
                 const currentX = fromPos.x + (endPos.x - fromPos.x) * t;
