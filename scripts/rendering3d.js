@@ -144,6 +144,10 @@ export class RenderingEngine3D {
         this.animate();
     }
 
+    async init() {
+        return Promise.resolve();
+    }
+
     setupLights() {
         // 環境光（全体的な明るさ）
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
@@ -389,6 +393,223 @@ export class RenderingEngine3D {
         }
 
         console.log('Isometric terrain built from heightmap');
+    }
+
+    /**
+     * 既存のテレインを完全にクリア
+     */
+    clearTerrain() {
+        // tileGroupの全要素を削除
+        if (this.tileGroup) {
+            while (this.tileGroup.children.length > 0) {
+                const child = this.tileGroup.children[0];
+                this.tileGroup.remove(child);
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach(m => m.dispose());
+                    } else {
+                        child.material.dispose();
+                    }
+                }
+            }
+        }
+
+        // hexHeightsキャッシュをクリア
+        this.hexHeights = [];
+
+        // TerrainManagerを使用している場合はそちらもクリア
+        if (this.useTerrainManager && this.terrainManager && this.terrainManager.clear) {
+            this.terrainManager.clear();
+        }
+
+        console.log('[RenderingEngine3D] Terrain cleared.');
+    }
+
+    /**
+     * カスタムマップデータからテレインを構築
+     * @param {Object} mapData - カスタムマップデータ (terrain, buildings等を含む)
+     */
+    buildTerrainFromMapData(mapData) {
+        if (!mapData || !mapData.terrain) {
+            console.error('[RenderingEngine3D] Invalid map data for terrain building.');
+            return;
+        }
+
+        console.log(`[RenderingEngine3D] Building terrain from map data: ${mapData.name}`);
+
+        const terrain = mapData.terrain;
+        const width = terrain.width;
+        const height = terrain.height;
+
+        // 既存テレインをクリア
+        this.clearTerrain();
+
+        // hexHeightsキャッシュを初期化
+        this.hexHeights = [];
+
+        // 崖側面用のマテリアル
+        const cliffMaterial = new THREE.MeshStandardMaterial({
+            color: 0x5a4a3a,
+            roughness: 0.95,
+            metalness: 0.0,
+            side: THREE.DoubleSide
+        });
+
+        // 地形タイプごとの色
+        const terrainColors = {
+            'grass': 0x4a7c41,
+            'plain': 0x5a8c51,
+            'forest': 0x2d5a27,
+            'water': 0x3b7cb8,
+            'mountain': 0x7a6b5a,
+            'road': 0x8b7355,
+            'sand': 0xc9b896,
+            'swamp': 0x5a6b4a,
+            'cliff': 0x4a4a4a
+        };
+
+        // マテリアルキャッシュ
+        const materialCache = {};
+
+        for (let y = 0; y < height; y++) {
+            this.hexHeights[y] = [];
+            for (let x = 0; x < width; x++) {
+                // 高さデータを取得
+                const z = (terrain.heightMap && terrain.heightMap[y] && terrain.heightMap[y][x] !== undefined)
+                    ? terrain.heightMap[y][x]
+                    : 0;
+
+                // 地形タイプを取得
+                const terrainType = (terrain.terrainType && terrain.terrainType[y] && terrain.terrainType[y][x])
+                    ? terrain.terrainType[y][x]
+                    : 'grass';
+
+                const worldPos = this.gridToWorld3D(x, y, z);
+
+                // タイル用の菱形ジオメトリを作成
+                const tileShape = new THREE.Shape();
+                const hw = TILE_SIZE / 2;
+                const hh = TILE_SIZE / 4;
+                tileShape.moveTo(0, -hh);
+                tileShape.lineTo(hw, 0);
+                tileShape.lineTo(0, hh);
+                tileShape.lineTo(-hw, 0);
+                tileShape.closePath();
+
+                const tileGeometry = new THREE.ShapeGeometry(tileShape);
+
+                // マテリアルのキャッシュキー
+                const cacheKey = `${terrainType}_${z}`;
+                let material;
+
+                if (materialCache[cacheKey]) {
+                    material = materialCache[cacheKey];
+                } else {
+                    // 高さに基づく明度調整
+                    const brightness = 0.7 + (z / 7) * 0.3;
+                    const baseColor = terrainColors[terrainType] || 0x888888;
+                    const color = new THREE.Color(baseColor);
+                    color.multiplyScalar(brightness);
+
+                    material = new THREE.MeshStandardMaterial({
+                        color: color,
+                        roughness: 0.9,
+                        metalness: 0.1,
+                        side: THREE.DoubleSide
+                    });
+                    materialCache[cacheKey] = material;
+                }
+
+                const tileMesh = new THREE.Mesh(tileGeometry, material);
+                tileMesh.rotation.x = -Math.PI / 2;
+                tileMesh.position.set(worldPos.x, worldPos.y, worldPos.z);
+                tileMesh.receiveShadow = true;
+
+                // Raycast用に座標データを保存
+                tileMesh.userData = { x: x, y: y, z: z };
+
+                this.tileGroup.add(tileMesh);
+                this.hexHeights[y][x] = worldPos.y;
+
+                // 崖の側面を描画（簡易版：隣接を仮作成して渡す）
+                // 臨時tileデータを作成
+                const tempTiles = [];
+                for (let ty = 0; ty < height; ty++) {
+                    tempTiles[ty] = [];
+                    for (let tx = 0; tx < width; tx++) {
+                        tempTiles[ty][tx] = {
+                            z: (terrain.heightMap && terrain.heightMap[ty] && terrain.heightMap[ty][tx] !== undefined)
+                                ? terrain.heightMap[ty][tx]
+                                : 0
+                        };
+                    }
+                }
+                this.addCliffSidesCustom(x, y, z, tempTiles, cliffMaterial, width, height);
+            }
+        }
+
+        console.log(`[RenderingEngine3D] Custom terrain built: ${width}x${height}`);
+    }
+
+    /**
+     * カスタムマップ用崖側面を追加（マップサイズ可変対応）
+     */
+    addCliffSidesCustom(x, y, z, tiles, cliffMaterial, mapW, mapH) {
+        if (z === 0) return;
+
+        const worldPos = this.gridToWorld3D(x, y, z);
+        const hw = TILE_SIZE / 2;
+        const hh = TILE_SIZE / 4;
+
+        const topVertices = [
+            { x: worldPos.x, z: worldPos.z - hh },
+            { x: worldPos.x + hw, z: worldPos.z },
+            { x: worldPos.x, z: worldPos.z + hh },
+            { x: worldPos.x - hw, z: worldPos.z }
+        ];
+
+        const edges = [
+            { dx: 0, dy: -1, v1: 0, v2: 1 },
+            { dx: 1, dy: 0, v1: 1, v2: 2 },
+            { dx: 0, dy: 1, v1: 2, v2: 3 },
+            { dx: -1, dy: 0, v1: 3, v2: 0 }
+        ];
+
+        const topY = worldPos.y;
+
+        for (const edge of edges) {
+            const nx = x + edge.dx;
+            const ny = y + edge.dy;
+
+            let neighborZ = 0;
+            if (nx >= 0 && nx < mapW && ny >= 0 && ny < mapH) {
+                neighborZ = tiles[ny][nx].z;
+            }
+
+            if (z > neighborZ) {
+                const bottomY = neighborZ * TILE_HEIGHT;
+                const v1 = topVertices[edge.v1];
+                const v2 = topVertices[edge.v2];
+
+                const vertices = new Float32Array([
+                    v1.x, topY, v1.z,
+                    v1.x, bottomY, v1.z,
+                    v2.x, bottomY, v2.z,
+                    v2.x, topY, v2.z
+                ]);
+
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+                geometry.setIndex([0, 1, 2, 0, 2, 3]);
+                geometry.computeVertexNormals();
+
+                const cliffMesh = new THREE.Mesh(geometry, cliffMaterial);
+                cliffMesh.receiveShadow = true;
+                cliffMesh.castShadow = false;
+                this.tileGroup.add(cliffMesh);
+            }
+        }
     }
 
     /**

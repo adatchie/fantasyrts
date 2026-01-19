@@ -26,6 +26,200 @@ export const UNIT_TYPE_NORMAL = 'NORMAL';             // 通常ユニット
 // マルチユニットシステム定数
 export const SOLDIERS_PER_UNIT = 1000; // 1ユニットあたりの標準兵力
 
+// ========================================
+// ファンタジーRTS ユニットタイプ定義
+// ========================================
+
+/**
+ * ユニットタイプ定義
+ * size: グリッド占有数 (1=小, 2=中/縦2マス, 4=大/2×2)
+ * sizeShape: 'single' | 'vertical' | '2x2'
+ * rangeType: 攻撃パターンタイプ（attack-patterns.jsと連携）
+ * baseHp: 基本HP
+ * baseMoveRange: 基本移動力
+ * marker: 暫定表示用マーカー（スプライト未実装時）
+ */
+export const UNIT_TYPES = {
+    // ────────── 小サイズ (1グリッド) ──────────
+    INFANTRY: {
+        name: '歩兵',
+        size: 1,
+        sizeShape: 'single',
+        rangeType: 'melee',
+        atk: 50,
+        def: 50,
+        baseHp: 1000,
+        baseMoveRange: 3,
+        marker: '⚔️',
+        description: '攻撃力防御力平均的。近接攻撃のみ。軽装鎧に剣装備。'
+    },
+    KNIGHT: {
+        name: '騎士',
+        size: 1,
+        sizeShape: 'single',
+        rangeType: 'melee',
+        atk: 40,
+        def: 80,
+        baseHp: 1200,
+        baseMoveRange: 2,
+        marker: '🛡️',
+        description: '防御力が高く壁役。近接攻撃のみ。重装鎧に盾を装備。'
+    },
+    ARCHER: {
+        name: '弓兵',
+        size: 1,
+        sizeShape: 'single',
+        rangeType: 'bowArc',
+        atk: 40,
+        def: 30,
+        baseHp: 800,
+        baseMoveRange: 3,
+        marker: '🏹',
+        description: '攻撃力防御力弱いが射程長い。皮装備に弓を装備。'
+    },
+    SPEAR: {
+        name: '槍兵',
+        size: 1,
+        sizeShape: 'single',
+        rangeType: 'forward2',
+        atk: 50,
+        def: 50,
+        baseHp: 1000,
+        baseMoveRange: 3,
+        marker: '🔱',
+        description: '攻撃力防御力平均的。前方2マス攻撃可。軽装鎧に槍装備。'
+    },
+    GUNNER: {
+        name: '銃士',
+        size: 1,
+        sizeShape: 'single',
+        rangeType: 'longArc',
+        atk: 70,
+        def: 25,
+        baseHp: 700,
+        baseMoveRange: 2,
+        marker: '🔫',
+        description: '攻撃力高いが防御低い。射程長い。皮装備に長銃装備。'
+    },
+    MAGE: {
+        name: '魔術師',
+        size: 1,
+        sizeShape: 'single',
+        rangeType: 'aoe',
+        atk: 80,
+        def: 15,
+        baseHp: 600,
+        baseMoveRange: 2,
+        marker: '✨',
+        isAoe: true,  // 範囲攻撃フラグ（着弾点+周囲8マスにダメージ）
+        description: '攻撃力高いが防御極度に低い。射程中。範囲攻撃。ローブに魔導書。'
+    },
+    PRIEST: {
+        name: '僧侶',
+        size: 1,
+        sizeShape: 'single',
+        rangeType: 'heal',
+        atk: 0,
+        def: 50,
+        baseHp: 800,
+        baseMoveRange: 2,
+        isHealer: true,
+        marker: '✝️',
+        description: '攻撃力なし防御平均的。味方を回復。僧衣に杖。'
+    },
+
+    // ────────── 中サイズ (縦2グリッド) ──────────
+    CAVALRY: {
+        name: '騎兵',
+        size: 2,
+        sizeShape: 'vertical',
+        rangeType: 'forward2',
+        atk: 70,
+        def: 70,
+        baseHp: 1500,
+        baseMoveRange: 5,
+        canPushBack: true,  // 押し出し能力
+        marker: '🐴',
+        description: '攻撃力高防御高。移動力高。前方2マス攻撃可。敵を押し出す。'
+    },
+
+    // ────────── 大サイズ (2×2グリッド) ──────────
+    DRAGON: {
+        name: 'ドラゴン',
+        size: 4,
+        sizeShape: '2x2',
+        rangeType: 'breath',
+        atk: 90,
+        def: 80,
+        baseHp: 3000,
+        baseMoveRange: 4,
+        marker: '🐉',
+        description: '強力な飛行ユニット。ブレス攻撃で前方扇状にダメージ。'
+    },
+    DRAGON_RIDER: {
+        name: '竜騎兵',
+        size: 4,
+        sizeShape: '2x2',
+        rangeType: 'breath',
+        atk: 85,
+        def: 75,
+        baseHp: 2500,
+        baseMoveRange: 5,
+        marker: '🦅',
+        description: 'ドラゴンに騎乗した騎士。機動力と攻撃力を兼ね備える。'
+    },
+    ARTILLERY: {
+        name: '砲兵',
+        size: 4,
+        sizeShape: '2x2',
+        rangeType: 'siege',
+        atk: 100,
+        def: 20,
+        baseHp: 1000,
+        baseMoveRange: 1,
+        marker: '💣',
+        description: '圧倒的な攻撃力と超長射程。移動力は極端に低い。'
+    }
+};
+
+/**
+ * ユニットタイプIDからタイプ情報を取得
+ * @param {string} typeId - ユニットタイプID
+ * @returns {Object|null} ユニットタイプ情報
+ */
+export function getUnitTypeInfo(typeId) {
+    return UNIT_TYPES[typeId] || null;
+}
+
+/**
+ * ユニットが占有するグリッド座標を計算
+ * @param {number} x - 基準X座標（★の位置）
+ * @param {number} y - 基準Y座標（★の位置）
+ * @param {number} dir - 向き (0=上, 1=右, 2=下, 3=左)
+ * @param {string} sizeShape - サイズ形状
+ * @returns {Array<{x: number, y: number}>} 占有グリッド座標配列
+ */
+export function getOccupiedGrids(x, y, dir, sizeShape) {
+    const grids = [{ x, y }]; // 基準位置は必ず含む
+
+    if (sizeShape === 'vertical') {
+        // 縦2マス：基準（前方）の後ろにもう1マス
+        switch (dir) {
+            case 0: grids.push({ x, y: y + 1 }); break; // 上向き→後ろは下
+            case 1: grids.push({ x: x - 1, y }); break; // 右向き→後ろは左
+            case 2: grids.push({ x, y: y - 1 }); break; // 下向き→後ろは上
+            case 3: grids.push({ x: x + 1, y }); break; // 左向き→後ろは右
+        }
+    } else if (sizeShape === '2x2') {
+        // 2×2マス：基準を左上として右、下、右下を追加
+        grids.push({ x: x + 1, y });
+        grids.push({ x, y: y + 1 });
+        grids.push({ x: x + 1, y: y + 1 });
+    }
+
+    return grids;
+}
+
 // 陣形定数
 export const FORMATION_HOKO = 'HOKO';         // 鋒矢の陣（攻撃的・本陣前方）
 export const FORMATION_KAKUYOKU = 'KAKUYOKU'; // 鶴翼の陣（バランス型・本陣中央）

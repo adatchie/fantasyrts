@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fantasy RTS - Building Designer</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #222;
+        }
+
+        #designer-container {
+            width: 100vw;
+            height: 100vh;
+        }
+    </style>
+    <!-- Check if THREE is available or needs importmap. Using importmap as in sekigahara.html -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div id="designer-container"></div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { BuildingEditor } from './scripts/editor/building-editor.js';
+
+        // Mock Game Environment to run BuildingEditor standalone
+        class MockRenderingEngine {
+            constructor(container) {
+                this.canvas = document.createElement('canvas');
+                container.appendChild(this.canvas);
+
+                this.renderer = new THREE.WebGLRenderer({
+                    canvas: this.canvas,
+                    antialias: true
+                });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setPixelRatio(window.devicePixelRatio);
+                this.renderer.shadowMap.enabled = true;
+
+                // Simple Isometric-ish Camera
+                const aspect = window.innerWidth / window.innerHeight;
+                const d = 50;
+                this.camera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, 1, 1000);
+                this.camera.position.set(20, 20, 20);
+                this.camera.lookAt(0, 0, 0);
+
+                this.controls = new OrbitControls(this.camera, this.canvas);
+                this.controls.enableDamping = true;
+                this.controls.dampingFactor = 0.05;
+
+                // Render Override for Editor
+                this.renderOverride = null;
+
+                window.addEventListener('resize', () => this.resize());
+                this.animate();
+            }
+
+            resize() {
+                const aspect = window.innerWidth / window.innerHeight;
+                const d = 50;
+                this.camera.left = -d * aspect;
+                this.camera.right = d * aspect;
+                this.camera.top = d;
+                this.camera.bottom = -d;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                this.controls.update();
+                if (this.renderOverride) {
+                    this.renderOverride();
+                } else {
+                    this.renderer.render(new THREE.Scene(), this.camera); // Empty fallback
+                }
+            }
+        }
+
+        class MockGame {
+            constructor() {
+                const container = document.getElementById('designer-container');
+                this.renderingEngine = new MockRenderingEngine(container);
+            }
+
+            // Stub for "Deploy" button in editor (can just alert or log in designer)
+            enterBuildingPlacementMode(data) {
+                console.log("Deploy requested (Simulated):", data);
+                alert("This is the Designer. Deployment only works in the actual game.\nData logged to console.");
+            }
+        }
+
+        // Initialize
+        const game = new MockGame();
+        const editor = new BuildingEditor(game);
+
+        // Force Enter Editor Mode
+        editor.enter();
+
+        // Adjust Editor UI for standalone
+        // Remove "Exit" button as it has nowhere to go
+        setTimeout(() => {
+            const exitBtn = document.getElementById('btn-exit');
+            if (exitBtn) exitBtn.style.display = 'none';
+        }, 100);
+
+    </script>
+</body>
+
+</html>
