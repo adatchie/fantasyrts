@@ -162,7 +162,7 @@ export const UNIT_TYPES = {
         def: 80,
         baseHp: 3000,
         baseMoveRange: 4,
-        mobility: 6,
+        mobility: 1,
         marker: '🐉',
         description: '強力な飛行ユニット。ブレス攻撃で前方扇状にダメージ。'
     },
@@ -175,7 +175,7 @@ export const UNIT_TYPES = {
         def: 75,
         baseHp: 2500,
         baseMoveRange: 5,
-        mobility: 6,
+        mobility: 3,
         marker: '🦅',
         description: 'ドラゴンに騎乗した騎士。機動力と攻撃力を兼ね備える。'
     },
