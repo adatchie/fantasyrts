@@ -3,7 +3,7 @@
  * メインゲームロジックとループ
  */
 
-import { HEX_SIZE, C_EAST, C_WEST, C_SEL_BOX, C_SEL_BORDER, WARLORDS, UNIT_TYPE_HEADQUARTERS, FORMATION_HOKO, FORMATION_KAKUYOKU, FORMATION_GYORIN, UNIT_TYPE_NORMAL } from './constants.js?v=10';
+import { HEX_SIZE, C_EAST, C_WEST, C_SEL_BOX, C_SEL_BORDER, WARLORDS, UNIT_TYPE_HEADQUARTERS, FORMATION_HOKO, FORMATION_KAKUYOKU, FORMATION_GYORIN, UNIT_TYPE_NORMAL, UNIT_TYPES, getUnitTypeInfo } from './constants.js?v=10';
 import { STAGES } from './game-data.js';
 import * as THREE from 'three';
 import { AudioEngine } from './audio.js';
@@ -360,8 +360,8 @@ export class Game {
             // 全ユニットの行動済みフラグをリセット（未行動状態に戻す）
             this.units.forEach(u => u.hasActed = false);
 
-            // ユニット単位でソート（残り兵数が少ない順）
-            const queue = [...this.units].sort((a, b) => a.soldiers - b.soldiers);
+            // ユニット単位でソート（ターン優先度の高い順）
+            const queue = [...this.units].sort((a, b) => this.calculateTurnPriority(b) - this.calculateTurnPriority(a));
 
             for (const u of queue) {
                 if (u.dead) continue;
@@ -406,6 +406,53 @@ export class Game {
                 this.showSpeedControl(false);
             }
         }
+    }
+
+    /**
+     * ユニットのターン優先度を計算する
+     * 値が高いほど早く行動する
+     *
+     * 現在の考慮要素:
+     * - 兵種ごとの機動力 (mobility)
+     * - 所属ユニットの合計HPが少ない順（HPボーナス）
+     *
+     * 将来的な拡張要素:
+     * - 装備品の重量の軽さ
+     * - ユニットの素早さ
+     *
+     * @param {Object} unit - ユニットオブジェクト
+     * @returns {number} ターン優先度（高いほど早く行動）
+     */
+    calculateTurnPriority(unit) {
+        let priority = 0;
+
+        // 1. 兵種ごとの機動力を取得
+        const unitTypeInfo = getUnitTypeInfo(unit.type);
+        const mobility = unitTypeInfo?.mobility || 3; // デフォルト値は歩兵と同じ
+        priority += mobility * 1000; // 機動力の影響を大きくする
+
+        // 2. 所属ユニットの合計HPが少ないほど優先（残り兵数の逆数）
+        // HPが少ないユニットが早く行動できるようにする
+        const warlordUnits = this.unitManager.getUnitsByWarlordId(unit.warlordId);
+        const totalSoldiers = warlordUnits.reduce((sum, u) => sum + (u.dead ? 0 : u.soldiers), 0);
+        // HPボーナス：兵数が少ないほどボーナスが大きくなる
+        // 基準値（例：10000兵）からの差分をボーナスとして加算
+        const hpBonus = (10000 - totalSoldiers) / 100;
+        priority += Math.max(0, hpBonus);
+
+        // 将来的な拡張ポイント:
+        // // 3. 装備品の重量の軽さ（軽いほど早く行動）
+        // if (unit.equipment) {
+        //     const weightBonus = this.calculateEquipmentWeightBonus(unit.equipment);
+        //     priority += weightBonus;
+        // }
+        //
+        // // 4. ユニットの素早さ
+        // if (unit.agility !== undefined) {
+        //     priority += unit.agility * 10;
+        // }
+
+        return priority;
     }
 
     triggerEndGame(winnerSide, loserName) {
