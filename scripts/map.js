@@ -26,7 +26,18 @@ export const TERRAIN_TYPES = {
 export class MapSystem {
     constructor() {
         this.tiles = [];
+        this.externalHeightProvider = null; // 外部からの高さ情報提供（建物など）
+        this.buildingHeightCache = new Map(); // 建物高さキャッシュ
         this.generateSquareMap();
+    }
+
+    /**
+     * 外部高さプロバイダを設定
+     * @param {Function} provider - (x, y) => heightLevel
+     */
+    setExternalHeightProvider(provider) {
+        this.externalHeightProvider = provider;
+        this.buildingHeightCache.clear(); // プロバイダ変更時にキャッシュクリア
     }
 
     /**
@@ -116,6 +127,85 @@ export class MapSystem {
     }
 
     /**
+     * 外部からマップデータを設定（エディタ作成マップ用）
+     * @param {Object} mapData - マップデータオブジェクト
+     */
+    setMapData(mapData) {
+        if (!mapData || !mapData.terrain) {
+            console.warn('[MapSystem] Invalid mapData provided, generating default map');
+            this.generateSquareMap();
+            return;
+        }
+
+        const terrain = mapData.terrain;
+        const width = terrain.width || 60;
+        const height = terrain.height || 60;
+        const heightMap = terrain.heightMap || [];
+        const terrainType = terrain.terrainType || [];
+
+        this.tiles = [];
+
+        for (let y = 0; y < height; y++) {
+            const row = [];
+            for (let x = 0; x < width; x++) {
+                // 高さマップから取得（ない場合はデフォルト値）
+                const z = (heightMap[y] && heightMap[y][x] !== undefined) ? heightMap[y][x] : 1;
+
+                // 地形タイプ取得（ない場合は自動決定）
+                let type = 'PLAIN';
+                if (terrainType[y] && terrainType[y][x]) {
+                    // エディタからの地形タイプ名をマップする
+                    const editorType = terrainType[y][x];
+                    type = this.mapTerrainTypeName(editorType, z);
+                } else {
+                    type = this.determineTerrainType(x, y, z);
+                }
+
+                row.push({
+                    x,
+                    y,
+                    z,
+                    type,
+                    blocksLOS: type === 'MTN' || type === 'FOREST'
+                });
+            }
+            this.tiles.push(row);
+        }
+
+        // マップデータ変更時にキャッシュをクリア
+        this.buildingHeightCache.clear();
+    }
+
+    /**
+     * エディタの地形タイプ名を内部タイプに変換
+     */
+    mapTerrainTypeName(editorType, height) {
+        // nullチェック
+        if (!editorType || typeof editorType !== 'string') {
+            return 'PLAIN';
+        }
+
+        // エディタからの地形タイプ名マッピング
+        const mapping = {
+            'plain': 'PLAIN',
+            'grass': 'GRASS',
+            'forest': 'FOREST',
+            'mountain': 'MTN',
+            'hill': 'HILL',
+            'water': 'WATER',
+            'river': 'RIVER',
+            'road': 'ROAD',
+            'bridge': 'BRIDGE',
+            'swamp': 'PLAIN', // 沼は平地として扱う（将来拡張可）
+            'sand': 'PLAIN',  // 砂も平地として扱う
+            'cliff': 'HILL'   // 崖は丘として扱う
+        };
+
+        const lowerType = editorType.toLowerCase();
+        return mapping[lowerType] || 'PLAIN';
+    }
+
+    /**
      * マップ全体を取得
      */
     getMap() {
@@ -131,18 +221,41 @@ export class MapSystem {
     }
 
     /**
-     * 指定座標の高さを取得
+     * 指定座標の高さを取得（建物の高さを含む）
+     * 返り値は世界単位（world units）
      */
     getHeight(x, y) {
         const tile = this.getTile(x, y);
-        return tile ? tile.z : 0;
+        // tile.z はグリッド単位なので世界単位に変換
+        let height = (tile ? tile.z : 0) * TILE_HEIGHT;
+
+        // 建物の高さも考慮（externalHeightProviderがある場合）
+        // externalHeightProvider は世界単位で返す
+        if (this.externalHeightProvider) {
+            const cacheKey = `${x},${y}`;
+            let buildingHeight = this.buildingHeightCache.get(cacheKey);
+
+            if (buildingHeight === undefined) {
+                buildingHeight = this.externalHeightProvider(x, y);
+                this.buildingHeightCache.set(cacheKey, buildingHeight);
+            }
+
+            if (buildingHeight !== undefined && buildingHeight !== null && buildingHeight > 0) {
+                height = Math.max(height, buildingHeight);
+            }
+        }
+        return height;
     }
 
     /**
      * 座標が有効範囲内かチェック
      */
     isValidCoord(x, y) {
-        return x >= 0 && x < MAP_W && y >= 0 && y < MAP_H;
+        // カスタムマップ対応: tiles配列の実サイズでチェック
+        if (!this.tiles || this.tiles.length === 0) return false;
+        const mapH = this.tiles.length;
+        const mapW = this.tiles[0] ? this.tiles[0].length : 0;
+        return x >= 0 && x < mapW && y >= 0 && y < mapH;
     }
 
     /**
@@ -152,33 +265,7 @@ export class MapSystem {
      * @param {boolean} canFly - 飛行可能か
      * @returns {number} コスト
      */
-    getMoveCost(p1, p2, canFly = false) {
-        if (canFly) return 1;
 
-        // 距離チェック（隣接している前提だが一応）
-        const dx = Math.abs(p1.x - p2.x);
-        const dy = Math.abs(p1.y - p2.y);
-        if (dx > 1 || dy > 1) return Infinity; // ワープ不可
-
-        const tile = this.getTile(p2.x, p2.y);
-        if (!tile) return Infinity;
-
-        const typeData = TERRAIN_TYPES[tile.type];
-        let cost = typeData ? typeData.moveCost : 1;
-
-        // 標高差によるコスト加算
-        const currentTile = this.getTile(p1.x, p1.y);
-        if (currentTile) {
-            const dz = tile.z - currentTile.z;
-            if (dz > 0) {
-                // 登り坂はコスト増（1段につき+1）
-                cost += dz;
-            }
-            // 降り坂はコスト増なし（あるいは減らす？現状はそのまま）
-        }
-
-        return cost;
-    }
 
     /**
      * 指定座標が通行可能かチェック
@@ -198,6 +285,29 @@ export class MapSystem {
     }
 
     /**
+     * 指定座標から指定座標へ移動可能か判定（高低差含む）
+     * @param {Object} from - {x, y}
+     * @param {Object} to - {x, y}
+     * @param {boolean} canFly 
+     */
+    canEnter(from, to, canFly = false) {
+        if (!this.isValidCoord(to.x, to.y)) return false;
+
+        // 地形通行不可ならNG
+        if (!this.isPassable(to.x, to.y, canFly)) return false;
+
+        if (canFly) return true;
+
+        const fromZ = this.getHeight(from.x, from.y);
+        const toZ = this.getHeight(to.x, to.y);
+
+        // 崖判定：高さ差が2以上あれば移動不可
+        if (Math.abs(toZ - fromZ) >= 2) return false;
+
+        return true;
+    }
+
+    /**
      * 2点間の移動コストを計算
      * @param {Object} from - {x, y}
      * @param {Object} to - {x, y}
@@ -209,6 +319,16 @@ export class MapSystem {
 
         if (!fromTile || !toTile) return Infinity;
 
+        // キャッシュ付きgetHeightを使用（建物の高さを含む）
+        const startZ = this.getHeight(from.x, from.y);
+        const endZ = this.getHeight(to.x, to.y);
+        const dz = endZ - startZ;
+
+        // 異常な高低差（降りる場合で仕様を大幅に超える場合）のみログ
+        if (!canFly && dz < -100) {
+            console.error(`[MoveCost ABNORMAL] Large drop: (${from.x},${from.y})->(${to.x},${to.y}): startZ=${startZ}, endZ=${endZ}, dz=${dz}`);
+        }
+
         // 通行可能かチェック
         if (!this.isPassable(to.x, to.y, canFly)) {
             return Infinity;
@@ -219,15 +339,18 @@ export class MapSystem {
 
         // 高低差コスト（飛行ユニットは無視）
         if (!canFly) {
-            const heightDiff = Math.abs(fromTile.z - toTile.z);
-
-            // 2段以上の高低差は通行不可
-            if (heightDiff > 2) {
+            // 歩行ユニットは段差2まで移動可能（3段差以上は移動不可）
+            // TILE_HEIGHT = 16なので、3グリッド = 48 world units
+            const MAX_WALKABLE_HEIGHT_DIFF = 48; // 3グリッド分 = 段差2まで可能
+            if (Math.abs(dz) > MAX_WALKABLE_HEIGHT_DIFF) {
                 return Infinity;
             }
 
-            // 高低差によるコスト増加
-            cost += heightDiff * 0.5;
+            // 登り坂はコスト増（高さ差をグリッド単位に換算）
+            const heightDiffInGrids = Math.abs(dz) / TILE_HEIGHT;
+            if (dz > 0) {
+                cost += heightDiffInGrids * 0.5;
+            }
         }
 
         return cost;

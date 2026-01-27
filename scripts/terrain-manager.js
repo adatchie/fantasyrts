@@ -17,11 +17,17 @@ export default class TerrainManager {
 
     init() {
         // Load the single "War Map" texture
-        this.baseTexture = this.loader.load('./assets/textures/terrain_base.png');
+        // フォールバック: terrain_base.png がない場合は ground_sekigahara.jpg を使用
+        this.baseTexture = this.loader.load(
+            './assets/textures/ground_sekigahara.jpg',
+            undefined,
+            undefined,
+            (err) => {
+                // Failed to load texture
+            }
+        );
         this.baseTexture.wrapS = THREE.ClampToEdgeWrapping;
         this.baseTexture.wrapT = THREE.ClampToEdgeWrapping; // Don't tile, map 1:1
-        
-        console.log("Terrain V3 Initialized: Single Texture Projection");
     }
 
     createTerrain(mapData) {
@@ -33,14 +39,14 @@ export default class TerrainManager {
 
         const width = mapData[0].length;
         const height = mapData.length;
-        
+
         // High resolution for smooth geometry
         const segmentsX = width * 2;
         const segmentsY = height * 2;
-        
+
         const geometry = new THREE.PlaneGeometry(
             width * TILE_SIZE,
-            height * TILE_SIZE * 0.866, 
+            height * TILE_SIZE * 0.866,
             segmentsX - 1,
             segmentsY - 1
         );
@@ -60,7 +66,7 @@ export default class TerrainManager {
             const x1 = Math.min(x0 + 1, width - 1);
             const y0 = Math.floor(mapY_float);
             const y1 = Math.min(y0 + 1, height - 1);
-            
+
             const dx = mapX_float - x0;
             const dy = mapY_float - y0;
 
@@ -69,12 +75,12 @@ export default class TerrainManager {
             const h01 = (mapData[y1] && mapData[y1][x0]) ? mapData[y1][x0].z : 0;
             const h11 = (mapData[y1] && mapData[y1][x1]) ? mapData[y1][x1].z : 0;
 
-            const hInterpolated = 
+            const hInterpolated =
                 h00 * (1 - dx) * (1 - dy) +
                 h10 * dx * (1 - dy) +
                 h01 * (1 - dx) * dy +
                 h11 * dx * dy;
-                
+
             positions.setZ(i, hInterpolated * 7);
         }
 
@@ -128,7 +134,5 @@ export default class TerrainManager {
         this.mesh = new THREE.Mesh(geometry, material);
         this.mesh.receiveShadow = true;
         this.scene.add(this.mesh);
-        
-        console.log("Terrain V3 Mesh Created (Dark Fantasy Projection)");
     }
 }

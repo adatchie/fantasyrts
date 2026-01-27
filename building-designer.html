@@ -99,7 +99,36 @@
             // Stub for "Deploy" button in editor (can just alert or log in designer)
             enterBuildingPlacementMode(data) {
                 console.log("Deploy requested (Simulated):", data);
-                alert("This is the Designer. Deployment only works in the actual game.\nData logged to console.");
+
+                let sent = false;
+
+                // Method 1: BroadcastChannel (推奨)
+                try {
+                    const channel = new BroadcastChannel('fantasy-rts-editor');
+                    channel.postMessage({
+                        type: 'DEPLOY_BUILDING',
+                        data: data
+                    });
+                    sent = true;
+                    setTimeout(() => channel.close(), 1000);
+                } catch (e) {
+                    console.log("BroadcastChannel not supported or failed", e);
+                }
+
+                // Method 2: window.opener (フォールバック)
+                if (window.opener) {
+                    window.opener.postMessage({
+                        type: 'DEPLOY_BUILDING',
+                        data: data
+                    }, '*');
+                    sent = true;
+                }
+
+                if (sent) {
+                    alert("設計データをエディタ（別タブ）に送信しました。\nマップエディタを確認してください。");
+                } else {
+                    alert("連携先のウィンドウが見つかりません。\nJSONをエクスポートして手動でインポートしてください。");
+                }
             }
         }
 

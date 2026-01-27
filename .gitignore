@@ -1,5 +1,11 @@
 .vscode/
 *.code-workspace
 sekigahara_backup.html
+sekigahara_clean_backup.html
 ROLLBACK_UI_IMPROVEMENTS.md
 IMPROVEMENT_PLAN.md
+node_modules/
+tmpclaude-*
+.agent/_archived/
+memo.txt
+nul

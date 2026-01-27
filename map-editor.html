@@ -567,27 +567,39 @@
         <div class="editor-main">
             <div class="editor-toolbar">
                 <button class="toolbar-btn" id="btn-new">新規</button>
-                <button class="toolbar-btn" id="btn-save">保存</button>
-                <button class="toolbar-btn" id="btn-load">読込</button>
+                <div class="toolbar-separator"></div>
+
+                <!-- 保存・読込系 -->
+                <button class="toolbar-btn" id="btn-export"
+                    style="background:#4a7cff; border-color:#8af; font-weight:bold;" title="JSONファイルとしてダウンロード">📤
+                    ファイル保存</button>
+                <button class="toolbar-btn" id="btn-load-file" title="JSONファイルからマップを読み込む">📂
+                    ファイル読込</button>
+
                 <div class="toolbar-separator"></div>
                 <span class="toolbar-label">サイズ:</span>
                 <input type="number" class="toolbar-input" id="map-width" value="30" min="10" max="100"
-                    style="width:50px">
+                    style="width:40px">
                 <span class="toolbar-label">×</span>
                 <input type="number" class="toolbar-input" id="map-height" value="30" min="10" max="100"
-                    style="width:50px">
+                    style="width:40px">
                 <button class="toolbar-btn" id="btn-resize">適用</button>
                 <div class="toolbar-separator"></div>
                 <span class="toolbar-label">マップ名:</span>
-                <input type="text" class="toolbar-input" id="map-name" value="新規マップ">
+                <input type="text" class="toolbar-input" id="map-name" value="新規マップ" style="width:100px;">
                 <div class="toolbar-separator"></div>
-                <button class="toolbar-btn" id="btn-import-heightmap">📷 標高画像読込</button>
+
+                <!-- ツール -->
+                <button class="toolbar-btn" id="btn-import-heightmap">📷 標高画像</button>
                 <label style="font-size:11px; color:#aaa; margin-left:4px;"><input type="checkbox" id="chk-smooth"
                         checked> 補正</label>
-                <button class="toolbar-btn" id="btn-import-terrain">🎨 地形画像読込</button>
-                <button class="toolbar-btn" id="btn-export">JSONエクスポート</button>
+                <button class="toolbar-btn" id="btn-import-terrain">🎨 地形画像</button>
+
                 <a href="./building-designer.html" target="_blank" class="toolbar-btn"
                     style="text-decoration:none; display:inline-block; text-align:center;">🔨 建造物エディタ</a>
+                <button class="toolbar-btn" id="btn-import-clipboard"
+                    style="background:rgba(100,200,100,0.3); border-color:#8f8;">📋 JSON貼付</button>
+
                 <input type="file" id="heightmap-input" class="hidden-input" accept="image/*">
                 <input type="file" id="terrain-input" class="hidden-input" accept="image/*">
                 <input type="file" id="map-json-input" class="hidden-input" accept=".json">
@@ -710,7 +722,7 @@
     </div>
 
     <script type="module">
-        import { mapRepository, TERRAIN_TYPES, createSampleMaps } from './scripts/map-repository.js';
+        import { mapRepository, TERRAIN_TYPES, compressBlocks, decompressBlocks } from './scripts/map-repository.js';
         import { BUILDING_TEMPLATES, BLOCK_TYPES, BLOCK_COLORS } from './scripts/building.js';
         import { UNIT_TYPES } from './scripts/constants.js';
 
@@ -737,7 +749,42 @@
                 this.isMouseDown = false;
                 this.lastCell = null;
 
+                // 配置エリア設定用
+                // playerDeploymentZones は map.playerDeploymentZones を直接使用
+                this.deploymentMode = null;        // 'player' | 'enemy' | null
+                this.fileHandle = null; // File System Access API Handle
+
                 this.init();
+            }
+
+            get currentMap() {
+                return mapRepository.get(this.currentMapId);
+            }
+
+            getTemplate(typeId) {
+                if (this.templateCache && this.templateCache[typeId]) return this.templateCache[typeId];
+
+                if (BUILDING_TEMPLATES[typeId]) return BUILDING_TEMPLATES[typeId];
+
+                if (this.registeredCustomBuildings) {
+                    const found = this.registeredCustomBuildings.find(cb => cb.id === typeId);
+                    if (found) {
+                        const data = found.data;
+                        let blocks = data.blocks;
+
+                        // Decompress if needed
+                        if (!blocks && data.compressedBlocks) {
+                            blocks = decompressBlocks(data.compressedBlocks, data.size);
+                        }
+
+                        const tmpl = { ...data, name: found.name, blocks: blocks };
+
+                        if (!this.templateCache) this.templateCache = {};
+                        this.templateCache[typeId] = tmpl;
+                        return tmpl;
+                    }
+                }
+                return null;
             }
 
             init() {
@@ -748,10 +795,14 @@
                 // 保存されたデータを読み込み
                 const hasData = mapRepository.loadFromStorage();
 
+                // Load sample maps from files (async)
+                this.autoLoadSamples();
+
                 // データがない場合（初回起動など）はサンプルマップを作成
-                if (!hasData) {
-                    createSampleMaps();
-                }
+                // データがない場合（初回起動など）はサンプルマップを作成 (廃止: autoLoadSamplesを使用)
+                // if (!hasData) {
+                //     createSampleMaps();
+                // }
 
                 this.refreshMapList();
 
@@ -786,15 +837,35 @@
                 const container = document.getElementById('building-tools');
                 container.innerHTML = '';
 
+                // Standard Templates
                 Object.keys(BUILDING_TEMPLATES).forEach(key => {
                     const tmpl = BUILDING_TEMPLATES[key];
-                    const btn = document.createElement('button');
-                    btn.className = 'tool-btn building-btn';
-                    btn.dataset.building = key;
-                    btn.innerHTML = `<span>${tmpl.name}</span>`;
-                    btn.addEventListener('click', () => this.selectBuilding(key));
-                    container.appendChild(btn);
+                    this.createBuildingBtn(container, key, tmpl.name);
                 });
+
+                // Custom Templates
+                if (this.registeredCustomBuildings) {
+                    this.registeredCustomBuildings.forEach(cb => {
+                        this.createBuildingBtn(container, cb.id, cb.name, true);
+                    });
+                }
+            }
+
+            createBuildingBtn(container, key, name, isCustom = false) {
+                const btn = document.createElement('button');
+                btn.className = 'tool-btn building-btn';
+                if (isCustom) {
+                    btn.style.border = '1px solid #4a7cff';
+                    btn.title = '右クリックで削除';
+                    btn.addEventListener('contextmenu', (e) => {
+                        e.preventDefault();
+                        this.deleteCustomBuilding(key, name);
+                    });
+                }
+                btn.dataset.building = key;
+                btn.innerHTML = `<span>${name}</span>`;
+                btn.addEventListener('click', () => this.selectBuilding(key));
+                container.appendChild(btn);
             }
 
             setupEventListeners() {
@@ -831,9 +902,27 @@
 
                 // Toolbar buttons
                 document.getElementById('btn-new').addEventListener('click', () => this.createNewMap());
-                document.getElementById('btn-save').addEventListener('click', () => this.saveCurrentMap());
                 document.getElementById('btn-resize').addEventListener('click', () => this.resizeMap());
-                document.getElementById('btn-export').addEventListener('click', () => this.exportToJson());
+                document.getElementById('btn-export').addEventListener('click', (e) => {
+                    // ファイル保存（常に名前を付けて保存）
+                    this.exportToJson(false);
+                });
+
+                // File load logic
+                document.getElementById('btn-load-file').addEventListener('click', () => {
+                    document.getElementById('map-json-input').click();
+                });
+
+                // Add Open Project listener
+                const btnOpenProject = document.getElementById('btn-open-project'); // You might need to add this button to HTML
+                if (btnOpenProject) {
+                    btnOpenProject.addEventListener('click', () => this.openProject());
+                }
+
+                document.getElementById('map-json-input').addEventListener('change', (e) => {
+                    this.importFromJsonFile(e.target.files[0]);
+                    e.target.value = ''; // Reset
+                });
 
                 // Heightmap import
                 document.getElementById('btn-import-heightmap').addEventListener('click', () => {
@@ -866,11 +955,35 @@
                 });
 
                 // JSON Import
-                document.getElementById('btn-load').addEventListener('click', () => {
-                    document.getElementById('map-json-input').click();
-                });
                 document.getElementById('map-json-input').addEventListener('change', (e) => {
                     this.importFromJson(e.target.files[0]);
+                });
+
+                // Clipboard Import
+                document.getElementById('btn-import-clipboard').addEventListener('click', async () => {
+                    let jsonText = '';
+                    try {
+                        jsonText = await navigator.clipboard.readText();
+                    } catch (e) {
+                        // Fallback
+                    }
+
+                    if (!jsonText) {
+                        jsonText = prompt("建造物JSONデータを貼り付けてください");
+                    }
+
+                    if (jsonText) {
+                        try {
+                            const data = JSON.parse(jsonText);
+                            if (data.blocks && data.size) {
+                                this.registerCustomBuilding(data);
+                            } else {
+                                alert("無効な建造物データです (blocks, size プロパティが必要です)");
+                            }
+                        } catch (e) {
+                            alert("JSONパースエラー: " + e.message);
+                        }
+                    }
                 });
 
                 // Zoom
@@ -885,6 +998,104 @@
                 document.getElementById('btn-close-unit-modal').addEventListener('click', () => this.closeUnitModal());
                 document.getElementById('btn-cancel-unit').addEventListener('click', () => this.closeUnitModal());
                 document.getElementById('btn-save-unit').addEventListener('click', () => this.saveUnitDefinition());
+
+                // Custom Building Import Message (window.opener)
+                window.addEventListener('message', (event) => {
+                    if (event.data && event.data.type === 'DEPLOY_BUILDING') {
+                        console.log('Received custom building (postMessage):', event.data.data);
+                        this.registerCustomBuilding(event.data.data);
+                    }
+                });
+
+                // Custom Building Import Message (BroadcastChannel)
+                try {
+                    const channel = new BroadcastChannel('fantasy-rts-editor');
+                    channel.onmessage = (event) => {
+                        if (event.data && event.data.type === 'DEPLOY_BUILDING') {
+                            console.log('Received custom building (BroadcastChannel):', event.data.data);
+                            this.registerCustomBuilding(event.data.data);
+                        }
+                    };
+                } catch (e) {
+                    console.warn("BroadcastChannel support missing", e);
+                }
+
+                // 配置エリア設定ボタン
+                document.getElementById('btn-set-player-zone').addEventListener('click', () => {
+                    this.toggleDeploymentMode('player');
+                });
+                document.getElementById('btn-set-enemy-zone').addEventListener('click', () => {
+                    this.toggleDeploymentMode('enemy');
+                });
+            }
+
+            registerCustomBuilding(buildingData) {
+                const PROMPT_NAME = prompt("カスタム建造物の名前", buildingData.name || "Custom Building");
+                if (PROMPT_NAME === null) return;
+                buildingData.name = PROMPT_NAME;
+
+                // Create registration data
+                const newId = 'custom_' + Date.now();
+
+                // Compress blocks to save storage
+                let finalData = buildingData;
+                if (buildingData.blocks && Array.isArray(buildingData.blocks) && Array.isArray(buildingData.blocks[0])) {
+                    const compressed = compressBlocks(buildingData.blocks);
+                    finalData = {
+                        ...buildingData,
+                        blocks: undefined, // remove raw array
+                        compressedBlocks: compressed
+                    };
+                    console.log(`Compressed building data. Original blocks size: ~${JSON.stringify(buildingData.blocks).length}, Compressed: ${compressed.length}`);
+                }
+
+                const registeredData = {
+                    id: newId,
+                    name: buildingData.name,
+                    data: finalData
+                };
+
+                // Add to Current Map Data
+                const map = mapRepository.get(this.currentMapId);
+                if (map) {
+                    if (!map.customBuildingDefinitions) map.customBuildingDefinitions = [];
+                    map.customBuildingDefinitions.push(registeredData);
+
+                    // Sync internal list (Reference copy logic in loadMap ensures they are same, 
+                    // but here we ensure this.registeredCustomBuildings refers to the active map list)
+                    this.registeredCustomBuildings = map.customBuildingDefinitions;
+                } else {
+                    // Fallback if no map loaded (should not happen in editor)
+                    if (!this.registeredCustomBuildings) this.registeredCustomBuildings = [];
+                    this.registeredCustomBuildings.push(registeredData);
+                }
+
+                this.generateBuildingButtons();
+
+                const btnContainer = document.getElementById('building-tools');
+                if (btnContainer.lastElementChild) btnContainer.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                alert(`カスタム建造物「${buildingData.name}」を追加しました。`);
+            }
+
+            deleteCustomBuilding(id, name) {
+                if (!confirm(`カスタム建造物「${name}」をリストから削除しますか？\n（配置済みの建物は残りますが、新規配置はできなくなります）`)) return;
+
+                const map = mapRepository.get(this.currentMapId);
+                if (map && map.customBuildingDefinitions) {
+                    map.customBuildingDefinitions = map.customBuildingDefinitions.filter(cb => cb.id !== id);
+                    this.registeredCustomBuildings = map.customBuildingDefinitions;
+
+                    // Update storage immediately to prevent data loss on refresh
+                    mapRepository.saveToStorage();
+
+                    this.generateBuildingButtons();
+
+                    // If selected, deselect
+                    if (this.currentBuilding === id) {
+                        this.currentBuilding = null;
+                        this.setTool('select');
+                    }
+                }
             }
 
             // ==========================================
@@ -982,6 +1193,28 @@
                 });
             }
 
+            toggleDeploymentMode(mode) {
+                // 同じモードをクリックしたらオフ
+                if (this.deploymentMode === mode) {
+                    this.deploymentMode = null;
+                    this.setTool('select');
+                    document.getElementById('btn-set-player-zone').textContent = '設定';
+                    document.getElementById('btn-set-enemy-zone').textContent = '設定';
+                } else {
+                    this.deploymentMode = mode;
+                    this.setTool('deployment');
+                    // ボタンの見た目を変更
+                    if (mode === 'player') {
+                        document.getElementById('btn-set-player-zone').textContent = '設定中...';
+                        document.getElementById('btn-set-enemy-zone').textContent = '設定';
+                    } else {
+                        document.getElementById('btn-set-enemy-zone').textContent = '設定中...';
+                        document.getElementById('btn-set-player-zone').textContent = '設定';
+                    }
+                }
+                this.render();
+            }
+
             selectUnitDef(id) {
                 this.currentUnitDefId = id;
                 this.currentBuilding = null;
@@ -1037,9 +1270,43 @@
                 this.currentMapId = mapId;
                 const map = mapRepository.get(mapId);
                 if (map) {
+                    console.log('[MapEditor] loadMap - mapId:', mapId, 'name:', map.name);
+                    console.log('[MapEditor] loadMap - zones:', map.zones);
+                    console.log('[MapEditor] loadMap - playerDeploymentZones:', map.playerDeploymentZones);
+
                     document.getElementById('map-name').value = map.name;
                     document.getElementById('map-width').value = map.terrain.width;
                     document.getElementById('map-height').value = map.terrain.height;
+
+                    // テクスチャを復元
+                    if (map.textureData) {
+                        this.currentTexture = map.textureData;
+                    } else {
+                        this.currentTexture = null;
+                    }
+
+                    // カスタム建造物定義をロード
+                    if (map.customBuildingDefinitions) {
+                        this.registeredCustomBuildings = map.customBuildingDefinitions;
+                    } else {
+                        this.registeredCustomBuildings = [];
+                    }
+                    this.generateBuildingButtons();
+
+                    // 配置エリア情報は map.playerDeploymentZones を直接使用
+                    // 必要に応じて初期化
+                    if (!map.playerDeploymentZones) {
+                        map.playerDeploymentZones = [];
+                        console.log('[MapEditor] loadMap - Initialized empty playerDeploymentZones');
+                    }
+
+                    // unitDefinitionsもエディタ内の参照用に復元
+                    // map.unitDefinitionsは直接mapRepository内のオブジェクトを参照しているが、
+                    // 明示的にthis経由でアクセスできるようにする
+                    if (!map.unitDefinitions) {
+                        map.unitDefinitions = [];
+                    }
+
                     this.resizeCanvas();
                     this.render();
                     this.updateInfo();
@@ -1049,9 +1316,48 @@
             }
 
             saveCurrentMap() {
-                if (!this.currentMapId) return;
+                console.log('[MapEditor] saveCurrentMap CALLED!');
+                if (!this.currentMapId) {
+                    console.log('[MapEditor] ERROR: No currentMapId');
+                    return;
+                }
                 const map = mapRepository.get(this.currentMapId);
                 const name = document.getElementById('map-name').value;
+
+                console.log('[MapEditor] saveCurrentMap - currentMapId:', this.currentMapId);
+                console.log('[MapEditor] saveCurrentMap - playerDeploymentZones:', map.playerDeploymentZones);
+                console.log('[MapEditor] saveCurrentMap - existing zones:', map.zones);
+
+                // playerDeploymentZones から zones.playerDeployment の矩形を計算
+                let playerDeploymentZone = { x: 0, y: 0, width: 10, height: 10 };
+                if (map.playerDeploymentZones && map.playerDeploymentZones.length > 0) {
+                    const xs = map.playerDeploymentZones.map(z => z.x);
+                    const ys = map.playerDeploymentZones.map(z => z.y);
+                    const minX = Math.min(...xs);
+                    const maxX = Math.max(...xs);
+                    const minY = Math.min(...ys);
+                    const maxY = Math.max(...ys);
+                    playerDeploymentZone = {
+                        x: minX,
+                        y: minY,
+                        width: maxX - minX + 1,
+                        height: maxY - minY + 1
+                    };
+                    console.log('[MapEditor] Calculated playerDeploymentZone from deployment points:', playerDeploymentZone);
+                    console.log('[MapEditor] Deployment points count:', map.playerDeploymentZones.length);
+                    console.log('[MapEditor] Deployment points:', map.playerDeploymentZones);
+                }
+
+                // zones を作成（playerDeployment は計算したものを使用）
+                const currentZones = {
+                    playerDeployment: playerDeploymentZone,
+                    enemyDeployment: (map.zones && map.zones.enemyDeployment) || { x: 20, y: 20, width: 10, height: 10 },
+                    objectives: (map.zones && map.zones.objectives) || []
+                };
+
+                console.log('[MapEditor] Saving zones:', currentZones);
+                console.log('[MapEditor] Before save - units:', map.units?.length, 'unitDefinitions:', map.unitDefinitions?.length);
+                console.log('[MapEditor] unitDefinitions:', JSON.stringify(map.unitDefinitions));
 
                 // Force update with all data
                 mapRepository.update(this.currentMapId, {
@@ -1059,7 +1365,11 @@
                     terrain: map.terrain,
                     buildings: map.buildings,
                     unitDefinitions: map.unitDefinitions,
-                    units: map.units
+                    customBuildingDefinitions: this.registeredCustomBuildings,
+                    units: map.units,
+                    textureData: this.currentTexture,
+                    zones: currentZones,
+                    playerDeploymentZones: map.playerDeploymentZones || []
                 });
 
                 const success = mapRepository.saveToStorage();
@@ -1071,6 +1381,189 @@
                 }
 
                 this.refreshMapList();
+            }
+
+            showMapLoadModal() {
+                // 簡易モーダルを作成して表示
+                const modal = document.createElement('div');
+                modal.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:10000; display:flex; justify-content:center; align-items:center;';
+
+                const content = document.createElement('div');
+                content.style.cssText = 'background:#1a2540; padding:20px; border:2px solid #4a7cff; border-radius:8px; width:500px; max-height:80%; overflow-y:auto; color:white;';
+
+                content.innerHTML = `
+                    <h2 style="margin-top:0;">マップ読み込み</h2>
+                    <div style="margin-bottom:20px;">
+                        <h3>保存済みマップ (LocalStorage)</h3>
+                        <div id="modal-local-list" class="map-list" style="max-height:150px; border:1px solid #444; padding:5px;"></div>
+                    </div>
+                    <div style="margin-bottom:20px;">
+                        <h3>サンプルマップ (scripts/data/maps)</h3>
+                        <div id="modal-sample-list" class="map-list" style="max-height:150px; border:1px solid #444; padding:5px;">
+                            <div class="map-item" data-url="./scripts/data/maps/map_sample_tutorial.json">
+                                <strong>Tutorial Plain</strong><br>
+                                <small>scripts/data/maps/map_sample_tutorial.json</small>
+                            </div>
+                            <div class="map-item" data-url="./scripts/data/maps/map_sample_castle.json">
+                                <strong>Castle</strong><br>
+                                <small>scripts/data/maps/map_sample_castle.json</small>
+                            </div>
+                            <div class="map-item" data-url="./scripts/data/maps/map_sample_mountain.json">
+                                <strong>Mountain</strong><br>
+                                <small>scripts/data/maps/map_sample_mountain.json</small>
+                            </div>
+                        </div>
+                    </div>
+                    <button id="modal-close-btn" class="btn-secondary" style="width:100%;">閉じる</button>
+                    <input type="file" id="modal-file-input" style="display:none" accept=".json">
+                    <button id="modal-file-btn" class="btn-primary" style="width:100%; margin-top:10px;">ファイルから読み込む...</button>
+                `;
+
+                modal.appendChild(content);
+                document.body.appendChild(modal);
+
+                // Local List
+                const localList = content.querySelector('#modal-local-list');
+                const maps = mapRepository.list();
+                if (maps.length === 0) {
+                    localList.innerHTML = '<div style="padding:10px; color:#888;">保存されたマップはありません</div>';
+                } else {
+                    maps.forEach(m => {
+                        const div = document.createElement('div');
+                        div.className = 'map-item';
+                        div.innerHTML = `<strong>${m.name}</strong> (ID: ${m.id})<br><small>Size: ${m.terrain?.width}x${m.terrain?.height}</small>`;
+                        div.addEventListener('click', () => {
+                            this.loadMap(m.id);
+                            document.body.removeChild(modal);
+                        });
+                        localList.appendChild(div);
+                    });
+                }
+
+                // Sample List
+                content.querySelectorAll('#modal-sample-list .map-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        const url = item.dataset.url;
+                        this.loadSampleMap(url, modal);
+                    });
+                });
+
+                // File Load
+                content.querySelector('#modal-file-btn').addEventListener('click', () => {
+                    content.querySelector('#modal-file-input').click();
+                });
+                content.querySelector('#modal-file-input').addEventListener('change', (e) => {
+                    this.importFromJsonFile(e.target.files[0]);
+                    document.body.removeChild(modal);
+                });
+
+                // Close
+                content.querySelector('#modal-close-btn').addEventListener('click', () => {
+                    document.body.removeChild(modal);
+                });
+            }
+
+            async loadSampleMap(url, modal, silent = false) {
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    const json = await response.json();
+
+                    if (json.terrain && json.terrain.width) {
+                        let mapId = json.id || 'sample_' + Date.now();
+
+                        // Silent Mode (Auto-load) Logic
+                        if (silent) {
+                            if (mapRepository.get(mapId)) {
+                                console.log(`Sample map ${mapId} already exists. Skipping import.`);
+                                return; // Don't overwrite if exists
+                            }
+                        } else {
+                            // Manual load: Duplicate if exists
+                            if (mapRepository.get(mapId)) {
+                                mapId = mapId + '_' + Date.now();
+                                json.id = mapId;
+                            }
+                        }
+
+                        mapRepository.maps.set(mapId, json);
+                        mapRepository.saveToStorage();
+
+                        if (!silent) {
+                            this.loadMap(mapId);
+                            this.refreshMapList();
+                            alert(`サンプルマップ「${json.name}」を読み込みました`);
+                            if (modal) document.body.removeChild(modal);
+                        } else {
+                            console.log(`Auto-loaded sample: ${json.name}`);
+                            // Silent load doesn't switch map immediately unless we want to?
+                            // User requirement: "Startup ... automatically displays in list".
+                            // We will refresh list at end of autoLoadSamples.
+                        }
+                    } else {
+                        if (!silent) alert("無効なマップデータです");
+                    }
+                } catch (e) {
+                    console.error("Failed to load sample map:", e);
+                    if (!silent) alert("サンプルマップの読み込みに失敗しました: " + e.message);
+                }
+            }
+
+            async autoLoadSamples() {
+                const samples = [
+                    './scripts/data/maps/map_sample_tutorial.json',
+                    './scripts/data/maps/map_sample_castle.json',
+                    './scripts/data/maps/map_sample_mountain.json'
+                ];
+                console.log("Auto-loading samples...");
+                // We use Promise.all to load parallel but sequentially is safer for storage sync?
+                // Sequential to be safe with localStorage writes if they are not atomic.
+                for (const url of samples) {
+                    await this.loadSampleMap(url, null, true);
+                }
+                this.refreshMapList();
+            }
+
+
+
+            // New: Open Project via File System Access API
+            async openProject() {
+                if (!window.showOpenFilePicker) {
+                    alert("このブラウザはファイルシステムAPIをサポートしていません。従来の「ファイル読み込み」を使用してください。");
+                    return;
+                }
+                try {
+                    const [handle] = await window.showOpenFilePicker({
+                        types: [{ description: 'Map JSON Files', accept: { 'application/json': ['.json'] } }],
+                        multiple: false
+                    });
+                    const file = await handle.getFile();
+                    const text = await file.text();
+                    const data = JSON.parse(text);
+
+                    // Reuse load logic logic or just perform load
+                    if (data.terrain && data.terrain.width) {
+                        this.fileHandle = handle; // Store handle
+                        // Directly load into repository
+                        const mapId = data.id;
+                        mapRepository.maps.set(mapId, data);
+                        mapRepository.saveToStorage();
+
+                        // Use loadMap to restore full state
+                        this.loadMap(mapId);
+
+                        this.refreshMapList();
+                        console.log("Project loaded with handle:", this.fileHandle.name);
+                        alert(`プロジェクト「${data.name}」を開きました`);
+                    } else {
+                        alert("無効なマップデータです");
+                    }
+                } catch (err) {
+                    if (err.name !== 'AbortError') {
+                        console.error(err);
+                        alert("プロジェクトを開けませんでした: " + err.message);
+                    }
+                }
             }
 
             resizeMap() {
@@ -1165,10 +1658,43 @@
             }
 
             onMouseDown(e) {
-                // 右クリックで建物削除
+                // 右クリックで削除（優先順位: ユニット → 配置可能座標 → 建物、1クリックずつ）
                 if (e.button === 2) {
                     const cell = this.getCellFromEvent(e);
-                    this.removeBuildingAt(cell.x, cell.y);
+                    let removed = false;
+
+                    const map = mapRepository.get(this.currentMapId);
+
+                    // 1. ユニット削除
+                    if (map && map.units) {
+                        const idx = map.units.findIndex(u => u.x === cell.x && u.y === cell.y);
+                        if (idx >= 0) {
+                            map.units.splice(idx, 1);
+                            removed = true;
+                        }
+                    }
+
+                    // 2. ユニットがない場合は配置可能座標を削除
+                    if (!removed && map && map.playerDeploymentZones) {
+                        const idx = map.playerDeploymentZones.findIndex(z => z.x === cell.x && z.y === cell.y);
+                        if (idx >= 0) {
+                            map.playerDeploymentZones.splice(idx, 1);
+                            removed = true;
+                        }
+                    }
+
+                    // 3. ユニットも配置可能座標もない場合は建造物を削除（確認ダイアログ付き）
+                    if (!removed) {
+                        const building = this.getBuildingAt(cell.x, cell.y);
+                        if (building) {
+                            if (confirm('建物を削除しますか？')) {
+                                this.removeBuildingAt(cell.x, cell.y);
+                            }
+                        }
+                    }
+
+                    this.render();
+                    this.update3DPreviewDebounced();
                     return;
                 }
 
@@ -1215,10 +1741,37 @@
                         this.update3DPreviewDebounced();
                     }
                 } else if (this.currentTool === 'eraser') {
-                    // 建物も削除
-                    this.removeBuildingAt(x, y);
-                    // ユニットも削除
-                    this.removeUnitAt(x, y);
+                    // 削除優先順位: ユニット → 配置可能座標 → 建物（1クリックずつ削除）
+                    let removed = false;
+
+                    // 1. ユニット削除
+                    const map = mapRepository.get(this.currentMapId);
+                    if (map && map.units) {
+                        const idx = map.units.findIndex(u => u.x === x && u.y === y);
+                        if (idx >= 0) {
+                            map.units.splice(idx, 1);
+                            removed = true;
+                        }
+                    }
+
+                    // 2. ユニットがない場合は配置可能座標を削除
+                    if (!removed && map && map.playerDeploymentZones) {
+                        const idx = map.playerDeploymentZones.findIndex(z => z.x === x && z.y === y);
+                        if (idx >= 0) {
+                            map.playerDeploymentZones.splice(idx, 1);
+                            removed = true;
+                        }
+                    }
+
+                    // 3. ユニットも配置可能座標もない場合は建造物を削除（確認ダイアログ付き）
+                    if (!removed) {
+                        const building = this.getBuildingAt(x, y);
+                        if (building) {
+                            if (confirm('建物を削除しますか？')) {
+                                this.removeBuildingAt(x, y);
+                            }
+                        }
+                    }
 
                     mapRepository.setTerrain(this.currentMapId, x, y, 'grass', 0);
                     this.render();
@@ -1272,6 +1825,22 @@
 
                         this.render();
                     }
+                } else if (this.currentTool === 'deployment') {
+                    // 配置座標の設定/解除
+                    if (!map.playerDeploymentZones) map.playerDeploymentZones = [];
+
+                    if (this.deploymentMode === 'player') {
+                        const existingIdx = map.playerDeploymentZones.findIndex(z => z.x === x && z.y === y);
+                        if (existingIdx >= 0) {
+                            // 既にある場合は削除
+                            map.playerDeploymentZones.splice(existingIdx, 1);
+                        } else {
+                            // なければ追加
+                            map.playerDeploymentZones.push({ x, y, id: `pz_${Date.now()}` });
+                        }
+                        this.render();
+                        this.update3DPreviewDebounced();
+                    }
                 }
             }
 
@@ -1282,6 +1851,37 @@
                 if (idx >= 0) {
                     map.units.splice(idx, 1);
                 }
+            }
+
+            removeDeploymentZoneAt(x, y) {
+                const map = mapRepository.get(this.currentMapId);
+                if (!map || !map.playerDeploymentZones) return;
+                const idx = map.playerDeploymentZones.findIndex(z => z.x === x && z.y === y);
+                if (idx >= 0) {
+                    map.playerDeploymentZones.splice(idx, 1);
+                }
+            }
+
+            getBuildingAt(x, y) {
+                if (!this.currentMapId) return null;
+                const map = mapRepository.get(this.currentMapId);
+                if (!map || !map.buildings) return null;
+
+                return map.buildings.find(b => {
+                    const template = this.getTemplate(b.type);
+                    if (!template) return false;
+
+                    const rot = b.rotation || 0;
+                    const isRotated = rot % 2 !== 0;
+                    const w = isRotated ? template.size.y : template.size.x;
+                    const h = isRotated ? template.size.x : template.size.y;
+
+                    // 範囲チェック (b.x, b.y) から (b.x + w, b.y + h)
+                    const insideX = x >= b.x && x < b.x + w;
+                    const insideY = y >= b.y && y < b.y + h;
+
+                    return insideX && insideY;
+                });
             }
 
             floodFill(startX, startY) {
@@ -1347,7 +1947,7 @@
                 // 建物描画
                 if (map.buildings) {
                     map.buildings.forEach(b => {
-                        const template = BUILDING_TEMPLATES[b.type];
+                        const template = this.getTemplate(b.type);
                         if (!template) return;
 
                         const rot = b.rotation || 0;
@@ -1416,9 +2016,36 @@
                     });
                 }
 
+                // プレイヤー配置座標マーカーを描画
+                if (map.playerDeploymentZones && map.playerDeploymentZones.length > 0) {
+                    map.playerDeploymentZones.forEach(zone => {
+                        const zx = zone.x * cellSize + cellSize / 2;
+                        const zy = zone.y * cellSize + cellSize / 2;
+
+                        // 青いダイヤマーク
+                        ctx.save();
+                        ctx.translate(zx, zy);
+                        ctx.rotate(Math.PI / 4);
+                        ctx.fillStyle = 'rgba(100, 150, 255, 0.6)';
+                        ctx.strokeStyle = '#4af';
+                        ctx.lineWidth = 2;
+                        const size = cellSize * 0.35;
+                        ctx.fillRect(-size, -size, size * 2, size * 2);
+                        ctx.strokeRect(-size, -size, size * 2, size * 2);
+                        ctx.restore();
+
+                        // P マーク
+                        ctx.fillStyle = '#fff';
+                        ctx.font = `bold ${10 * this.zoom}px sans-serif`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText('P', zx, zy);
+                    });
+                }
+
                 // プレビュー描画（現在のカーソル位置用ゴースト）
                 if (this.currentTool === 'building' && this.currentBuilding && this.lastCell) {
-                    const template = BUILDING_TEMPLATES[this.currentBuilding];
+                    const template = this.getTemplate(this.currentBuilding);
                     if (template) {
                         const rot = this.currentRotation;
                         const isRotated = rot % 2 !== 0;
@@ -1562,17 +2189,153 @@
                 }
             }
 
-            exportToJson() {
-                const json = mapRepository.exportToJson(this.currentMapId);
-                if (!json) return;
+            async exportToJson(quickSave = false) {
+                console.log('[MapEditor] exportToJson CALLED!');
+                if (!this.currentMapId) {
+                    console.log('[MapEditor] ERROR: No currentMapId');
+                    return;
+                }
 
-                const blob = new Blob([json], { type: 'application/json' });
+                const map = mapRepository.get(this.currentMapId);
+                if (!map) {
+                    console.log('[MapEditor] ERROR: No map found for id:', this.currentMapId);
+                    return;
+                }
+
+                console.log('[MapEditor] exportToJson - unitDefinitions:', JSON.stringify(map.unitDefinitions));
+
+                // playerDeploymentZones から zones.playerDeployment の矩形を計算
+                let playerDeploymentZone = { x: 0, y: 0, width: 10, height: 10 };
+                if (map.playerDeploymentZones && map.playerDeploymentZones.length > 0) {
+                    const xs = map.playerDeploymentZones.map(z => z.x);
+                    const ys = map.playerDeploymentZones.map(z => z.y);
+                    const minX = Math.min(...xs);
+                    const maxX = Math.max(...xs);
+                    const minY = Math.min(...ys);
+                    const maxY = Math.max(...ys);
+                    playerDeploymentZone = {
+                        x: minX,
+                        y: minY,
+                        width: maxX - minX + 1,
+                        height: maxY - minY + 1
+                    };
+                    console.log('[MapEditor] Export: Calculated playerDeploymentZone from deployment points:', playerDeploymentZone);
+                }
+
+                // zones を作成（playerDeployment は計算したものを使用）
+                const currentZones = {
+                    playerDeployment: playerDeploymentZone,
+                    enemyDeployment: (map.zones && map.zones.enemyDeployment) || { x: 20, y: 20, width: 10, height: 10 },
+                    objectives: (map.zones && map.zones.objectives) || []
+                };
+
+                const exportData = {
+                    id: map.id,
+                    name: document.getElementById('map-id')?.value || map.name,
+                    description: map.description,
+                    version: map.version,
+                    createdAt: map.createdAt,
+                    updatedAt: new Date(),
+                    metadata: map.metadata,
+                    terrain: map.terrain,
+                    buildings: map.buildings,
+                    zones: currentZones,
+                    playerDeploymentZones: map.playerDeploymentZones || [],
+                    customBuildingDefinitions: this.registeredCustomBuildings,
+                    unitDefinitions: map.unitDefinitions || [],
+                    units: map.units || []
+                };
+
+                // Update repository with new data
+                mapRepository.update(map.id, exportData);
+                // CRITICAL: Save to localStorage so data persists after reload
+                mapRepository.saveToStorage();
+
+                const jsonString = JSON.stringify(exportData, null, 2);
+                const blob = new Blob([jsonString], { type: 'application/json' });
+
+                // Quick Save Logic
+                if (quickSave && this.fileHandle) {
+                    try {
+                        const writable = await this.fileHandle.createWritable();
+                        await writable.write(jsonString);
+                        await writable.close();
+                        console.log("Quick saved to:", this.fileHandle.name);
+                        alert("保存しました (" + this.fileHandle.name + ")");
+                        return;
+                    } catch (err) {
+                        console.warn("Quick save failed, falling back to picker:", err);
+                        // Fall through to picker
+                    }
+                }
+
+                // File System Access API
+                if (window.showSaveFilePicker) {
+                    try {
+                        const opts = {
+                            types: [{
+                                description: 'Map JSON File',
+                                accept: { 'application/json': ['.json'] },
+                            }],
+                            suggestedName: `map_${map.id}.json`,
+                        };
+                        const handle = await window.showSaveFilePicker(opts);
+                        const writable = await handle.createWritable();
+                        await writable.write(jsonString);
+                        await writable.close();
+
+                        this.fileHandle = handle; // Store handle for future quick saves
+                        alert("保存しました");
+                    } catch (err) {
+                        if (err.name !== 'AbortError') {
+                            console.error(err);
+                            alert("保存に失敗しました。ダウンロードに切り替えます。");
+                            this.downloadBlob(blob, `map_${map.id}.json`);
+                        }
+                    }
+                } else {
+                    // Start download (Fallback)
+                    this.downloadBlob(blob, `map_${map.id}.json`);
+                }
+            }
+
+            downloadBlob(blob, filename) {
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `map_${this.currentMapId}.json`;
+                a.download = filename;
                 a.click();
                 URL.revokeObjectURL(url);
+            }
+
+            importFromJsonFile(file) {
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const json = e.target.result;
+                        const mapData = mapRepository.importFromJson(json);
+                        if (mapData) {
+                            console.log('Imported Map:', mapData);
+                            // Set as current
+                            this.currentMapId = mapData.id;
+                            // Save to storage immediately
+                            mapRepository.saveToStorage();
+
+                            // Use loadMap to restore full state (including registeredCustomBuildings and playerDeploymentZones)
+                            this.loadMap(mapData.id);
+
+                            // Load success message
+                            alert(`マップ「${mapData.name}」を読み込みました`);
+                        } else {
+                            alert('マップデータの読み込みに失敗しました');
+                        }
+                    } catch (err) {
+                        console.error(err);
+                        alert('JSONパースエラー');
+                    }
+                };
+                reader.readAsText(file);
             }
 
             // ==========================================
@@ -1662,7 +2425,29 @@
             }
 
             processTerrainImage(img) {
+                // テクスチャ画像として保存（最大512x512にリサイズ - LocalStorage容量対策）
+                const maxTextureSize = 512;
+                let texWidth = img.width;
+                let texHeight = img.height;
+
+                if (texWidth > maxTextureSize || texHeight > maxTextureSize) {
+                    const ratio = Math.min(maxTextureSize / texWidth, maxTextureSize / texHeight);
+                    texWidth = Math.floor(texWidth * ratio);
+                    texHeight = Math.floor(texHeight * ratio);
+                }
+
+                const texCanvas = document.createElement('canvas');
+                texCanvas.width = texWidth;
+                texCanvas.height = texHeight;
+                const texCtx = texCanvas.getContext('2d');
+                texCtx.drawImage(img, 0, 0, texWidth, texHeight);
+                this.currentTexture = texCanvas.toDataURL('image/jpeg', 0.85); // JPEG品質0.85で保存
+
+                // マップデータに反映
                 const map = mapRepository.get(this.currentMapId);
+                map.image = this.currentTexture;
+                map.textureData = this.currentTexture; // rendering3d.js優先読み込み用
+
                 const canvas = document.createElement('canvas');
                 canvas.width = map.terrain.width;
                 canvas.height = map.terrain.height;
@@ -1706,18 +2491,7 @@
                 this.render();
                 this.update3DPreview();
 
-                // 画像を圧縮して保存（512x512に縮小してJPEG高品質圧縮）
-                const compressCanvas = document.createElement('canvas');
-                const compressSize = 512; // 圧縮後のサイズ（品質重視）
-                compressCanvas.width = compressSize;
-                compressCanvas.height = compressSize;
-                const compressCtx = compressCanvas.getContext('2d');
-                compressCtx.drawImage(img, 0, 0, compressSize, compressSize);
-
-                // JPEG形式で品質0.85で圧縮（約80-150KB程度）
-                map.image = compressCanvas.toDataURL('image/jpeg', 0.85);
-                console.log(`[MapEditor] Compressed image size: ${(map.image.length / 1024).toFixed(1)}KB`);
-
+                console.log(`[MapEditor] Processed texture size: ${(this.currentTexture.length / 1024).toFixed(1)}KB`);
                 alert('地形テクスチャを解析して適用しました。\n（保存ボタンを押してください）');
             }
 
@@ -1836,10 +2610,7 @@
 
                 // 頂点の高さを再設定
                 for (let i = 0; i < positionAttribute.count; i++) {
-                    const x = i % (map.terrain.width); // widthセグメント数 + 1 ではない？
                     // PlaneGeometry(w, h, ws, hs) -> ws+1, hs+1 vertices
-                    // 単純化のため、CanvasTexture方式を採用し、高さだけ合わせる
-
                     // グリッド座標へのマッピング近似
                     const gridX = Math.floor((positionAttribute.getX(i) + map.terrain.width / 2));
                     const gridY = Math.floor((-positionAttribute.getY(i) + map.terrain.height / 2));
@@ -1873,7 +2644,7 @@
                     // 1. 各ブロックタイプのインスタンス数をカウント
                     const counts = {};
                     map.buildings.forEach(b => {
-                        const template = BUILDING_TEMPLATES[b.type];
+                        const template = this.getTemplate(b.type);
                         if (!template || !template.blocks) return;
 
                         // blocks[z][y][x]
@@ -1907,7 +2678,7 @@
 
                     // 3. インスタンス配置
                     map.buildings.forEach(b => {
-                        const template = BUILDING_TEMPLATES[b.type];
+                        const template = this.getTemplate(b.type);
                         if (!template || !template.blocks) return;
 
                         const bx = b.x;
@@ -1957,11 +2728,11 @@
                                     }
 
                                     const wx = (bx + rx) - map.terrain.width / 2 + 0.5;
-                                    const wz = -((by + ry) - map.terrain.height / 2 + 0.5);
+                                    const wz = (by + ry) - map.terrain.height / 2 + 0.5;
                                     const wy = groundH + (z * 0.5) + 0.25;
 
                                     dummy.position.set(wx, wy, wz);
-                                    dummy.rotation.set(0, 0, 0); // Voxel自体は回転不要、あるいはテクスチャ向きのために回転必要だが単色なので不要
+                                    dummy.rotation.set(0, 0, 0);
                                     dummy.scale.set(1, 1, 1);
                                     dummy.updateMatrix();
                                     mesh.setMatrixAt(idx, dummy.matrix);
@@ -1971,6 +2742,94 @@
                     });
 
                     Object.values(meshes).forEach(m => m.instanceMatrix.needsUpdate = true);
+                }
+
+                // ユニットの描画 (3D球体)
+                if (this.unitGroup) {
+                    this.scene3d.remove(this.unitGroup);
+                    this.unitGroup.children.forEach(mesh => {
+                        if (mesh.geometry) mesh.geometry.dispose();
+                        if (mesh.material) mesh.material.dispose();
+                    });
+                }
+                this.unitGroup = new THREE.Group();
+                this.scene3d.add(this.unitGroup);
+
+                if (map.units && map.unitDefinitions) {
+                    const unitGeo = new THREE.SphereGeometry(0.4, 16, 8);
+
+                    map.units.forEach(u => {
+                        const def = map.unitDefinitions.find(d => d.id === u.defId);
+                        if (!def) return;
+
+                        const ux = u.x;
+                        const uy = u.y;
+
+                        // 地形の高さを取得
+                        let groundH = 0;
+                        if (ux >= 0 && ux < map.terrain.width && uy >= 0 && uy < map.terrain.height) {
+                            groundH = map.terrain.heightMap[uy][ux] * 0.5;
+                        }
+
+                        // 建物の高さを考慮（ユニット位置での実際のブロック高さを計算）
+                        if (map.buildings) {
+                            for (const b of map.buildings) {
+                                const template = this.getTemplate(b.type);
+                                if (!template || !template.blocks) continue;
+
+                                const rot = b.rotation || 0;
+                                const isRotated = rot % 2 !== 0;
+                                const sizeX = isRotated ? template.size.y : template.size.x;
+                                const sizeY = isRotated ? template.size.x : template.size.y;
+
+                                if (ux >= b.x && ux < b.x + sizeX &&
+                                    uy >= b.y && uy < b.y + sizeY) {
+                                    // 建物範囲内 - その位置での最高ブロックを探す
+                                    const localX = ux - b.x;
+                                    const localY = uy - b.y;
+
+                                    // 回転を考慮してブロック座標を計算
+                                    let blockX, blockY;
+                                    switch (rot) {
+                                        case 0: blockX = localX; blockY = localY; break;
+                                        case 1: blockX = localY; blockY = template.size.x - 1 - localX; break;
+                                        case 2: blockX = template.size.x - 1 - localX; blockY = template.size.y - 1 - localY; break;
+                                        case 3: blockX = template.size.y - 1 - localY; blockY = localX; break;
+                                        default: blockX = localX; blockY = localY;
+                                    }
+
+                                    // その位置の最高ブロックのZ値を探す
+                                    let maxZ = -1;
+                                    for (let z = 0; z < template.size.z; z++) {
+                                        if (template.blocks[z] &&
+                                            template.blocks[z][Math.floor(blockY)] &&
+                                            template.blocks[z][Math.floor(blockY)][Math.floor(blockX)] !== undefined &&
+                                            template.blocks[z][Math.floor(blockY)][Math.floor(blockX)] !== 0) {
+                                            maxZ = z;
+                                        }
+                                    }
+
+                                    if (maxZ >= 0) {
+                                        // 最高ブロックの上面 = (maxZ + 1) * 0.5
+                                        groundH += (maxZ + 1) * 0.5;
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+
+                        // 3D座標（直交座標系）
+                        const wx = ux - map.terrain.width / 2 + 0.5;
+                        const wz = uy - map.terrain.height / 2 + 0.5;
+                        const wy = groundH + 0.2; // 球体が接地するように調整
+
+                        // 色: コマンダーは赤、その他は青
+                        const color = def.role === 'commander' ? 0xff3333 : 0x3366ff;
+                        const unitMat = new THREE.MeshStandardMaterial({ color: color });
+                        const unitMesh = new THREE.Mesh(unitGeo, unitMat);
+                        unitMesh.position.set(wx, wy, wz);
+                        this.unitGroup.add(unitMesh);
+                    });
                 }
 
                 this.fitCameraToMesh(map);
@@ -2075,7 +2934,7 @@
 
                 const initialCount = map.buildings.length;
                 map.buildings = map.buildings.filter(b => {
-                    const template = BUILDING_TEMPLATES[b.type];
+                    const template = this.getTemplate(b.type);
                     if (!template) return true;
 
                     const rot = b.rotation || 0;

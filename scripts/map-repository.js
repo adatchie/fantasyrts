@@ -3,7 +3,7 @@
  * フィールド（地形）と建造物配置データを複数保存・管理
  */
 
-import { TUTORIAL_PLAIN_DATA } from './data/tutorial_plain_data.js';
+import { TUTORIAL_PLAIN_DATA } from './data/maps/tutorial_plain.js';
 
 // ============================================
 // マップデータ構造
@@ -77,20 +77,25 @@ const TERRAIN_CODE_MAP = {
 };
 const CODE_TO_TERRAIN = ['grass', 'forest', 'water', 'mountain', 'road', 'cliff', 'swamp', 'sand'];
 
-function compressArray(arr) {
+/**
+ * Generic RLE Compression
+ * @param {Array} arr - Flat array of numbers or strings
+ * @returns {string} Compressed string "val:count,val:count"
+ */
+export function compressRLE(arr) {
     if (!arr || !arr.length) return '';
-    const flat = arr.flat();
     let result = '';
     let count = 1;
-    let prev = flat[0];
+    let prev = arr[0];
 
-    // Map string types to codes if necessary
+    // Map string types to codes if necessary (Legacy terrain support)
+    // For general usage, assume numbers or keep as is if no map found
     const isString = typeof prev === 'string';
-    let prevVal = isString ? (TERRAIN_CODE_MAP[prev] || 0) : prev;
+    let prevVal = isString ? (TERRAIN_CODE_MAP[prev] !== undefined ? TERRAIN_CODE_MAP[prev] : prev) : prev;
 
-    for (let i = 1; i < flat.length; i++) {
-        let val = flat[i];
-        if (isString) val = TERRAIN_CODE_MAP[val] || 0;
+    for (let i = 1; i < arr.length; i++) {
+        let val = arr[i];
+        if (isString) val = TERRAIN_CODE_MAP[val] !== undefined ? TERRAIN_CODE_MAP[val] : val;
 
         if (val === prevVal) {
             count++;
@@ -104,23 +109,70 @@ function compressArray(arr) {
     return result;
 }
 
-function decompressArray(str, width, height, isString) {
+/**
+ * Generic RLE Decompression
+ * @param {string} str - Compressed string
+ * @param {boolean} isString - If true, map codes back to terrain strings
+ * @returns {Array} Flat array
+ */
+export function decompressRLE(str, isString = false) {
     if (!str) return [];
     const flat = [];
     const parts = str.split(',');
     for (const part of parts) {
         const [val, count] = part.split(':').map(Number);
+        // If isString is true and val is a number index, decode it.
+        // If val is NOT a number (custom string RLE), keep it? 
+        // Current logic assumes val is number code for terrain.
         const decodedVal = isString ? (CODE_TO_TERRAIN[val] || 'grass') : val;
         for (let i = 0; i < count; i++) {
             flat.push(decodedVal);
         }
     }
+    return flat;
+}
 
+// Helpers for Terrain (Wrappers)
+function compressArray(arr) {
+    if (!arr) return '';
+    return compressRLE(arr.flat());
+}
+
+function decompressArray(str, width, height, isString) {
+    const flat = decompressRLE(str, isString);
     const result = [];
     for (let y = 0; y < height; y++) {
         result.push(flat.slice(y * width, (y + 1) * width));
     }
     return result;
+}
+
+// Helper for 3D Arrays (Building Blocks)
+export function compressBlocks(blocks) {
+    if (!blocks) return '';
+    // Flatten 3D [z][y][x] -> 1D
+    const flat = blocks.flat(Infinity); // Flatten deep
+    return compressRLE(flat);
+}
+
+export function decompressBlocks(str, size) {
+    if (!str || !size) return [];
+    const flat = decompressRLE(str, false); // Numbers (block IDs)
+
+    // Reconstruct 3D [z][y][x]
+    const blocks = [];
+    for (let z = 0; z < size.z; z++) {
+        blocks[z] = [];
+        for (let y = 0; y < size.y; y++) {
+            const row = [];
+            const startIdx = (z * size.y * size.x) + (y * size.x);
+            for (let x = 0; x < size.x; x++) {
+                row.push(flat[startIdx + x]);
+            }
+            blocks[z].push(row);
+        }
+    }
+    return blocks;
 }
 
 // ============================================
@@ -146,7 +198,32 @@ export const BUILDING_TYPES = {
 export class MapDataRepository {
     constructor() {
         this.maps = new Map();
-        this.storageKey = 'fantasy_rts_maps';
+        // 初期化時にRegistryからロード
+        this.loadFromRegistry();
+    }
+
+    /**
+     * MapRegistryから定義済みマップを読み込む
+     */
+    loadFromRegistry() {
+        // 定義済みマップを読み込む
+        const maps = [TUTORIAL_PLAIN_DATA];
+        maps.forEach(mapData => {
+            // ディープコピーを作成して参照汚染を防ぐ
+            const mapClone = JSON.parse(JSON.stringify(mapData));
+
+            // 日付文字列をDateオブジェクトに変換
+            if (typeof mapClone.createdAt === 'string') mapClone.createdAt = new Date(mapClone.createdAt);
+            if (typeof mapClone.updatedAt === 'string') mapClone.updatedAt = new Date(mapClone.updatedAt);
+
+            // メモリ上に既にロードされている（ユーザーが編集中の）場合は上書きしない
+            // ただし、初回ロード時はセットする
+            if (!this.maps.has(mapClone.id)) {
+                this.maps.set(mapClone.id, mapClone);
+            }
+        });
+        console.log(`[MapRepository] Loaded ${this.maps.size} maps from registry.`);
+        return true;
     }
 
     /**
@@ -178,7 +255,11 @@ export class MapDataRepository {
                 playerDeployment: { x: 0, y: 0, width: 10, height: 10 },
                 enemyDeployment: { x: 20, y: 20, width: 10, height: 10 },
                 objectives: []
-            }
+            },
+            playerDeploymentZones: [],
+            unitDefinitions: [],
+            customBuildingDefinitions: [],
+            units: []
         };
 
         this.maps.set(id, mapData);
@@ -222,11 +303,36 @@ export class MapDataRepository {
 
         Object.assign(map, updates, { updatedAt: new Date() });
         map.version++;
+
+        // デフォルト値を確保（既存データとの互換性）
+        if (!map.zones) {
+            map.zones = {
+                playerDeployment: { x: 0, y: 0, width: 10, height: 10 },
+                enemyDeployment: { x: 20, y: 20, width: 10, height: 10 },
+                objectives: []
+            };
+        }
+        if (!map.playerDeploymentZones) {
+            map.playerDeploymentZones = [];
+        }
+        if (!map.buildings) {
+            map.buildings = [];
+        }
+        if (!map.unitDefinitions) {
+            map.unitDefinitions = [];
+        }
+        if (!map.customBuildingDefinitions) {
+            map.customBuildingDefinitions = [];
+        }
+        if (!map.units) {
+            map.units = [];
+        }
+
         return map;
     }
 
     /**
-     * マップを削除
+     * マップを削除 (メモリ上からのみ)
      */
     delete(id) {
         return this.maps.delete(id);
@@ -328,7 +434,8 @@ export class MapDataRepository {
     }
 
     /**
-     * JSONからインポート
+     * JSONからインポート (エディタなどで使用)
+     * インポートしたデータはメモリ上に保持される
      */
     importFromJson(jsonString) {
         try {
@@ -337,7 +444,31 @@ export class MapDataRepository {
                 data.id = this.generateId();
             }
             data.createdAt = new Date(data.createdAt);
-            data.updatedAt = new Date();
+            data.updatedAt = new Date(); // インポート時を更新とする
+
+            // デフォルト値を設定（createメソッドと同様）
+            if (!data.zones) {
+                data.zones = {
+                    playerDeployment: { x: 0, y: 0, width: 10, height: 10 },
+                    enemyDeployment: { x: 20, y: 20, width: 10, height: 10 },
+                    objectives: []
+                };
+            }
+            if (!data.playerDeploymentZones) {
+                data.playerDeploymentZones = [];
+            }
+            if (!data.buildings) {
+                data.buildings = [];
+            }
+            if (!data.unitDefinitions) {
+                data.unitDefinitions = [];
+            }
+            if (!data.customBuildingDefinitions) {
+                data.customBuildingDefinitions = [];
+            }
+            if (!data.units) {
+                data.units = [];
+            }
 
             this.maps.set(data.id, data);
             return data;
@@ -348,177 +479,94 @@ export class MapDataRepository {
     }
 
     /**
-     * LocalStorageに保存
+     * LocalStorageに保存 (復活)
      */
     saveToStorage() {
         try {
-            const data = {};
-            this.maps.forEach((map, id) => {
-                // Compress terrain data for storage
-                const compressedMap = { ...map };
+            // メモリ上のマップを全て保存
+            // MapはJSON化できないので配列に変換
+            const mapsArray = Array.from(this.maps.values());
+            const json = JSON.stringify(mapsArray);
+            localStorage.setItem('fantasy_rts_maps', json);
+            console.log(`[MapRepository] Saved ${mapsArray.length} maps to storage.`);
 
-                // 画像データは圧縮済み（256x256 JPEG）なので保持する
-
-                if (map.terrain) {
-                    compressedMap.terrain = {
-                        width: map.terrain.width,
-                        height: map.terrain.height,
-                        compressed: true,
-                        heightMap: compressArray(map.terrain.heightMap),
-                        terrainType: compressArray(map.terrain.terrainType)
-                    };
-                }
-                data[id] = compressedMap;
+            // 各マップのzonesとplayerDeploymentZonesをログ出力
+            mapsArray.forEach(m => {
+                console.log(`[MapRepository] Saved map "${m.name}":`, {
+                    id: m.id,
+                    hasZones: !!m.zones,
+                    zones: m.zones,
+                    hasPlayerDeploymentZones: !!m.playerDeploymentZones,
+                    playerDeploymentZonesCount: m.playerDeploymentZones?.length || 0,
+                    hasBuildings: !!m.buildings,
+                    buildingsCount: m.buildings?.length || 0,
+                    hasTextureData: !!m.textureData,
+                    hasUnits: !!m.units,
+                    unitsCount: m.units?.length || 0,
+                    hasUnitDefinitions: !!m.unitDefinitions,
+                    unitDefinitionsCount: m.unitDefinitions?.length || 0
+                });
             });
 
-            const json = JSON.stringify(data);
-            console.log(`[MapDataRepository] Saving to storage. Size: ${(json.length / 1024).toFixed(2)}KB`);
-
-            localStorage.setItem(this.storageKey, json);
-            console.log('[MapDataRepository] Saved to localStorage');
             return true;
         } catch (e) {
-            console.error('[MapDataRepository] Save failed:', e);
-            alert(`保存に失敗しました。容量制限の可能性があります。\n不要なマップを削除してください。\n(${e.name})`);
+            console.error('[MapRepository] Save failed:', e);
             return false;
         }
     }
 
     /**
-     * LocalStorageから読み込み
+     * LocalStorageから読み込み (復活)
      */
     loadFromStorage() {
         try {
-            const stored = localStorage.getItem(this.storageKey);
-            if (!stored) return false;
+            // Registryからの読み込みを先に行う
+            this.loadFromRegistry();
 
-            const data = JSON.parse(stored);
-            this.maps.clear();
+            const json = localStorage.getItem('fantasy_rts_maps');
+            if (json) {
+                const mapsArray = JSON.parse(json);
+                mapsArray.forEach(data => {
+                    // 日付文字列復元
+                    if (typeof data.createdAt === 'string') data.createdAt = new Date(data.createdAt);
+                    if (typeof data.updatedAt === 'string') data.updatedAt = new Date(data.updatedAt);
 
-            Object.keys(data).forEach(id => {
-                const map = data[id];
+                    // デフォルト値を設定（createメソッドと同様）
+                    if (!data.zones) {
+                        data.zones = {
+                            playerDeployment: { x: 0, y: 0, width: 10, height: 10 },
+                            enemyDeployment: { x: 20, y: 20, width: 10, height: 10 },
+                            objectives: []
+                        };
+                    }
+                    if (!data.playerDeploymentZones) {
+                        data.playerDeploymentZones = [];
+                    }
+                    if (!data.buildings) {
+                        data.buildings = [];
+                    }
+                    if (!data.unitDefinitions) {
+                        data.unitDefinitions = [];
+                    }
+                    if (!data.customBuildingDefinitions) {
+                        data.customBuildingDefinitions = [];
+                    }
+                    if (!data.units) {
+                        data.units = [];
+                    }
 
-                // Decompress if needed
-                if (map.terrain && map.terrain.compressed) {
-                    map.terrain.heightMap = decompressArray(map.terrain.heightMap, map.terrain.width, map.terrain.height, false);
-                    map.terrain.terrainType = decompressArray(map.terrain.terrainType, map.terrain.width, map.terrain.height, true);
-                    delete map.terrain.compressed;
-                }
-
-                if (map.createdAt) map.createdAt = new Date(map.createdAt);
-                if (map.updatedAt) map.updatedAt = new Date(map.updatedAt);
-                this.maps.set(id, map);
-            });
-
-            console.log(`[MapDataRepository] Loaded ${this.maps.size} maps from localStorage`);
-            return true;
+                    // 重複時はStorage優先（ユーザー編集データのため）
+                    this.maps.set(data.id, data);
+                });
+                console.log(`[MapRepository] Loaded ${mapsArray.length} maps from storage (Total: ${this.maps.size}).`);
+                return true;
+            }
+            return false;
         } catch (e) {
-            console.error('[MapDataRepository] Load failed:', e);
+            console.error('[MapRepository] Load failed:', e);
             return false;
         }
     }
-
-    /**
-     * ユニークIDを生成
-     */
-    generateId() {
-        return `map_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    }
-
-    /**
-     * マップをコピー
-     */
-    duplicate(mapId, newName = null) {
-        const original = this.maps.get(mapId);
-        if (!original) return null;
-
-        const copy = JSON.parse(JSON.stringify(original));
-        copy.id = this.generateId();
-        copy.name = newName || `${original.name} (コピー)`;
-        copy.createdAt = new Date();
-        copy.updatedAt = new Date();
-        copy.version = 1;
-
-        this.maps.set(copy.id, copy);
-        return copy;
-    }
-
-    /**
-     * JSONとしてエクスポート
-     */
-    exportToJson(mapId) {
-        const map = this.maps.get(mapId);
-        if (!map) return null;
-        return JSON.stringify(map, null, 2);
-    }
 }
 
-// シングルトンインスタンス
 export const mapRepository = new MapDataRepository();
-
-// 【重要】起動時にLocalStorageからカスタムマップを自動ロード
-mapRepository.loadFromStorage();
-
-// ============================================
-// サンプルマップデータ
-// ============================================
-
-/**
- * サンプルマップを生成
- */
-export function createSampleMaps() {
-    // チュートリアルマップ (カスタムデータをロード)
-    try {
-        mapRepository.importFromJson(JSON.stringify(TUTORIAL_PLAIN_DATA));
-        console.log('[MapDataRepository] Tutorial data loaded');
-    } catch (e) {
-        console.error('[MapDataRepository] Failed to load tutorial data', e);
-        // フォールバック: デフォルト作成 (もし必要なら)
-    }
-
-    // 山岳マップ
-    const mountain = mapRepository.create({
-        id: 'sample_mountain',
-        name: '山岳決戦',
-        description: '高低差のある山岳地帯',
-        width: 40,
-        height: 40,
-        difficulty: 3
-    });
-
-    // 高低差を追加
-    for (let y = 10; y < 30; y++) {
-        for (let x = 15; x < 25; x++) {
-            mapRepository.setTerrain('sample_mountain', x, y, 'mountain', 3);
-        }
-    }
-
-    // 城砦マップ
-    const castle = mapRepository.create({
-        id: 'sample_castle',
-        name: '城砦攻略戦',
-        description: '敵の城を攻略せよ',
-        width: 50,
-        height: 50,
-        difficulty: 4
-    });
-
-    // 城を配置
-    mapRepository.addBuilding('sample_castle', {
-        type: 'castle',
-        x: 40,
-        y: 10
-    });
-
-    // 壁を配置
-    for (let i = 0; i < 10; i++) {
-        mapRepository.addBuilding('sample_castle', {
-            type: 'wall',
-            x: 35,
-            y: 5 + i
-        });
-    }
-
-    console.log('[MapDataRepository] Sample maps created');
-    return mapRepository.list();
-}

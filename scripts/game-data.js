@@ -9,6 +9,36 @@
 // ステージデータ
 // ============================================
 
+import { getFormationModifiers } from './formation.js';
+
+export class Squadron {
+    constructor(id, leaderId) {
+        this.id = id;
+        this.leaderUnitId = leaderId;
+        this.memberUnitIds = [];
+        this.formationType = 'HOKO'; // デフォルトは鋒矢
+        this.tactic = null;
+    }
+
+    addMember(unitId) {
+        if (!this.memberUnitIds.includes(unitId)) {
+            this.memberUnitIds.push(unitId);
+        }
+    }
+
+    removeMember(unitId) {
+        this.memberUnitIds = this.memberUnitIds.filter(id => id !== unitId);
+    }
+
+    setFormation(type) {
+        this.formationType = type;
+    }
+
+    getFormationBonus() {
+        return getFormationModifiers(this.formationType);
+    }
+}
+
 export const STAGES = {
     tutorial: {
         id: 'tutorial',
@@ -17,6 +47,7 @@ export const STAGES = {
         difficulty: 1,
         mapSize: { width: 30, height: 30 },
         thumbnail: null, // 将来的に画像パス
+        customMapName: 'チュートリアル平原', // mapRepositoryからロードするマップ名
         enemyForces: [
             { type: 'INFANTRY', count: 5 },
             { type: 'ARCHER', count: 3 }

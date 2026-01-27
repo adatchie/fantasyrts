@@ -33,5 +33,20 @@ export const TUTORIAL_PLAIN_DATA = {
         },
         "objectives": []
     },
+    "playerDeploymentZones": [],
+    "unitDefinitions": [
+        { "id": "ud_enemy_inf", "name": "敵歩兵隊", "type": "INFANTRY", "role": "normal", "count": 5, "level": 1, "hp": 1000 },
+        { "id": "ud_enemy_arc", "name": "敵弓兵隊", "type": "ARCHER", "role": "normal", "count": 3, "level": 1, "hp": 800 }
+    ],
+    "units": [
+        { "defId": "ud_enemy_inf", "x": 22, "y": 22 },
+        { "defId": "ud_enemy_inf", "x": 24, "y": 22 },
+        { "defId": "ud_enemy_inf", "x": 26, "y": 22 },
+        { "defId": "ud_enemy_inf", "x": 23, "y": 24 },
+        { "defId": "ud_enemy_inf", "x": 25, "y": 24 },
+        { "defId": "ud_enemy_arc", "x": 23, "y": 26 },
+        { "defId": "ud_enemy_arc", "x": 25, "y": 26 },
+        { "defId": "ud_enemy_arc", "x": 24, "y": 28 }
+    ],
     "image": "./assets/textures/ground_sekigahara.jpg"
 };

@@ -3,25 +3,28 @@
  * メインゲームロジックとループ
  */
 
-import { HEX_SIZE, C_EAST, C_WEST, C_SEL_BOX, C_SEL_BORDER, WARLORDS, UNIT_TYPE_HEADQUARTERS, FORMATION_HOKO, FORMATION_KAKUYOKU, FORMATION_GYORIN, UNIT_TYPE_NORMAL } from './constants.js?v=10';
-import { STAGES } from './game-data.js';
+import { STAGES, gameProgress } from './game-data.js';
+import { UNIT_TYPE_HEADQUARTERS, WARLORDS, FORMATION_HOKO, FORMATION_KAKUYOKU, FORMATION_GYORIN, TILE_SIZE, TILE_HEIGHT, MAP_W, MAP_H, UNIT_TYPES } from './constants.js'; // Added TILE_SIZE, TILE_HEIGHT, MAP_W, MAP_H, UNIT_TYPES
+import { TUTORIAL_PLAIN_DATA } from './data/maps/tutorial_plain.js';
 import * as THREE from 'three';
 import { AudioEngine } from './audio.js';
-import { MapSystem } from './map.js?v=3';
-import { RenderingEngine3D } from './rendering3d.js?v=58';
+import { MapSystem } from './map.js?v=5';
+import { RenderingEngine3D } from './rendering3d.js?v=60';
 import { generatePortrait } from './rendering.js?v=2';
 import { CombatSystem } from './combat.js?v=25';
 import { AISystem } from './ai.js';
-import { UnitManager } from './unit-manager.js?v=4';
+import { UnitManager } from './unit-manager.js?v=5';
 import { hexToPixel, pixelToHex, isValidHex, getDistRaw, getReachableTiles, estimateTurns } from './pathfinding.js';
-import { FORMATION_INFO, getAvailableFormations } from './formation.js?v=4';
-import { BuildingSystem } from './building.js?v=17';
+import { FORMATION_INFO, getAvailableFormations } from './formation.js?v=4'; // Removed invalid import
+import { BuildingSystem, BUILDING_TEMPLATES } from './building.js?v=17';
 import { BuildingEditor } from './editor/building-editor.js';
+import { decompressBlocks } from './map-repository.js';
 import { StageLoader } from './stage-loader.js';
-import { createSceneManager, SCENES } from './scene-manager.js'; // Added import
+import { createSceneManager, SCENES } from './scene-manager.js?v=5'; // Added import
+import { mapRepository } from './map-repository.js'; // カスタムマップ用
 
 // Main Game Logic
-console.log("Main JS Version: 27 Reconstructed"); // Updated version
+console.log("Main JS Version: 53 - Debug map list"); // Updated version
 
 export class Game {
     constructor() {
@@ -57,6 +60,9 @@ export class Game {
         this.placementData = null;
         this.placementGhost = null;
         this.placementRotation = 0; // 0,1,2,3 (90度刻み)
+
+        // Deployment Mode (for unit placement phase)
+        this.isDeploymentMode = false;
     }
 
     init() {
@@ -112,8 +118,23 @@ export class Game {
             this.combatSystem.setGame(this);
             this.combatSystem.setUnitManager(this.unitManager);
 
-            // Building System
-            this.buildingSystem = new BuildingSystem(this.renderingEngine.scene, this.renderingEngine);
+            // Building System - renderingEngineのインスタンスを使用
+            this.buildingSystem = this.renderingEngine.buildingSystem;
+
+            // MapSystemに外部高さプロバイダを設定（建物用）
+            // ワールド座標ベースで詳細な高さを取得することで、城壁端でも正確な判定が可能
+            this.mapSystem.setExternalHeightProvider((x, y) => {
+                if (this.buildingSystem && this.renderingEngine) {
+                    // グリッド中央のワールド座標を計算
+                    const worldPos = this.renderingEngine.gridToWorld3D(x, y);
+                    const heightInfo = this.buildingSystem.getBuildingHeightAtWorldPos(worldPos.x, worldPos.z);
+                    if (heightInfo && heightInfo.isBuilding) {
+                        // ワールド高さをそのまま返す（map.jsのgetHeightと単位を合わせるため）
+                        return heightInfo.height;
+                    }
+                }
+                return 0;
+            });
 
             // Stage Loader
             try {
@@ -130,28 +151,76 @@ export class Game {
             this.selectionBox.style.cssText = 'position:absolute; border:1px solid #00FF00; background-color:rgba(0,255,0,0.1); display:none; pointer-events:none; z-index:1000;';
             document.body.appendChild(this.selectionBox);
 
-            // Initial Map Generation (Tutorial Stage) for Title Screen Background
-            if (this.stageLoader) {
-                // STAGESはgame-data.jsからインポート済みと想定(次のステップで追加)
-                // this.stageLoader.loadStage(STAGES.tutorial); 
-                // しかしSTAGESがまだmain.jsにないので、ここでは直接stageLoaderを使う前に
-                // 必要なインポートを追加してから呼び出す必要がある。
-                // ひとまずコメントアウトし、次のステップでインポート追加と同時に有効化する。
+            // Initial Map Generation for Title Screen Background
+            // LocalStorageの最初のマップを使用（なければフォールバックでTUTORIAL_PLAIN_DATA）
+            let backgroundMapData = TUTORIAL_PLAIN_DATA; // デフォルト
+            try {
+                mapRepository.loadFromStorage();
+                const storedMaps = mapRepository.list();
+                console.log('[Init] Available maps:', storedMaps.map(m => ({ id: m.id, name: m.name })));
+                if (storedMaps.length > 0) {
+                    // 最初のマップを取得
+                    const firstMapId = storedMaps[0].id;
+                    const firstMap = mapRepository.get(firstMapId);
+                    if (firstMap && firstMap.terrain) {
+                        backgroundMapData = firstMap;
+                        console.log(`[Init] Using stored map as background: ${firstMap.name}`);
+                    }
+                }
+            } catch (e) {
+                console.warn('[Init] Failed to load stored maps, using fallback:', e);
             }
-            // Temporarily removed random generation to replace with Tutorial load
-            // this.mapSystem.generateMap();
-            // this.renderingEngine.createIsometricTiles();
+            this.mapSystem.setMapData(backgroundMapData);
+            this.renderingEngine.buildTerrainFromMapData(backgroundMapData);
+            console.log('[Init] Map built successfully');
 
-            // Just init defaults for now to prevent crash until next step fixes logic
-            this.mapSystem.generateMap();
-            this.renderingEngine.createIsometricTiles();
+            // HTMLファイルに応じてモードを切り替え
+            // sekigahara.htmlではレガシースタート画面、index.htmlではSceneManagerを使用
+            const startScreenElement = document.getElementById('start-screen');
+            const isLegacyMode = startScreenElement !== null && startScreenElement.style.display !== 'none';
+            console.log('[Init] Legacy mode check:', { startScreenElement, isLegacyMode });
 
-            // SceneManager Init & Start
-            this.sceneManager = createSceneManager(this);
-            this.sceneManager.transition(SCENES.TITLE);
+            try {
+                if (isLegacyMode) {
+                    // レガシーモード (sekigahara.html): 旧スタート画面を使用
+                    console.log('Legacy Mode: Using traditional start screen');
+                    this.sceneManager = null; // SceneManagerを使用しない
+                } else {
+                    // 新モード (index.html): SceneManagerを使用
+                    console.log('New Mode: Using SceneManager');
+                    this.sceneManager = createSceneManager(this);
+                    console.log('[Init] SceneManager created:', this.sceneManager);
+
+                    if (this.sceneManager && this.sceneManager.uiContainer) {
+                        console.log('[Init] uiContainer found:', this.sceneManager.uiContainer);
+                        this.sceneManager.transition(SCENES.TITLE);
+                        console.log('[Init] Transitioned to TITLE scene');
+                    } else {
+                        console.error('[Init] SceneManager or uiContainer is null!');
+                        // 画面にエラーを表示
+                        const errorDiv = document.createElement('div');
+                        errorDiv.style.cssText = 'position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:red; color:white; padding:20px; z-index:9999;';
+                        errorDiv.textContent = 'Error: SceneManager initialization failed. Check console.';
+                        document.body.appendChild(errorDiv);
+                    }
+                }
+            } catch (e) {
+                console.error('[Init] SceneManager error:', e);
+                // 画面にエラーを表示
+                const errorDiv = document.createElement('div');
+                errorDiv.style.cssText = 'position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:red; color:white; padding:20px; z-index:9999;';
+                errorDiv.textContent = 'Error: ' + e.message;
+                document.body.appendChild(errorDiv);
+            }
 
             // Start Loop
             requestAnimationFrame(() => this.loop());
+        }).catch(e => {
+            console.error('[Init] Rendering engine init failed:', e);
+            const errorDiv = document.createElement('div');
+            errorDiv.style.cssText = 'position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:red; color:white; padding:20px; z-index:9999;';
+            errorDiv.textContent = 'Rendering Error: ' + e.message;
+            document.body.appendChild(errorDiv);
         });
     }
 
@@ -210,80 +279,270 @@ export class Game {
                 this.mapSystem.setMapData(this.customMapData);
                 if (this.buildingSystem) {
                     this.buildingSystem.clearBuildings(); // 既存建物もクリア
-                    this.buildingSystem.loadBuildings(this.customMapData.buildings);
+                    // 建物データがあれば配置
+                    if (this.customMapData.buildings && Array.isArray(this.customMapData.buildings)) {
+                        this.customMapData.buildings.forEach(b => {
+                            let template = b.templateData;
+
+                            // Inject blockSize for direct templateData (editor-placed buildings)
+                            // 1ブロック = 1タイルとして配置するため、TILE_SIZEを使用
+                            if (template && !template.blockSize) {
+                                template.blockSize = TILE_SIZE;
+                            }
+
+                            // templateDataがない場合、typeから検索
+                            if (!template && b.type) {
+                                // 1. カスタム定義から検索
+                                if (this.customMapData.customBuildingDefinitions) {
+                                    const customDef = this.customMapData.customBuildingDefinitions.find(d => d.id === b.type);
+                                    if (customDef) {
+                                        template = customDef.data;
+                                        // Inject blockSize to match Editor scale for custom buildings
+                                        // 1ブロック = 1タイルとして配置するため、TILE_SIZEを使用
+                                        if (!template.blockSize) template.blockSize = TILE_SIZE;
+
+                                        if (template.compressedBlocks && !template.blocks) {
+                                            template.blocks = decompressBlocks(template.compressedBlocks, template.size);
+                                        }
+                                        // 名前を上書き
+                                        if (customDef.name) template.name = customDef.name;
+                                    }
+                                }
+                                // 2. 標準テンプレートから検索
+                                if (!template) {
+                                    template = BUILDING_TEMPLATES[b.type];
+                                }
+                            }
+
+                            if (template) {
+                                this.buildingSystem.placeCustomBuildingAtGrid(
+                                    template,
+                                    b.gridX || b.x, // xの場合もあるかも
+                                    b.gridY || b.y, // yの場合もあるかも
+                                    b.rotation || 0
+                                );
+                            }
+                        });
+                    }
                 }
             }
 
             this.units = [];
 
-            // 1. カスタムマップの敵ユニット（エディタ配置）を生成
-            if (this.customMapData.units && this.customMapData.unitDefinitions) {
-                console.log("Loading units from Custom Map Data...", this.customMapData.units);
-                const enemySide = this.playerSide === 'EAST' ? 'WEST' : 'EAST';
+            // カスタムマップ敵ユニットを読み込んだかどうかのフラグ
+            let customMapEnemiesLoaded = false;
 
-                this.customMapData.units.forEach(placedUnit => {
+            // 1. カスタムマップの敵ユニット（エディタ配置）を生成
+            console.log("[startGame] customMapData check:", {
+                hasCustomMapData: !!this.customMapData,
+                mapName: this.customMapData?.name,
+                hasUnits: !!this.customMapData?.units,
+                unitsCount: this.customMapData?.units?.length || 0,
+                hasUnitDefinitions: !!this.customMapData?.unitDefinitions,
+                unitDefinitionsCount: this.customMapData?.unitDefinitions?.length || 0
+            });
+
+            if (this.customMapData.units && this.customMapData.unitDefinitions && this.customMapData.units.length > 0) {
+                const enemySide = this.playerSide === 'EAST' ? 'WEST' : 'EAST';
+                customMapEnemiesLoaded = true; // カスタムマップ敵を読み込んだフラグをセット
+
+                // raw JSONの確認
+                console.log('[CUSTOM MAP] Raw unitDefinitions JSON:', JSON.stringify(this.customMapData.unitDefinitions));
+                this.customMapData.unitDefinitions.forEach(u => {
+                    console.log('  -', u.id, u.name, 'type=' + u.type);
+                });
+
+                this.customMapData.units.forEach((placedUnit, placementIndex) => {
                     const def = this.customMapData.unitDefinitions.find(d => d.id === placedUnit.defId);
                     if (!def) return;
 
-                    const unitData = {
+                    // エディタのユニット定義を武将データ形式に変換
+                    const warlordData = {
                         name: def.name,
-                        type: def.type,
-                        unitType: (def.role === 'commander') ? UNIT_TYPE_HEADQUARTERS : UNIT_TYPE_NORMAL,
-                        level: def.level || 1,
-                        maxHp: def.hp || 1000,
-                        hp: def.hp || 1000,
-                        soldiers: (def.count || 10) * 100,
-                        warlordId: 'enemy_' + placedUnit.defId,
-                        warlordName: def.name,
-                        face: null,
-                        kamon: null
+                        side: enemySide,
+                        x: placedUnit.x,
+                        y: placedUnit.y,
+                        soldiers: (def.count || 1) * 1000,  // SOLDIERS_PER_UNIT = 1000
+                        atk: def.atk || 50,
+                        def: def.def || 50,
+                        jin: 50,
+                        loyalty: 100,
+                        p: 50,
+                        kamon: null,
+                        bg: null,
+                        face: null
                     };
 
-                    const unit = this.unitManager.createUnitInstance(
-                        unitData,
-                        enemySide,
-                        placedUnit.x,
-                        placedUnit.y
+                    // 既存のcreateUnitsFromWarlordを使用して複数ユニットを生成
+                    const warlordId = `enemy_${placementIndex}`;
+                    const generatedUnits = this.unitManager.createUnitsFromWarlord(
+                        warlordData,
+                        warlordId,
+                        [],  // 重複チェック用の他武将データ（今回は空）
+                        this.mapSystem
                     );
 
-                    this.units.push(unit);
+                    // 生成されたユニットにカスタム情報を追加
+                    generatedUnits.forEach((unit, i) => {
+                        unit.type = def.type;
+                        unit.level = def.level || 1;
+                        console.log('[CUSTOM MAP] Created: ' + unit.name + ' type=' + unit.type + ' def.type=' + def.type);
+                        // commander役割の場合、本陣として扱う（既にcreateUnitsFromWarlordでi===0がHEADQUARTERS）
+                        if (def.role === 'commander' && i === 0) {
+                            unit.unitType = 'HEADQUARTERS';
+                        }
+                    });
+
+                    this.units.push(...generatedUnits);
                 });
-                console.log(`Spawned ${this.units.length} enemy units.`);
             }
 
-            // 2. プレイヤーの配置済みユニットがいれば配置
+            // 2. プレイヤーの配置済みユニットがいれば配置（複数ユニット生成）
             if (this.sceneManager) {
                 const placements = this.sceneManager.getGameData('unitPlacements') || [];
                 const deployedUnits = gameProgress.getDeployedUnits();
-                placements.forEach(([unitId, pos]) => {
+                placements.forEach(([unitId, pos], placementIndex) => {
                     const unitData = deployedUnits.find(u => u.id === unitId);
                     if (unitData) {
-                        const unit = this.unitManager.createUnitInstance(
-                            unitData,
-                            this.playerSide,
-                            pos.x,
-                            pos.y,
-                            0
+                        // 武将データ形式に変換（敵ユニットと同じ処理）
+                        const warlordData = {
+                            name: unitData.warlordName || unitData.name,
+                            side: this.playerSide,
+                            x: pos.x,
+                            y: pos.y,
+                            soldiers: unitData.soldiers || 30000, // デフォルト30000（30ユニット分）でワラワラ表示
+                            atk: unitData.atk || 50,
+                            def: unitData.def || 50,
+                            jin: unitData.jin || 50,
+                            loyalty: unitData.loyalty || 100,
+                            p: unitData.p || 50,
+                            kamon: unitData.kamon || null,
+                            bg: unitData.bg || null,
+                            face: unitData.face || null
+                        };
+
+                        // 既存のcreateUnitsFromWarlordを使用して複数ユニットを生成
+                        const warlordId = unitData.warlordId || `player_${placementIndex}`;
+                        const generatedUnits = this.unitManager.createUnitsFromWarlord(
+                            warlordData,
+                            warlordId,
+                            [],
+                            this.mapSystem
                         );
-                        this.units.push(unit);
+
+                        // 生成されたユニットにカスタム情報を追加
+                        generatedUnits.forEach((unit, i) => {
+                            unit.type = unitData.type || 'infantry';
+                            unit.level = unitData.level || 1;
+                        });
+
+                        this.units.push(...generatedUnits);
                     }
+
+                });
+
+                // 敵軍（AI）の生成
+                // カスタムマップで敵ユニットが既に読み込まれている場合はスキップ
+                if (!customMapEnemiesLoaded) {
+                    const currentStageId = gameProgress.currentStage;
+                    console.log('[DEBUG] currentStageId=' + currentStageId);
+                    console.log('[DEBUG] STAGES keys=' + Object.keys(STAGES));
+                    // STAGESに定義があればそれを使う、なければカスタムマップデータ（にenemyForcesがあれば）を使う
+                    const stageConfig = STAGES[currentStageId] || (this.customMapData && this.customMapData.enemyForces ? this.customMapData : null);
+
+                    // ステージデータに敵軍設定がある場合
+                    if (stageConfig && stageConfig.enemyForces) {
+                    console.log(`Generating enemies for stage: ${stageConfig.name}`);
+                    console.log(`Player side: ${this.playerSide}, Enemy side will be: ${this.playerSide === 'EAST' ? 'WEST' : 'EAST'}`);
+                    let enemyUnitIdCounter = 0;
+
+                    // 配置エリア（なければデフォルト）
+                    const zone = stageConfig.deploymentZone || { x: 0, y: 20, width: 20, height: 20 };
+
+                    stageConfig.enemyForces.forEach(force => {
+                        const typeInfo = Object.values(UNIT_TYPES).find(t => t.name === force.type) || UNIT_TYPES.INFANTRY; // 名前一致またはデフォルト
+
+                        for (let i = 0; i < force.count; i++) {
+                            // 配置座標をランダム決定 (簡易)
+                            const ex = zone.x + Math.floor(Math.random() * zone.width);
+                            const ey = zone.y + Math.floor(Math.random() * zone.height);
+
+                            // ダミー武将データ作成
+                            const enemyWarlord = {
+                                name: `敵将${enemyUnitIdCounter}`,
+                                side: this.playerSide === 'EAST' ? 'WEST' : 'EAST', // プレイヤーと反対サイド
+                                x: ex,
+                                y: ey,
+                                soldiers: 3000, // 3000 = 3ユニット分
+                                atk: 50,
+                                def: 50,
+                                jin: 50,
+                                loyalty: 0,
+                                type: force.type, // ユニットタイプを指定
+                                face: null // 顔なし
+                            };
+
+                            const warlordId = `enemy_stage_${enemyUnitIdCounter}`;
+                            const generatedEnemies = this.unitManager.createUnitsFromWarlord(
+                                enemyWarlord,
+                                warlordId,
+                                [], // allWarlords (重複チェック用だが敵は無視)
+                                this.mapSystem
+                            );
+
+                            // タイプ情報を付与
+                            generatedEnemies.forEach(u => {
+                                u.unitType = 'NORMAL'; // 本陣ではない
+                                u.type = force.type || 'INFANTRY'; // 兵種を設定（重要！）
+                                console.log('[ENEMY] Created: ' + u.name + ' type=' + u.type + ' force.type=' + force.type);
+                            });
+
+                            this.units.push(...generatedEnemies);
+                            enemyUnitIdCounter++;
+                        }
+                    });
+                }
+                // カスタムマップなどで敵設定がない場合、かつ関ヶ原デモの場合のみフォールバック
+                else if (!stageConfig && !this.customMapData) {
+                    console.log('[WARNING] Using WARLORDS fallback - units will be INFANTRY only!');
+                    // 既存の関ヶ原データ（WARLORDS）を使用
+                    Object.values(WARLORDS).forEach((warlord, index) => {
+                        if (warlord.side !== this.playerSide) {
+                            const warlordId = `enemy_${index}`;
+                            const generatedEnemies = this.unitManager.createUnitsFromWarlord(
+                                warlord,
+                                warlordId,
+                                Object.values(WARLORDS),
+                                this.mapSystem
+                            );
+                            this.units.push(...generatedEnemies);
+                        }
+                    });
+                }
+                } // if (!customMapEnemiesLoaded) の終わり
+
+            }
+            console.log(`[startGame] Total Units after all loading: ${this.units.length}`);
+            if (this.units.length > 0) {
+                console.log(`[startGame] Unit summary:`, {
+                    playerUnits: this.units.filter(u => u.side === this.playerSide).length,
+                    enemyUnits: this.units.filter(u => u.side !== this.playerSide).length
                 });
             }
-            console.log(`Total Units: ${this.units.length}`);
-
         } else {
             // シナリオモード（既存ロジック）
             // マップ生成
             const map = this.mapSystem.generateMap();
             // マルチユニット初期化: 各武将から複数ユニットを生成
-            WARLORDS.forEach((warlord, warlordId) => {
-                this.unitManager.createUnitsFromWarlord(warlord, warlordId, WARLORDS, this.mapSystem);
+            Object.values(WARLORDS).forEach((warlord, index) => {
+                this.unitManager.createUnitsFromWarlord(warlord, `warlord_${index}`, Object.values(WARLORDS), this.mapSystem);
             });
             this.units = this.unitManager.getAllUnits();
         }
 
         // 3Dレンダラーのマップ情報を更新（高さキャッシュの再計算）
-        if (this.renderingEngine) {
+        // 【重要】カスタムマップの場合は buildTerrainFromMapData で既に構築済みなのでスキップ
+        if (this.renderingEngine && !this.customMapData) {
             this.renderingEngine.createIsometricTiles();
         }
 
@@ -337,7 +596,7 @@ export class Game {
 
         // CPU AIの命令を設定
         this.units.filter(u => u.side !== this.playerSide && !u.dead).forEach(cpu => {
-            const order = this.aiSystem.decideAction(cpu, this.units, this.mapSystem.getMap());
+            const order = this.aiSystem.decideAction(cpu, this.units, this.mapSystem);
             if (order) cpu.order = order;
         });
 
@@ -360,8 +619,41 @@ export class Game {
             // 全ユニットの行動済みフラグをリセット（未行動状態に戻す）
             this.units.forEach(u => u.hasActed = false);
 
-            // ユニット単位でソート（残り兵数が少ない順）
-            const queue = [...this.units].sort((a, b) => a.soldiers - b.soldiers);
+            // 武将ごとにグループ化して、陣形に応じてID順序を制御（渋滞防止）
+            // 1. 武将IDでグループ化
+            const warlordGroups = new Map();
+            for (const u of this.units) {
+                if (!warlordGroups.has(u.warlordId)) {
+                    warlordGroups.set(u.warlordId, []);
+                }
+                warlordGroups.get(u.warlordId).push(u);
+            }
+
+            // 2. 各武将グループ内で陣形に応じてソート
+            //    - 鋒矢の陣(HOKO): ID昇順（本陣が先頭）
+            //    - その他: ID降順（前方ユニットが先に動く）
+            for (const [warlordId, units] of warlordGroups) {
+                const hq = units.find(u => u.unitType === 'HEADQUARTERS' && !u.dead);
+                const formation = hq ? hq.formation : null;
+                const isHoko = (formation === 'HOKO');
+
+                units.sort((a, b) => {
+                    if (isHoko) {
+                        // 鋒矢の陣: IDが小さい順（本陣から先に動く）
+                        return a.id - b.id;
+                    } else {
+                        // その他の陣形: IDが大きい順（前方ユニットから先に動く）
+                        return b.id - a.id;
+                    }
+                });
+            }
+
+            // 3. グループを統合し、兵士数でソート（少ない順）
+            const queue = [];
+            for (const units of warlordGroups.values()) {
+                queue.push(...units);
+            }
+            queue.sort((a, b) => a.soldiers - b.soldiers);
 
             for (const u of queue) {
                 if (u.dead) continue;
@@ -381,16 +673,19 @@ export class Game {
                     this.unitManager.checkHeadquartersStatus(warlordId);
                 });
 
-                // 勝敗判定（本陣ユニットベース）
-                const iyeyasuHQ = this.units.find(x => x.warlordName === '徳川家康' && x.unitType === 'HEADQUARTERS');
-                const mitsunariHQ = this.units.find(x => x.warlordName === '石田三成' && x.unitType === 'HEADQUARTERS');
+                // 勝敗判定（陣営ベース：本陣ユニットの生存で判定）
+                const playerHQ = this.units.find(x => x.side === this.playerSide && x.unitType === 'HEADQUARTERS' && !x.dead);
+                const enemySide = this.playerSide === 'EAST' ? 'WEST' : 'EAST';
+                const enemyHQ = this.units.find(x => x.side === enemySide && x.unitType === 'HEADQUARTERS' && !x.dead);
 
-                if (!iyeyasuHQ || iyeyasuHQ.dead) {
-                    this.triggerEndGame('WEST', '徳川家康');
+                if (!playerHQ) {
+                    // プレイヤー本陣全滅 → 敵勝利
+                    this.triggerEndGame(enemySide, 'プレイヤー');
                     return;
                 }
-                if (!mitsunariHQ || mitsunariHQ.dead) {
-                    this.triggerEndGame('EAST', '石田三成');
+                if (!enemyHQ) {
+                    // 敵本陣全滅 → プレイヤー勝利
+                    this.triggerEndGame(this.playerSide, '敵軍');
                     return;
                 }
             }
@@ -449,9 +744,12 @@ export class Game {
 
     // Input handling
     handleMouseDownInternal(e) {
-        console.log("handleMouseDownInternal called! (Renamed)"); // DEBUG
+        // handleMouseDownInternal called
+        // デプロイメントモード中は処理をスキップ
+        if (this.isDeploymentMode) {
+            return;
+        }
         if (this.buildingEditor && this.buildingEditor.isActive) {
-            console.log("Blocked by BuildingEditor"); // DEBUG
             return;
         }
 
@@ -522,9 +820,9 @@ export class Game {
     }
 
     handleMouseUpInternal(e) {
+        // デプロイメントモード中は処理をスキップ
+        if (this.isDeploymentMode) return;
         if (this.buildingEditor && this.buildingEditor.isActive) return;
-
-        console.log("handleMouseUpInternal called. isLeftDown:", this.input.isLeftDown); // DEBUG
 
         if (this.input.isLeftDown && e.button === 0) {
 
@@ -534,10 +832,8 @@ export class Game {
             this.selectionBox.style.display = 'none';
 
             const dist = Math.hypot(e.clientX - this.input.start.x, e.clientY - this.input.start.y);
-            console.log("MouseUp distance:", dist); // DEBUG
 
             if (dist < 15) { // 許容範囲を少し広げる
-                console.log("Distance OK, calling handleLeftClick"); // DEBUG
                 this.handleLeftClick(e.clientX, e.clientY);
             } else {
                 // ボックス選択実行
@@ -652,7 +948,6 @@ export class Game {
         // 配置モード中の回転 (R)
         if (this.gameState === 'PLACEMENT' && (e.key === 'r' || e.key === 'R')) {
             this.placementRotation = (this.placementRotation + 1) % 4;
-            console.log(`Rotation: ${this.placementRotation * 90}°`);
             if (this.placementGhost) {
                 this.placementGhost.rotation.y = -(Math.PI / 2) * this.placementRotation;
             }
@@ -689,8 +984,6 @@ export class Game {
     }
 
     handleLeftClick() {
-        console.log("handleLeftClick called. GameState:", this.gameState); // DEBUG
-
         // 建物配置モード
         if (this.gameState === 'PLACEMENT') {
             this.placeCurrentBuilding();
@@ -706,36 +999,25 @@ export class Game {
 
         // 3Dモード用の判定（Raycaster使用）
         if (this.renderingEngine && this.renderingEngine.getHexFromScreenCoordinates) {
-            console.log("Calling getHexFromScreenCoordinates with:", this.input.start.x, this.input.start.y); // DEBUG
             h = this.renderingEngine.getHexFromScreenCoordinates(this.input.start.x, this.input.start.y);
-            console.log("Result hex:", h); // DEBUG
         } else {
             // フォールバック（2D用）
             h = pixelToHex(mx, my, this.camera);
         }
 
         if (!h || !isValidHex(h)) {
-            console.log("Invalid hex or null"); // DEBUG
             return;
         }
 
         // クリック位置に近いユニットを探す
         const u = this.units.find(x => !x.dead && x.x === h.q && x.y === h.r);
-        console.log("Unit found:", u); // DEBUG
-        if (!u) {
-            console.log("No unit at hex:", h.q, h.r);
-            console.log("Total units:", this.units.length);
-            // ユニット一覧の座標をダンプ（最初の3つ）
-            this.units.slice(0, 3).forEach(unit => console.log(`Unit ${unit.name}: ${unit.x}, ${unit.y}`));
-        }
 
         const menu = document.getElementById('context-menu');
-        menu.style.display = 'none';
+        if (menu) menu.style.display = 'none';
 
         if (u) {
             // ユニットをクリックした場合
             if (u.side === this.playerSide) {
-                console.log("Friend unit selected"); // DEBUG
                 // 味方ユニット選択
                 const warlordUnits = this.unitManager.getUnitsByWarlordId(u.warlordId);
                 this.selectedUnits = warlordUnits.filter(unit => !unit.dead);
@@ -750,7 +1032,6 @@ export class Game {
                     this.renderingEngine.showMoveRange(tiles, 0x4466ff);
                 }
             } else {
-                console.log("Enemy unit clicked"); // DEBUG
                 // 敵ユニットをクリックした場合
                 if (this.selectedUnits.length > 0 && this.selectedUnits[0].side === this.playerSide) {
                     // ターゲット指定（攻撃・調略）
@@ -768,7 +1049,6 @@ export class Game {
                 }
             }
         } else {
-            console.log("Ground clicked"); // DEBUG
             // 地面をクリックした場合
             if (this.selectedUnits.length > 0 && this.selectedUnits[0].side === this.playerSide) {
                 // 地面クリック時は即座に移動命令を発行（RTSの標準挙動）
@@ -778,7 +1058,7 @@ export class Game {
                 // 全選択ユニットに移動命令を発行
                 this.selectedUnits.forEach(u => {
                     u.order = { type: 'MOVE', targetHex: { x: h.q, y: h.r } };
-                    console.log(`[Ground Click] Move order issued: ${u.name} -> (${h.q}, ${h.r})`);
+                    // Move order issued
                 });
 
                 // メニューは表示しない（即座に命令発行）
@@ -1118,7 +1398,10 @@ export class Game {
 
             const info = document.createElement('div');
             info.style.flex = '1';
-            info.innerHTML = `<strong style="color:#FF8888">[目標] ${targetHeadquarters.name}</strong><br>兵: ${targetTotalSoldiers} (${targetUnitCount}部隊) <small>(攻${targetHeadquarters.atk}/防${targetHeadquarters.def})</small>`;
+            // 兵種マーカーを取得
+            const targetTypeInfo = UNIT_TYPES[targetHeadquarters.type] || UNIT_TYPES.INFANTRY;
+            const targetTypeMarker = targetTypeInfo.marker || '⚔️';
+            info.innerHTML = `<strong style="color:#FF8888">[目標] ${targetHeadquarters.name} ${targetTypeMarker}</strong><br>兵: ${targetTotalSoldiers} (${targetUnitCount}部隊) <small>(攻${targetHeadquarters.atk}/防${targetHeadquarters.def})</small>`;
 
             targetDiv.appendChild(img);
             targetDiv.appendChild(info);
@@ -1216,7 +1499,11 @@ export class Game {
                 }
             }
 
-            info.innerHTML = `<strong>${headquarters.name}</strong><br>兵: ${totalSoldiers} (${unitCount}部隊) <small>(攻${headquarters.atk}/防${headquarters.def})</small>${formationText}<br>指示: ${ord}`;
+            // 兵種マーカーを取得
+            const unitTypeInfo = UNIT_TYPES[headquarters.type] || UNIT_TYPES.INFANTRY;
+            const typeMarker = unitTypeInfo.marker || '⚔️';
+
+            info.innerHTML = `<strong>${headquarters.name} ${typeMarker}</strong><br>兵: ${totalSoldiers} (${unitCount}部隊) <small>(攻${headquarters.atk}/防${headquarters.def})</small>${formationText}<br>指示: ${ord}`;
 
             d.appendChild(img);
             d.appendChild(info);
@@ -1325,6 +1612,10 @@ export class Game {
         if (speedControl) {
             speedControl.style.display = show ? 'flex' : 'none';
         }
+    }
+
+    findNonOverlappingPosition(cx, cy, totalUnits, existingUnits) {
+        return this.unitManager.findNonOverlappingPosition(cx, cy, totalUnits, existingUnits);
     }
 }
 

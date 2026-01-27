@@ -6,7 +6,7 @@
 import { getDist, getDistRaw, getFacingAngle, findPath, getDistAttack } from './pathfinding.js';
 import { TERRAIN_TYPES } from './map.js';
 import { hexToPixel } from './pathfinding.js';
-import { DIALOGUE } from './constants.js';
+import { DIALOGUE, UNIT_TYPES, UNIT_TYPE_NORMAL } from './constants.js';
 import { generatePortrait } from './rendering.js';
 import { getFormationModifiers, canMoveWithFormation, checkForcedFormationChange, FORMATION_INFO, calculateFormationTargets } from './formation.js?v=2';
 import { UNIT_TYPE_HEADQUARTERS } from './constants.js';
@@ -54,8 +54,6 @@ export class CombatSystem {
     async processUnit(unit, allUnits, map, warlordPlotUsed = {}) {
         if (!unit.order) return;
 
-        console.log(`[processUnit] ${unit.name} (${unit.unitType}): order=${unit.order.type}, formation=${unit.formation}`);
-
         // 本陣ユニットの場合、兵力による強制陣形変更をチェック
         if (unit.unitType === UNIT_TYPE_HEADQUARTERS && this.unitManager) {
             const forceChange = checkForcedFormationChange(unit.soldiers, unit.formation);
@@ -63,7 +61,6 @@ export class CombatSystem {
                 unit.formation = forceChange.newFormation;
                 const info = FORMATION_INFO[forceChange.newFormation];
                 this.showFormation(unit, info.nameShort);
-                console.log(`強制陣形変更: ${unit.name} -> ${info.nameShort} (兵力: ${unit.soldiers})`);
             }
         }
 
@@ -89,7 +86,6 @@ export class CombatSystem {
     async processPlot(unit, target, allUnits, warlordPlotUsed = {}, map) {
         // この武将がすでに調略を使用済みかチェック
         if (warlordPlotUsed[unit.warlordId]) {
-            console.log(`${unit.warlordName} は今ターンすでに調略を使用済み`);
             // 調略をスキップして移動に切り替え
             unit.order = { type: 'MOVE', targetHex: { x: target.x, y: target.y } };
             await this.processMove(unit, allUnits, map);
@@ -97,7 +93,6 @@ export class CombatSystem {
         }
 
         const dist = getDistAttack(unit, target);
-        console.log(`[processPlot] ${unit.name} -> ${target.name}, dist=${dist}`);
 
         // 調略射程(5) + 陣形解除距離(3)
         const engagementDist = 8.0;
@@ -124,18 +119,12 @@ export class CombatSystem {
             let chance = 30 + (unit.jin - target.loyalty) + tideMod;
             if (target.loyalty > 95) chance = 1;
 
-            console.log(`[processPlot] Chance: ${chance}% (Jin: ${unit.jin}, Loyalty: ${target.loyalty}, Tide: ${tideMod.toFixed(1)})`);
-
             if (Math.random() * 100 < chance) {
                 // マルチユニットシステム: 対象武将の全ユニットを寝返らせる
                 const targetWarlordId = target.warlordId;
                 const targetWarlordUnits = allUnits.filter(u => u.warlordId === targetWarlordId);
 
-                console.log(`調略成功: ${target.warlordName} (武将ID: ${targetWarlordId})`);
-                console.log(`対象ユニット数: ${targetWarlordUnits.length}`);
-
                 targetWarlordUnits.forEach(warlordUnit => {
-                    console.log(`  - ユニットID ${warlordUnit.id}: ${warlordUnit.side} -> ${unit.side}`);
                     warlordUnit.side = unit.side;
                     warlordUnit.loyalty = 100;
                     warlordUnit.order = null; // 命令をクリア
@@ -176,7 +165,6 @@ export class CombatSystem {
                 document.getElementById('game-container').appendChild(div);
                 setTimeout(() => div.remove(), 3000);
             } else {
-                console.log(`[processPlot] Failed.`);
                 this.spawnText({ q: target.x, r: target.y }, "失敗...", "#aaa", 40);
                 this.audioEngine.sfxArrangementFail(); // 調略失敗SE
             }
@@ -188,8 +176,6 @@ export class CombatSystem {
             await this.wait(400);
         } else if (dist > engagementDist) {
             // まだ遠い場合は陣形を維持して移動
-            console.log(`[processPlot] Target too far (${dist}), moving in formation.`);
-
             const originalOrder = unit.order;
             unit.order = {
                 type: 'MOVE',
@@ -206,7 +192,6 @@ export class CombatSystem {
                 unit.order = originalOrder;
             }
         } else {
-            console.log(`[processPlot] Moving to plot range.`);
             await this.moveUnitStep(unit, target, allUnits, map);
         }
     }
@@ -220,35 +205,91 @@ export class CombatSystem {
     async processAttack(unit, target, allUnits, map, reach) {
         // スクエアグリッドに伴い、距離判定を厳格化（チェビシェフ距離を使用）
         const dist = getDistAttack(unit, target);
-        console.log(`[processAttack] ${unit.name} -> ${target.name}, dist=${dist}, reach=${reach}`);
 
         // 接敵するまでは陣形で近づく
         // reach + 3.0 くらいまでは陣形で整然と近づき、そこから個別に襲いかかるイメージ
         const engagementDist = reach + 3.0;
 
-        // 弓攻撃の射程計算
-        const attZ = map[unit.y]?.[unit.x]?.z || 0;
-        const defZ = map[target.y]?.[target.x]?.z || 0;
-        const bowRange = this.calculateBowRange(attZ, defZ, 8); // 基本射程8
-        const bowMinRange = 3; // 最小射程3（タクティクスオウガ風：1-2マスは射程外）
+        // ユニットが遠距離攻撃可能かチェック
+        // unit.type は兵種（INFANTRY, ARCHER等）、unit.unitType は役割（NORMAL, HEADQUARTERS）
+        const unitCombatType = unit.type || 'INFANTRY';
+        const typeInfo = UNIT_TYPES[unitCombatType] || UNIT_TYPES.INFANTRY;
+        const rangeType = typeInfo.rangeType || 'melee';
+
+        // 遠距離攻撃可能なユニットタイプ
+        const canRangedAttack = ['bowArc', 'longArc', 'siege'].includes(rangeType);
+
+        // 弓攻撃の射程（基本射程8、高さによる補正はダメージのみ適用）
+        const bowBaseRange = 8;
+        const bowMinRange = 2; // 最小射程2（1マスは射程外）
+
+        // 高い位置にいる弓兵の射程拡張（移動できない場合の救済措置）
+        let extendedBowRange = bowBaseRange;
+        if (canRangedAttack && this.mapSystem) {
+            const unitZ = this.mapSystem.getHeight(unit.x, unit.y);
+            const targetZ = this.mapSystem.getHeight(target.x, target.y);
+            const heightDiff = unitZ - targetZ;
+            // 自分が相手より高い場合、1段差ごとに射程+1（最大3まで）
+            if (heightDiff > 0) {
+                const heightInGrids = Math.floor(heightDiff / 16); // TILE_HEIGHT = 16
+                extendedBowRange = Math.min(bowBaseRange + heightInGrids, 12);
+            }
+        }
 
         // 弓が使える距離かどうか判定
-        const canUseBow = (d) => d >= bowMinRange && d <= bowRange + 1;
+        const canUseBow = canRangedAttack ? (d) => d >= bowMinRange && d <= extendedBowRange : () => false;
 
-        if (dist <= reach) {
+        // 弓兵デバッグ（各判定ごとに出力）
+        if (canRangedAttack && target) {
+            // 弓兵デバッグログ（必要な場合は有効化）
+            // console.log('[ARCHER] ' + unit.name + ' dist=' + dist + ' reach=' + reach + ' canRangedAttack=' + canRangedAttack + ' canUseBow=' + canUseBow(dist) + ' inMelee=' + (dist <= reach));
+        }
+
+        // 高さ制限チェック（近接攻撃時）
+        // 歩行ユニットは段差2まで移動可能なので、近接攻撃も段差2まで可能にする
+        let canMeleeAttack = true;
+        if (dist <= reach && this.mapSystem) {
+            const unitZ = this.mapSystem.getHeight(unit.x, unit.y);
+            const targetZ = this.mapSystem.getHeight(target.x, target.y);
+            const heightDiff = Math.abs(targetZ - unitZ);
+            // 段差3以上（48 world units以上）なら近接攻撃不可
+            const MAX_MELEE_HEIGHT_DIFF = 48; // 3グリッド分
+            if (heightDiff > MAX_MELEE_HEIGHT_DIFF) {
+                canMeleeAttack = false;
+                // 高すぎる敵には近づく必要がある
+            }
+        }
+
+        if (dist <= reach && canMeleeAttack) {
             // 攻撃射程内なら近接攻撃実行
             unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
             this.speak(unit, 'ATTACK');
             await this.combat(unit, target, allUnits, map);
         } else if (canUseBow(dist)) {
-            // 弓攻撃射程内（最小射程以上、最大射程+1まで）なら遠距離攻撃
-            console.log(`[processAttack] Ranged attack: dist=${dist}, bowRange=${bowMinRange}-${bowRange}`);
+            // 弓攻撃射程内（最小射程以上、最大射程まで）なら遠距離攻撃
             unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
             await this.rangedCombat(unit, target, map);
-        } else if (dist > engagementDist) {
-            // まだ遠い場合でも、弓射程内なら先に弓を撃つ
+        } else if (canRangedAttack && dist <= extendedBowRange) {
+            // 弓兵が拡張射程内にいる場合は移動せずに攻撃
+            unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
+            await this.rangedCombat(unit, target, map);
+        } else if (canRangedAttack && this.mapSystem) {
+            // 弓兵が高い位置にいる場合、移動を諦めてその場から攻撃
+            const unitZ = this.mapSystem.getHeight(unit.x, unit.y);
+            const targetZ = this.mapSystem.getHeight(target.x, target.y);
+            const heightDiff = unitZ - targetZ;
+            // 自分が3段差以上高い場合は移動せずに攻撃
+            if (heightDiff >= 48) {
+                unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
+                await this.rangedCombat(unit, target, map);
+                return;
+            }
+        }
+
+        if (dist > engagementDist || (dist <= reach && !canMeleeAttack)) {
+            // 遠い場合、または近接攻撃できない高さ差がある場合は移動
+            // 弓射程内なら先に弓を撃つ
             if (canUseBow(dist)) {
-                console.log(`[processAttack] Ranged attack before advance: dist=${dist}, bowRange=${bowMinRange}-${bowRange}`);
                 unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
                 await this.rangedCombat(unit, target, map);
                 // 弓攻撃後、まだ距離があれば陣形で近づく
@@ -268,6 +309,19 @@ export class CombatSystem {
             };
 
             await this.processMove(unit, allUnits, map);
+
+            // 移動後に攻撃可能かチェック（特に弓兵用）
+            const newDist = getDistAttack(unit, target);
+            if (newDist <= reach) {
+                // 近接攻撃射程内
+                unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
+                this.speak(unit, 'ATTACK');
+                await this.combat(unit, target, allUnits, map);
+            } else if (canUseBow(newDist)) {
+                // 弓射程内なら遠距離攻撃
+                unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
+                await this.rangedCombat(unit, target, map);
+            }
 
             // 命令を元に戻す（次ターンも攻撃を継続するため）
             // processMove内で目的地に着くとorderがnullになることがあるので注意
@@ -300,8 +354,6 @@ export class CombatSystem {
      * 本陣の場合は陣形制限をチェック
      */
     async processMove(unit, allUnits, map) {
-        console.log(`[processMove] START: ${unit.name}, unitType=${unit.unitType}, formation=${unit.formation}`);
-
         let dest = unit.order.targetHex;
 
         // ---------------------------------------------------------
@@ -341,8 +393,9 @@ export class CombatSystem {
             unit.order = null;
         } else {
             // 本陣の場合、配下の追従を待つ（足並みを揃える）処理
-            // 本陣の場合、配下の追従を待つ（足並みを揃える）処理
-            if (unit.unitType === UNIT_TYPE_HEADQUARTERS && this.unitManager) {
+            // ただし、戦闘時に敵ユニットに向かって移動する場合（dest.idがある）は待機しない
+            const isCombatMove = (dest.id !== undefined);
+            if (unit.unitType === UNIT_TYPE_HEADQUARTERS && this.unitManager && !isCombatMove) {
                 // 1. 緊急回避チェック：近くに敵がいる場合はなりふり構わず動く
                 let enemyNearby = false;
                 for (const other of allUnits) {
@@ -363,7 +416,6 @@ export class CombatSystem {
 
                         // 配下の50%以上が近くにいないなら、移動を待機
                         if (ratio < 0.5) {
-                            console.log(`[本陣待機] ${unit.name}: 配下到着待ち (${nearbySubordinates.length}/${subordinates.length})`);
                             this.spawnText({ q: unit.x, r: unit.y }, "軍待ち...", "#aaa", 40);
                             await this.wait(200); // 少しだけウェイトを入れて雰囲気を出す
                             return; // 移動スキップ
@@ -400,45 +452,18 @@ export class CombatSystem {
         for (let i = 1; i < path.length && moves > 0; i++) {
             const next = path[i];
 
-            // 念のため再チェック（状況が変わっている可能性）
-            const blocker = allUnits.find(u =>
-                u.id !== unit.id &&
-                !u.dead &&
-                getDistRaw(next.x, next.y, u.x, u.y) < (unit.radius + u.radius)
-            );
-
-            if (blocker) {
-                // 味方ユニットなら位置交換（Swap）を行う
-                if (blocker.side === unit.side) {
-                    console.log(`🔄 位置交換 (Swap): ${unit.name} <-> ${blocker.name}`);
-
-                    // blockerをunitの元いた位置に移動させる
-                    blocker.x = unit.x;
-                    blocker.y = unit.y;
-                    blocker.pos = hexToPixel(blocker.x, blocker.y);
-                    // blockerの向きも反転させておく（すれ違った感が出る）
-                    // blocker.dir = (unit.dir + 3) % 6; 
-
-                    // unitは予定通りnextへ進む
-                    unit.dir = getFacingAngle(unit.x, unit.y, next.x, next.y);
-                    unit.x = next.x;
-                    unit.y = next.y;
-                    unit.pos = hexToPixel(unit.x, unit.y);
-
-                    actuallyMoved = true;
-                    moves--; // コスト消費
-                    continue;
-                } else {
-                    // 敵なら移動不可
-                    return actuallyMoved;
-                }
-            }
-
-            unit.dir = getFacingAngle(unit.x, unit.y, next.x, next.y);
-
-            // 移動コスト計算
+            // 移動コスト計算（高低差を考慮）- ブロッカーチェックより前に実行
             let cost = 1;
-            if (map && map[next.y] && map[next.y][next.x]) {
+            if (this.mapSystem) {
+                // mapSystem.getMoveCostを使う（高低差・建物を考慮）
+                const canFly = unit.canFly || unit.type === 'FLYING';
+                cost = this.mapSystem.getMoveCost(
+                    { x: unit.x, y: unit.y },
+                    { x: next.x, y: next.y },
+                    canFly
+                );
+            } else if (map && map[next.y] && map[next.y][next.x]) {
+                // フォールバック: 地形タイプのみ
                 const t = map[next.y][next.x];
                 if (TERRAIN_TYPES[t.type]) {
                     cost = TERRAIN_TYPES[t.type].moveCost;
@@ -446,20 +471,50 @@ export class CombatSystem {
             }
 
             // 無限コスト（移動不可）なら停止
-            if (cost === Infinity) break;
+            if (cost === Infinity || cost >= 999) break;
 
-            if (moves >= cost) {
-                // 移動実行
-                unit.x = next.x;
-                unit.y = next.y;
-                unit.pos = hexToPixel(unit.x, unit.y);
-                actuallyMoved = true;
-                moves -= cost;
-                await this.wait(20);
-            } else {
-                // 移動力不足で停止（次のターンへ）
-                break;
+            // 移動力不足なら停止
+            if (moves < cost) break;
+
+            // ブロッカーチェック（コストチェック後）
+            const blocker = allUnits.find(u =>
+                u.id !== unit.id &&
+                !u.dead &&
+                getDistRaw(next.x, next.y, u.x, u.y) < (unit.radius + u.radius)
+            );
+
+            unit.dir = getFacingAngle(unit.x, unit.y, next.x, next.y);
+
+            if (blocker) {
+                // 味方ユニットなら位置交換（Swap）を行う
+                if (blocker.side === unit.side) {
+                    // blockerをunitの元いた位置に移動させる
+                    blocker.x = unit.x;
+                    blocker.y = unit.y;
+                    blocker.pos = hexToPixel(blocker.x, blocker.y);
+
+                    // unitは予定通りnextへ進む
+                    unit.x = next.x;
+                    unit.y = next.y;
+                    unit.pos = hexToPixel(unit.x, unit.y);
+
+                    actuallyMoved = true;
+                    moves -= cost;
+                    await this.wait(20);
+                    continue;
+                } else {
+                    // 敵なら移動不可
+                    return actuallyMoved;
+                }
             }
+
+            // 通常移動実行
+            unit.x = next.x;
+            unit.y = next.y;
+            unit.pos = hexToPixel(unit.x, unit.y);
+            actuallyMoved = true;
+            moves -= cost;
+            await this.wait(20);
         }
 
         return actuallyMoved;
@@ -475,11 +530,24 @@ export class CombatSystem {
             [-1, 0], [-1, +1], [0, +1]
         ];
 
+        // 移動可能な最大高低差（歩行ユニットは段差3まで = 48 world units）
+        const MAX_WALKABLE_HEIGHT_DIFF = 48;
+
         // 目標の周囲6方向をチェック（スクエアグリッドでは4方向）
         const surroundPositions = [];
         for (const [dx, dy] of directions) {
             const nx = target.x + dx;
             const ny = target.y + dy;
+
+            // 高低差チェック（移動可能か）
+            if (this.mapSystem) {
+                const unitZ = this.mapSystem.getHeight(unit.x, unit.y);
+                const targetZ = this.mapSystem.getHeight(nx, ny);
+                const heightDiff = Math.abs(targetZ - unitZ);
+                if (heightDiff > MAX_WALKABLE_HEIGHT_DIFF) {
+                    continue; // 移動不可なのでスキップ
+                }
+            }
 
             // 空いているかチェック
             const isOccupied = allUnits.some(u =>
@@ -558,9 +626,19 @@ export class CombatSystem {
         this.audioEngine.sfxHit();
         await this.wait(300);
 
-        // 地形ボーナス
-        const hAtt = map[att.y][att.x].h;
-        const hDef = map[def.y][def.x].h;
+        // 地形ボーナス（建物の高さを考慮）
+        // 単位を世界単位（world units）で統一
+        const TILE_HEIGHT = 16; // 1グリッドあたりの世界単位
+        let hAtt = (map[att.y]?.[att.x]?.z || 0) * TILE_HEIGHT; // グリッド単位→世界単位
+        let hDef = (map[def.y]?.[def.x]?.z || 0) * TILE_HEIGHT; // グリッド単位→世界単位
+
+        // mapSystemがある場合は建物の高さも考慮（キャッシュ付き）
+        // どちらも世界単位なので正しく比較できる
+        if (this.mapSystem) {
+            hAtt = Math.max(hAtt, this.mapSystem.getHeight(att.x, att.y));
+            hDef = Math.max(hDef, this.mapSystem.getHeight(def.x, def.y));
+        }
+
         let mod = 1.0 + (hAtt > hDef ? 0.3 : 0) + (siegers.length * 0.2);
 
         // 方向ボーナス
@@ -588,10 +666,7 @@ export class CombatSystem {
         // 入力値の検証（NaN発生源の特定用）
         if (typeof att.atk !== 'number' || typeof att.soldiers !== 'number' ||
             typeof def.def !== 'number' || typeof def.soldiers !== 'number') {
-            console.error('[NaN DEBUG] Invalid unit data:', {
-                attacker: { name: att.name, atk: att.atk, soldiers: att.soldiers },
-                defender: { name: def.name, def: def.def, soldiers: def.soldiers }
-            });
+            // Invalid unit data - skip with safe defaults
         }
 
         // ダメージ計算（陣形修正を適用）
@@ -1017,20 +1092,43 @@ export class CombatSystem {
 
     /**
      * 矢の軌道が障害物で遮られるかチェック
+     * タクティクスオウガ風の軌道システムを採用：
+     * - 近距離射撃：高い弧の軌道（障害物をクリアしやすい）
+     * - 遠距離射撃：低い弧の軌道（障害物に阻まれやすい）
      * @param {Object} from - 発射元ユニット
      * @param {Object} to - 対象ユニット
      * @param {Array} map - マップデータ
-     * @returns {{blocked: boolean, blockPos: {x,y,z}|null}} 遮蔽情報
+     * @returns {{blocked: boolean, blockPos: {x,y,z}|null, arcHeight: number}} 遮蔽情報と弧の高さ
      */
     isArrowPathBlocked(from, to, map) {
         // 放物線の頂点を計算
         const dist = getDistRaw(from.x, from.y, to.x, to.y);
-        const fromZ = map[from.y]?.[from.x]?.z || 0;
-        const toZ = map[to.y]?.[to.x]?.z || 0;
 
-        // 放物線の最高点（距離の半分の地点で最も高くなる）
-        const arcHeight = dist * 0.5; // 距離に比例した弧の高さ
-        const midZ = Math.max(fromZ, toZ) + arcHeight;
+        // 高さは世界単位で統一（TILE_HEIGHT = 16）
+        const TILE_HEIGHT = 16;
+        let fromZ = (map[from.y]?.[from.x]?.z || 0) * TILE_HEIGHT;
+        let toZ = (map[to.y]?.[to.x]?.z || 0) * TILE_HEIGHT;
+
+        // mapSystemがある場合は建物の高さも考慮（キャッシュ付き）
+        if (this.mapSystem) {
+            fromZ = Math.max(fromZ, this.mapSystem.getHeight(from.x, from.y));
+            toZ = Math.max(toZ, this.mapSystem.getHeight(to.x, to.y));
+        }
+
+        // 高低差に基づく弧の高さを計算
+        const heightDiff = toZ - fromZ;
+        const isShootingUp = heightDiff > 0;
+
+        const maxRange = 12;
+        const distFactor = 1 - Math.min(dist / maxRange, 1);
+
+        // 基本弧の高さ（世界単位で計算）
+        const baseArcHeight = (15 + 65 * distFactor) * TILE_HEIGHT;
+
+        let arcHeight = baseArcHeight;
+        if (isShootingUp) {
+            arcHeight = baseArcHeight + heightDiff * 2;
+        }
 
         // 軌道上の各グリッドをチェック
         const steps = Math.ceil(dist);
@@ -1042,18 +1140,28 @@ export class CombatSystem {
             // マップ範囲チェック
             if (!map[checkY] || !map[checkY][checkX]) continue;
 
-            const tileZ = map[checkY][checkX].z || 0;
+            let tileZ = (map[checkY][checkX].z || 0) * TILE_HEIGHT;
 
-            // 放物線上の高さを計算（パラボラ: 4 * h * t * (1 - t)）
+            // 経路上のグリッドでも建物の高さを考慮
+            if (this.mapSystem) {
+                tileZ = Math.max(tileZ, this.mapSystem.getHeight(checkX, checkY));
+            }
+
+            // 放物線上の高さを計算（パラボラ）
             const arcZ = fromZ + (toZ - fromZ) * t + 4 * arcHeight * t * (1 - t);
 
-            // 地形が矢の軌道より高ければ遮蔽
+            // 障害物チェック：ターゲットより低い位置にある障害物はブロック
             if (tileZ > arcZ) {
-                return { blocked: true, blockPos: { x: checkX, y: checkY, z: tileZ } };
+                return { blocked: true, blockPos: { x: checkX, y: checkY, z: tileZ }, arcHeight: arcHeight };
+            }
+
+            // 低所から高所へ撃つ場合、途中に壁があるとブロック
+            if (isShootingUp && tileZ > fromZ + TILE_HEIGHT && tileZ < toZ) {
+                return { blocked: true, blockPos: { x: checkX, y: checkY, z: tileZ }, arcHeight: arcHeight };
             }
         }
 
-        return { blocked: false, blockPos: null };
+        return { blocked: false, blockPos: null, arcHeight: arcHeight };
     }
 
     /**
@@ -1063,30 +1171,49 @@ export class CombatSystem {
      * @param {Array} map - マップデータ
      */
     async rangedCombat(att, def, map) {
-        console.log(`[rangedCombat] START: ${att.name} -> ${def.name}`);
         att.dir = getFacingAngle(att.x, att.y, def.x, def.y);
 
-        const attZ = map[att.y]?.[att.x]?.z || 0;
-        const defZ = map[def.y]?.[def.x]?.z || 0;
-        console.log(`[rangedCombat] attZ=${attZ}, defZ=${defZ}`);
+        // 単位を世界単位（world units）で統一
+        const TILE_HEIGHT = 16; // 1グリッドあたりの世界単位
+        let attZ = (map[att.y]?.[att.x]?.z || 0) * TILE_HEIGHT; // グリッド単位→世界単位
+        let defZ = (map[def.y]?.[def.x]?.z || 0) * TILE_HEIGHT; // グリッド単位→世界単位
 
-        // 矢のアニメーションを発射
-        console.log(`[rangedCombat] renderingEngine exists: ${!!this.renderingEngine}, spawnArrowAnimation exists: ${!!(this.renderingEngine && this.renderingEngine.spawnArrowAnimation)}`);
-        if (this.renderingEngine && this.renderingEngine.spawnArrowAnimation) {
-            const blockInfo = this.isArrowPathBlocked(att, def, map);
-            console.log(`[rangedCombat] Spawning arrow animation, blockInfo:`, blockInfo);
-            await this.renderingEngine.spawnArrowAnimation(att, def, blockInfo);
-            console.log(`[rangedCombat] Arrow animation complete`);
-        } else {
-            console.warn(`[rangedCombat] Cannot spawn arrow: renderingEngine or spawnArrowAnimation missing!`);
+        // mapSystemがある場合は建物の高さも考慮（キャッシュ付き）
+        // どちらも世界単位なので正しく比較できる
+        if (this.mapSystem) {
+            attZ = Math.max(attZ, this.mapSystem.getHeight(att.x, att.y));
+            defZ = Math.max(defZ, this.mapSystem.getHeight(def.x, def.y));
         }
 
-        // 遮蔽チェック
-        const blockCheck = this.isArrowPathBlocked(att, def, map);
-        if (blockCheck.blocked) {
+        // 高さ差による射程制限：ターゲットが攻撃者より高すぎる場合は攻撃不可
+        // mapSystem.getHeight()はワールドユニットで返す（256単位の建物高さ）
+        // 3グリッド分の高さ差を制限とする
+        const MAX_HEIGHT_GRIDS = 3; // 最大3グリッドまで届く
+        const MAX_HEIGHT_DIFF = MAX_HEIGHT_GRIDS * TILE_HEIGHT; // 48ワールドユニット
+
+        // ワールドユニットでの高さ差を計算
+        const heightDiff = defZ - attZ;
+        // グリッド単位に換算して判定（建物高さも考慮）
+        const heightDiffInGrids = heightDiff / TILE_HEIGHT;
+
+        if (heightDiff > MAX_HEIGHT_DIFF) {
+            // ターゲットが高すぎて到達できない
+            this.spawnText({ q: att.x, r: att.y }, "届かない!", '#888', 40);
+            await this.wait(300);
+            return;
+        }
+
+        // 遮蔽チェック（アニメーションと判定で共用）
+        const blockInfo = this.isArrowPathBlocked(att, def, map);
+
+        // 矢のアニメーションを発射
+        if (this.renderingEngine && this.renderingEngine.spawnArrowAnimation) {
+            await this.renderingEngine.spawnArrowAnimation(att, def, blockInfo);
+        }
+
+        if (blockInfo.blocked) {
             // 矢が遮られた
-            this.spawnText({ q: blockCheck.blockPos.x, r: blockCheck.blockPos.y }, "遮蔽!", '#888', 40);
-            console.log(`[rangedCombat] Arrow blocked at (${blockCheck.blockPos.x}, ${blockCheck.blockPos.y})`);
+            this.spawnText({ q: blockInfo.blockPos.x, r: blockInfo.blockPos.y }, "遮蔽!", '#888', 40);
             await this.wait(300);
             return;
         }
@@ -1094,13 +1221,13 @@ export class CombatSystem {
         // 弓攻撃SE
         this.audioEngine.sfxHit();
 
-        // 高低差によるダメージ倍率
-        const heightDiff = attZ - defZ;
+        // 高低差によるダメージ倍率（heightDiffは上で計算済み: defZ - attZ）
         let heightMod = 1.0;
-        if (heightDiff > 0) {
-            heightMod = 1.0 + (heightDiff * 0.15); // 高所から: +15%/段
-        } else if (heightDiff < 0) {
-            heightMod = Math.max(0.5, 1.0 + (heightDiff * 0.15)); // 低所から: -15%/段 (最低50%)
+        const attackHeightDiff = -heightDiff; // 攻撃者側から見た高低差（正=高い位置から攻撃）
+        if (attackHeightDiff > 0) {
+            heightMod = 1.0 + (attackHeightDiff * 0.15); // 高所から: +15%/段
+        } else if (attackHeightDiff < 0) {
+            heightMod = Math.max(0.5, 1.0 + (attackHeightDiff * 0.15)); // 低所から: -15%/段 (最低50%)
         }
 
         // 陣形によるステータス修正

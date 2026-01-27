@@ -1,7 +1,5 @@
-/**
- * SEKIGAHARA RTS - Formation System
- * 陣形システム: スクエアグリッド対応版
- */
+// スクエアグリッド対応版
+// 部隊の配置座標計算とステータス補正を行う
 
 import { MAP_W, MAP_H, FORMATION_HOKO, FORMATION_KAKUYOKU, FORMATION_GYORIN } from './constants.js';
 import { TERRAIN_TYPES } from './map.js';

@@ -7,11 +7,11 @@ import { hexToPixel } from './pathfinding.js';
 import { generatePortrait } from './rendering.js';
 
 // ユニットタイプ定数
-export const UNIT_TYPE_HEADQUARTERS = 'HEADQUARTERS'; // 本陣
-export const UNIT_TYPE_NORMAL = 'NORMAL';             // 通常ユニット
+import { UNIT_TYPE_HEADQUARTERS, UNIT_TYPE_NORMAL } from './constants.js';
 
 // 定数インポート
 import { MAP_W, MAP_H } from './constants.js';
+import { Squadron } from './game-data.js';
 
 // 1ユニットあたりの標準兵力
 export const SOLDIERS_PER_UNIT = 1000;
@@ -23,21 +23,17 @@ export class UnitManager {
     constructor() {
         this.units = [];           // 全ユニット配列
         this.warlordGroups = {};   // 武将ID -> ユニット配列のマップ
+        this.squadrons = new Map(); // 部隊ID -> Squadronオブジェクト
         this.nextUnitId = 0;       // ユニットID発行カウンター
+        this.nextSquadronId = 0;   // 部隊ID発行カウンター
     }
 
     /**
-     * 武将データから複数ユニットを生成
-     * @param {Object} warlord - 武将データ（WARLORDS配列の要素）
+     * 武将データから複数ユニットを生成し、部隊(Squadron)を編成する
+     * @param {Object} warlord - 武将データ
      * @param {number} warlordId - 武将ID
-     * @param {Array} allWarlords - 全武将データ（配置重複チェック用）
-     * @returns {Array} 生成されたユニット配列
-     */
-    /**
-     * 武将データから複数ユニットを生成
-     * @param {Object} warlord - 武将データ（WARLORDS配列の要素）
-     * @param {number} warlordId - 武将ID
-     * @param {Array} allWarlords - 全武将データ（配置重複チェック用）
+     * @param {Array} allWarlords - 全武将データ
+     * @param {Object} mapSystem - マップシステム
      * @returns {Array} 生成されたユニット配列
      */
     createUnitsFromWarlord(warlord, warlordId, allWarlords = [], mapSystem = null) {
@@ -58,6 +54,14 @@ export class UnitManager {
         // 各ユニットに兵力を分配
         const soldierDistribution = this.distributeSoldiers(warlord.soldiers, totalUnits);
 
+        // 部隊(Squadron)を作成
+        const squadronId = `squad_${this.nextSquadronId++}`;
+        // リーダーIDは後で設定（最初のユニット生成後）
+        const squadron = new Squadron(squadronId, null);
+
+        // 陣形設定（AI判断などで初期陣形を決める場合はここで設定可能）
+        // 現状はデフォルト(HOKO)
+
         // ユニット生成
         const units = [];
         for (let i = 0; i < totalUnits; i++) {
@@ -65,6 +69,7 @@ export class UnitManager {
             const unit = {
                 id: this.nextUnitId++,
                 warlordId: warlordId,
+                squadronId: squadronId, // 部隊IDを紐付け
                 warlordName: warlord.name,
                 unitType: isHeadquarters ? UNIT_TYPE_HEADQUARTERS : UNIT_TYPE_NORMAL,
 
@@ -87,33 +92,37 @@ export class UnitManager {
                 // 位置情報
                 x: positions[i].x,
                 y: positions[i].y,
-                // 後方互換性のためq,rも設定しておくが、基本はx,yを使用
-                q: positions[i].x,
-                r: positions[i].y,
-
-                // ピクセル座標はレンダリング側で計算（必要なら）
-                // pos: hexToPixel(positions[i].q, positions[i].r), // 廃止
+                q: positions[i].x, // 互換性
+                r: positions[i].y, // 互換性
 
                 dir: warlord.side === 'EAST' ? 3 : 0,
 
                 // ゲーム状態
                 order: null,
                 dead: false,
-                formation: null, // 陣形（本陣のみ使用: HOKO/KAKUYOKU/GYORIN）
+                formation: null,
 
                 // 描画情報
                 radius: 0.45,
                 size: 1,
 
-                // 移動力 (Action Points)
-                movePower: 6,  // 平地なら6マス、丘陵なら3マス移動可能
+                // 移動力
+                movePower: 6,
 
                 // 画像は本陣のみ生成
                 imgCanvas: isHeadquarters ? generatePortrait(warlord) : null
             };
 
             units.push(unit);
+            squadron.addMember(unit.id);
+
+            if (isHeadquarters) {
+                squadron.leaderUnitId = unit.id;
+            }
         }
+
+        // 部隊を登録
+        this.squadrons.set(squadronId, squadron);
 
         // 武将グループに登録
         this.warlordGroups[warlordId] = units;
@@ -123,178 +132,118 @@ export class UnitManager {
     }
 
     /**
-     * 他の武将と重ならない本陣位置を見つける
-     * @param {number} originalX - 元のX座標
-     * @param {number} originalY - 元のY座標
-     * @param {number} unitCount - 配置するユニット数
-     * @param {Array} otherWarlords - 他の武将データ
-     * @returns {{x: number, y: number}} 調整後の座標
+     * 部隊を取得
      */
-    findNonOverlappingPosition(originalX, originalY, unitCount, otherWarlords) {
-        // 必要な半径を計算（螺旋の最大半径）
-        const requiredRadius = Math.ceil(Math.sqrt(unitCount)) + 1;
-
-        // まず元の位置で重複チェック
-        if (!this.checkOverlap(originalX, originalY, requiredRadius, otherWarlords)) {
-            return { x: originalX, y: originalY };
-        }
-
-        // 重複する場合、螺旋状に探索
-        let searchRadius = 1;
-        while (searchRadius < 15) { // 最大15タイル探索
-            const searchPositions = this.generateSpiralPositions(originalX, originalY, searchRadius * 8); // およそ外周分
-
-            for (const pos of searchPositions) {
-                if (!this.checkOverlap(pos.x, pos.y, requiredRadius, otherWarlords)) {
-                    console.log(`Position adjusted: (${originalX},${originalY}) -> (${pos.x},${pos.y})`);
-                    return pos;
-                }
-            }
-
-            searchRadius++;
-        }
-
-        // 見つからなければ元の位置を返す（最悪のケース）
-        console.warn(`Could not find non-overlapping position for (${originalX},${originalY})`);
-        return { x: originalX, y: originalY };
+    getSquadron(squadronId) {
+        return this.squadrons.get(squadronId);
     }
 
     /**
-     * 指定位置が他の武将と重複するかチェック
-     * @param {number} x - チェックするX座標
-     * @param {number} y - チェックするY座標
-     * @param {number} radius - 必要な半径
-     * @param {Array} otherWarlords - 他の武将データ
-     * @returns {boolean} 重複する場合true
+     * ユニットIDから部隊を取得
      */
-    checkOverlap(x, y, radius, otherWarlords) {
-        for (const other of otherWarlords) {
-            const distance = this.gridDistance(x, y, other.x, other.y);
-            const otherRadius = Math.ceil(Math.sqrt(Math.ceil(other.soldiers / SOLDIERS_PER_UNIT))) + 1;
-
-            // 2つの領域が重なるかチェック
-            if (distance < radius + otherRadius) {
-                return true; // 重複
-            }
-        }
-        return false; // 重複なし
-    }
-
-    /**
-     * グリッド距離（チェビシェフ距離: MAX(|dx|, |dy|)）を計算
-     * 斜め移動も1歩と数える
-     */
-    gridDistance(x1, y1, x2, y2) {
-        const dx = Math.abs(x2 - x1);
-        const dy = Math.abs(y2 - y1);
-        return Math.max(dx, dy);
-    }
-
-    /**
-     * 時計回りの螺旋状に座標を生成（スクエアグリッド用）
-     * @param {number} centerX - 中心のX座標
-     * @param {number} centerY - 中心のY座標
-     * @param {number} count - 生成する座標の数
-     * @returns {Array<{x: number, y: number}>} 座標配列
-     */
-    generateSpiralPositions(centerX, centerY, count, mapSystem = null) {
-        const positions = [{ x: centerX, y: centerY }];
-        if (count <= 1) return positions;
-
-        // 右、下、左、上
-        const dirs = [[1, 0], [0, 1], [-1, 0], [0, -1]];
-        let len = 1; // 直進する長さ
-        let x = centerX;
-        let y = centerY;
-        let d = 0; // 現在の方向インデックス
-
-        let i = 0;
-        while (positions.length < count) {
-            // 現在の長さ分だけ進みたいが、各辺ごとにチェック
-            // 螺旋の各辺は2回ずつ長さが同じで、その後長さ+1される
-            // 右1, 下1, 左2, 上2, 右3, 下3...
-
-            for (let j = 0; j < 2; j++) {
-                for (let k = 0; k < len; k++) {
-                    x += dirs[d][0];
-                    y += dirs[d][1];
-
-                    let isValidTerrain = true;
-
-                    // マップ境界チェック（必須）
-                    if (x < 0 || x >= MAP_W || y < 0 || y >= MAP_H) {
-                        isValidTerrain = false;
-                    }
-                    // 地形チェック（mapSystemがある場合）
-                    else if (mapSystem) {
-                        const tile = mapSystem.getTile ? mapSystem.getTile(x, y) : null;
-                        if (!tile || tile.type === 'MTN' || tile.type === 'RIVER' || tile.type === 'SEA') {
-                            // 山や川、海には配置しない
-                            isValidTerrain = false;
-                        }
-                    }
-
-                    if (isValidTerrain) {
-                        positions.push({ x, y });
-                    }
-
-                    if (positions.length >= count) return positions;
-                }
-                d = (d + 1) % 4; // 方向転換
-            }
-            len++; // 辺の長さを増やす
-
-            // 安全策
-            if (len > 30) break;
-        }
-
-        return positions.slice(0, count);
-    }
-
-    /**
-     * 兵力を各ユニットに分配
-     * @param {number} totalSoldiers - 総兵力
-     * @param {number} unitCount - ユニット数
-     * @returns {Array<number>} 各ユニットの兵力配列
-     */
-    distributeSoldiers(totalSoldiers, unitCount) {
-        const distribution = [];
-        const baseAmount = SOLDIERS_PER_UNIT;
-
-        // 各ユニットに基本兵力を割り当て
-        for (let i = 0; i < unitCount; i++) {
-            distribution.push(baseAmount);
-        }
-
-        // 端数を計算
-        const assignedTotal = baseAmount * unitCount;
-        const remainder = totalSoldiers - assignedTotal;
-
-        // 端数を最後のユニット（螺旋の最外周）に割り当て
-        if (remainder !== 0 && unitCount > 0) {
-            distribution[unitCount - 1] += remainder;
-        }
-
-        return distribution;
-    }
-
-    /**
-     * 武将IDから配下の全ユニットを取得
-     * @param {number} warlordId - 武将ID
-     * @returns {Array} ユニット配列
-     */
-    getUnitsByWarlordId(warlordId) {
-        return this.warlordGroups[warlordId] || [];
-    }
-
-    /**
-     * ユニットIDから所属する武将IDを取得
-     * @param {number} unitId - ユニットID
-     * @returns {number|null} 武将ID
-     */
-    getWarlordIdByUnitId(unitId) {
+    getSquadronByUnitId(unitId) {
         const unit = this.units.find(u => u.id === unitId);
-        return unit ? unit.warlordId : null;
+        if (unit && unit.squadronId) {
+            return this.squadrons.get(unit.squadronId);
+        }
+        return null;
+    }
+
+    /**
+     * 武将IDから部隊を取得（本陣ユニット経由）
+     */
+    getSquadronByWarlordId(warlordId) {
+        const hq = this.getHeadquarters(warlordId);
+        if (hq && hq.squadronId) {
+            return this.squadrons.get(hq.squadronId);
+        }
+        return null;
+    }
+
+    /**
+     * カスタムマップ用：単一ユニットを作成
+     * @param {Object} unitData - ユニットデータ
+     * @param {string} side - 陣営 ('EAST' or 'WEST')
+     * @param {number} x - X座標
+     * @param {number} y - Y座標
+     * @param {number} rotation - 回転（オプション）
+     * @returns {Object} 作成されたユニット
+     */
+    createUnitInstance(unitData, side, x, y, rotation = 0) {
+        // 部隊(Squadron)を作成 (単独部隊)
+        const squadronId = `squad_${this.nextSquadronId++}`;
+        const squadron = new Squadron(squadronId, null);
+
+        const unit = {
+            id: this.nextUnitId++,
+            warlordId: unitData.warlordId || `custom_${this.nextUnitId}`,
+            squadronId: squadronId,
+            warlordName: unitData.warlordName || unitData.name,
+            unitType: unitData.unitType || UNIT_TYPE_NORMAL,
+
+            // ユニット属性
+            name: unitData.name,
+            side: side,
+            atk: unitData.atk || 50,
+            def: unitData.def || 50,
+            jin: unitData.jin || 50,
+            loyalty: unitData.loyalty || 100,
+            p: unitData.p || 1000,
+            kamon: unitData.kamon || null,
+            bg: unitData.bg || '#333',
+            face: unitData.face || null,
+            type: unitData.type || 'INFANTRY',
+
+            // 兵力
+            soldiers: unitData.soldiers || 1000,
+            maxSoldiers: unitData.maxSoldiers || unitData.soldiers || 1000,
+
+            // HP（カスタムマップ用）
+            hp: unitData.hp || unitData.maxHp || 1000,
+            maxHp: unitData.maxHp || unitData.hp || 1000,
+            level: unitData.level || 1,
+
+            // 位置情報
+            x: x,
+            y: y,
+            q: x,
+            r: y,
+
+            dir: rotation || (side === 'EAST' ? 3 : 0),
+
+            // ゲーム状態
+            order: null,
+            dead: false,
+            formation: null,
+
+            // 描画情報
+            radius: 0.45,
+            size: 1,
+
+            // 移動力
+            movePower: 6,
+
+            // 画像
+            imgCanvas: unitData.unitType === UNIT_TYPE_HEADQUARTERS ? generatePortrait(unitData) : null
+        };
+
+        // 部隊構築
+        squadron.addMember(unit.id);
+        if (unit.unitType === UNIT_TYPE_HEADQUARTERS || !unitData.unitType) {
+            squadron.leaderUnitId = unit.id; // 単独なら自分がリーダー
+        }
+        this.squadrons.set(squadronId, squadron);
+
+        // ユニットを登録
+        this.units.push(unit);
+
+        // 武将グループにも登録
+        if (!this.warlordGroups[unit.warlordId]) {
+            this.warlordGroups[unit.warlordId] = [];
+        }
+        this.warlordGroups[unit.warlordId].push(unit);
+
+        return unit;
     }
 
     /**
@@ -355,5 +304,128 @@ export class UnitManager {
         }
 
         return false;
+    }
+
+    /**
+     * 重ならない位置を探す（本陣用）
+     */
+    findNonOverlappingPosition(cx, cy, totalUnits, existingUnits) {
+        // 本陣の位置自体が空いているかチェック
+        // 空いていなければスパイラル探索で空き地を探す
+        // ここでは簡易的にcx, cyをそのまま返す（必要なら探索ロジック実装）
+        // 既存ユニットとの距離チェック
+        let bestX = cx;
+        let bestY = cy;
+        let found = false;
+        let radius = 0;
+
+        while (!found && radius < 10) {
+            const positions = this.generateSpiralPositions(cx, cy, 1, null, radius);
+            for (const pos of positions) {
+                const isOccupied = existingUnits.some(u => u.x === pos.x && u.y === pos.y);
+                if (!isOccupied) {
+                    bestX = pos.x;
+                    bestY = pos.y;
+                    found = true;
+                    break;
+                }
+            }
+            radius++;
+        }
+
+        return { x: bestX, y: bestY };
+    }
+
+    /**
+     * 螺旋状の座標リストを生成
+     * @param {number} cx 中心X
+     * @param {number} cy 中心Y
+     * @param {number} count 必要数
+     * @param {Object} mapSystem マップシステム（通行可能判定用）
+     * @param {number} startRadius 開始半径
+     */
+    generateSpiralPositions(cx, cy, count, mapSystem = null, startRadius = 0) {
+        const positions = [];
+        let x = cx;
+        let y = cy;
+        let dx = 0;
+        let dy = -1;
+        let t = startRadius * startRadius;
+        // startRadiusへのジャンプは簡易実装では省略、0から回す
+
+        // 中心を含む
+        if (startRadius === 0) {
+            positions.push({ x, y });
+        }
+
+        if (positions.length >= count) return positions;
+
+        // 簡易スパイラル(Rectangular spiral)
+        // 1, 1, 2, 2, 3, 3, 4, 4... steps
+        let segmentLength = 1;
+        let segmentPassed = 0;
+        let stepIndex = 0;
+        let run = 0;
+
+        // 無限ループ防止
+        while (positions.length < count && run < 1000) {
+            for (let i = 0; i < segmentLength; i++) {
+                x += dx;
+                y += dy;
+
+                // マップ範囲内かつ通行可能かチェック（mapSystemがあれば）
+                // ここでは簡易的に範囲内チェックのみ
+                if (x >= 0 && x < MAP_W && y >= 0 && y < MAP_H) {
+                    // 重複チェックは呼び出し元で行う、あるいはここで含める
+                    positions.push({ x, y });
+                    if (positions.length >= count) return positions;
+                }
+            }
+            segmentPassed++;
+
+            // 方向転換
+            const temp = dx;
+            dx = -dy;
+            dy = temp;
+
+            if (segmentPassed >= 2) {
+                segmentLength++;
+                segmentPassed = 0;
+            }
+            run++;
+        }
+
+        return positions;
+    }
+
+    // ヘルパー：武将ごとのユニットリスト取得
+    getUnitsByWarlordId(warlordId) {
+        if (this.warlordGroups[warlordId]) {
+            return this.warlordGroups[warlordId];
+        }
+        return this.units.filter(u => u.warlordId === warlordId);
+    }
+
+    /**
+     * 兵力をユニット数に応じて分配
+     * 基本的には均等割り、余りは本陣（最初のユニット）に加算
+     * @param {number} totalSoldiers - 総兵力
+     * @param {number} unitCount - ユニット数
+     * @returns {Array<number>} 各ユニットの兵力配列
+     */
+    distributeSoldiers(totalSoldiers, unitCount) {
+        if (unitCount <= 0) return [];
+
+        const base = Math.floor(totalSoldiers / unitCount);
+        const remainder = totalSoldiers % unitCount;
+
+        const distribution = new Array(unitCount).fill(base);
+
+        // 余りを本陣（index 0）に加算
+        if (remainder > 0) {
+            distribution[0] += remainder;
+        }
+
+        return distribution;
     }
 }

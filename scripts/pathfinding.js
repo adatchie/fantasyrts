@@ -298,6 +298,25 @@ export function findPath(startX, startY, goalX, goalY, units, movingUnit, mapSys
                 blocked = true;
                 break;
             }
+
+            // 高低差チェック（降りる場合も段差2まで制限）
+            const canFly = movingUnit && (movingUnit.canFly || movingUnit.type === 'FLYING');
+            if (!canFly && mapSystem.getMoveCost && mapSystem.getHeight) {
+                // 前の位置から現在の位置への移動コストを確認
+                const prevX = straightPath[i - 1].x;
+                const prevY = straightPath[i - 1].y;
+                const currX = straightPath[i].x;
+                const currY = straightPath[i].y;
+                const moveCost = mapSystem.getMoveCost(
+                    { x: prevX, y: prevY },
+                    { x: currX, y: currY },
+                    false
+                );
+                if (moveCost === Infinity || moveCost >= 999) {
+                    blocked = true;
+                    break;
+                }
+            }
         }
     }
     if (!blocked) {
@@ -361,9 +380,12 @@ export function findPath(startX, startY, goalX, goalY, units, movingUnit, mapSys
             // 移動コストを計算
             let moveCost = 1;
 
+            // 飛行ユニット判定
+            const canFly = movingUnit && (movingUnit.canFly || movingUnit.type === 'FLYING');
+
             // mapSystem.getMoveCostが利用可能な場合はそれを使用（地形＋標高コスト）
             if (mapSystem && mapSystem.getMoveCost) {
-                moveCost = mapSystem.getMoveCost(current, neighbor);
+                moveCost = mapSystem.getMoveCost(current, neighbor, canFly);
             }
             // 従来の配列/オブジェクト判定によるフォールバック
             else if (mapSystem) {
@@ -400,9 +422,40 @@ export function findPath(startX, startY, goalX, goalY, units, movingUnit, mapSys
 
     // パスが見つからない場合は、ゴールに向かって可能な限り近づく
     for (let i = straightPath.length - 1; i >= 0; i--) {
-        if (!isBlocked(straightPath[i].x, straightPath[i].y, units, movingUnit.id, movingUnit.radius, movingUnit.side)) {
-            return straightPath.slice(0, i + 1);
+        const targetPos = straightPath[i];
+
+        // ユニット干渉チェック
+        if (isBlocked(targetPos.x, targetPos.y, units, movingUnit.id, movingUnit.radius, movingUnit.side)) {
+            continue;
         }
+
+        // 地形・高さコストチェック
+        // mapSystemがある場合のみチェック（互換性のため）
+        if (mapSystem && mapSystem.getMoveCost) {
+            // 現在位置から目標位置までの間に、移動不可な地形がないか簡易チェック
+            // straightPathの一部を採用する場合、そのパス上の全移動が可能か確認すべきだが、
+            // 簡易的に「目標地点に行けるか」だけチェックすると壁を飛び越える可能性がある。
+            // そのため、経路上の各ステップをチェックする。
+
+            let pathValid = true;
+            // 自分の現在位置からスタート
+            let currentCheck = { x: startX, y: startY };
+
+            // iまでのパスを順にチェック
+            for (let j = 1; j <= i; j++) {
+                const nextStep = straightPath[j];
+                const cost = mapSystem.getMoveCost(currentCheck, nextStep);
+                if (cost === Infinity || cost >= 999) {
+                    pathValid = false;
+                    break;
+                }
+                currentCheck = nextStep;
+            }
+
+            if (!pathValid) continue;
+        }
+
+        return straightPath.slice(0, i + 1);
     }
 
     return [{ x: startX, y: startY }];

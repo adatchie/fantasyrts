@@ -4,7 +4,7 @@
  */
 
 import { getDist, getDistRaw } from './pathfinding.js';
-import { FORMATION_HOKO, FORMATION_KAKUYOKU, FORMATION_GYORIN, UNIT_TYPE_HEADQUARTERS } from './constants.js';
+import { FORMATION_HOKO, FORMATION_KAKUYOKU, FORMATION_GYORIN, UNIT_TYPE_HEADQUARTERS, UNIT_TYPES } from './constants.js';
 
 export class AISystem {
     constructor() {
@@ -14,7 +14,10 @@ export class AISystem {
     /**
      * CPUユニットの行動を決定
      */
-    decideAction(unit, allUnits, map) {
+    /**
+     * CPUユニットの行動を決定
+     */
+    decideAction(unit, allUnits, mapSystem) {
         // 吉川広家と毛利秀元の特殊処理
         if (unit.name === '吉川広家') return null;
         if (unit.name === '毛利秀元' && allUnits.find(u => u.name === '吉川広家' && !u.dead)) {
@@ -35,23 +38,26 @@ export class AISystem {
 
         // 調略の可能性を検討（仁が高い場合）
         if (unit.jin >= 75) {
-            const plotTarget = this.considerPlot(unit, enemies, allUnits, map);
+            const plotTarget = this.considerPlot(unit, enemies, allUnits, mapSystem);
             if (plotTarget) {
                 return { type: 'PLOT', targetId: plotTarget.id };
             }
         }
 
         // 戦術的評価で最適な目標を選択
-        const bestTarget = this.selectBestTarget(unit, enemies, allUnits, map);
-        if (!bestTarget) return null;
+        const bestTarget = this.selectBestTarget(unit, enemies, allUnits, mapSystem);
+        if (!bestTarget) {
+            return null;
+        }
 
-        return { type: 'ATTACK', targetId: bestTarget.id };
+        const action = { type: 'ATTACK', targetId: bestTarget.id };
+        return action;
     }
 
     /**
      * 調略を検討
      */
-    considerPlot(unit, enemies, allUnits, map) {
+    considerPlot(unit, enemies, allUnits, mapSystem) {
         // 忠誠度が低い敵を探す
         const plotCandidates = enemies.filter(e =>
             e.loyalty < 80 &&
@@ -93,12 +99,41 @@ export class AISystem {
     /**
      * 戦術的評価で最適な目標を選択
      */
-    selectBestTarget(unit, enemies, allUnits, map) {
+    selectBestTarget(unit, enemies, allUnits, mapSystem) {
         let bestScore = -Infinity;
         let bestTarget = null;
 
+        // ユニットタイプを判定
+        const unitType = unit.type || 'INFANTRY';
+        const typeInfo = UNIT_TYPES[unitType] || UNIT_TYPES.INFANTRY;
+        const rangeType = typeInfo.rangeType || 'melee';
+
+        // 遠距離攻撃ユニットの射程
+        const isRanged = ['bowArc', 'longArc', 'siege'].includes(rangeType);
+        const rangedRange = 8; // 弓の基本射程
+
+        // 射程内にいる敵を探す
+        const enemiesInRange = [];
+        const enemiesOutOfRange = [];
+
         for (const enemy of enemies) {
-            const score = this.evaluateTarget(unit, enemy, allUnits, map);
+            const distance = getDist(unit, enemy);
+            if (isRanged && distance > rangedRange) {
+                enemiesOutOfRange.push({ enemy, distance });
+            } else {
+                enemiesInRange.push({ enemy, distance });
+            }
+        }
+
+        // 射程内に敵がいればその中から選択
+        const candidates = enemiesInRange.length > 0 ? enemiesInRange : enemiesOutOfRange;
+
+        for (const { enemy, distance } of candidates) {
+            let score = this.evaluateTarget(unit, enemy, allUnits, mapSystem);
+            // 射程外の敵には距離ペナルティを追加
+            if (enemiesInRange.length === 0) {
+                score -= distance * 10; // 射程外なら距離で大きく減点
+            }
             if (score > bestScore) {
                 bestScore = score;
                 bestTarget = enemy;
@@ -111,7 +146,7 @@ export class AISystem {
     /**
      * 目標の評価スコアを計算
      */
-    evaluateTarget(unit, enemy, allUnits, map) {
+    evaluateTarget(unit, enemy, allUnits, mapSystem) {
         let score = 0;
 
         // 1. 距離（近いほうが良い）
@@ -123,8 +158,16 @@ export class AISystem {
         score += (10000 - enemyStrength) / 100; // 最大100点
 
         // 3. 地形優位性
-        const unitHeight = map[unit.y]?.[unit.x]?.h || 0;
-        const enemyHeight = map[enemy.y]?.[enemy.x]?.h || 0;
+        let unitHeight = 0;
+        let enemyHeight = 0;
+        if (mapSystem && mapSystem.getHeight) {
+            unitHeight = mapSystem.getHeight(unit.x, unit.y);
+            enemyHeight = mapSystem.getHeight(enemy.x, enemy.y);
+        } else {
+            // フォールバック（MapSystemがない場合）
+            // console.warn("AI: MapSystem not provided or invalid api");
+        }
+
         if (unitHeight > enemyHeight) {
             score += 30; // 高所にいる
         }
@@ -205,11 +248,9 @@ export class AISystem {
             // 総大将は守りを固くする（ユーザー要望）
             // 3倍以上の圧倒的優勢でない限り、基本は魚鱗（防御+20）で進む
             if (ratio >= 3.0) {
-                console.log(`[総大将陣形] ${hqUnit.name}: 圧倒的優勢(${ratio.toFixed(2)}) → 鋒矢`);
                 return FORMATION_HOKO;      // 鋒矢（一気に攻め滅ぼす）
             } else {
                 // 多少優勢でも防御優先
-                console.log(`[総大将陣形] ${hqUnit.name}: 防御重視(${ratio.toFixed(2)}) → 魚鱗`);
                 return FORMATION_GYORIN;    // 魚鱗（鉄壁の守り）
             }
         } else {

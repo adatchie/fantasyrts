@@ -4,6 +4,8 @@
  */
 
 import * as THREE from 'three';
+import { TILE_SIZE, TILE_HEIGHT } from './constants.js';
+import { textureGenerator } from './building-textures.js';
 
 // ブロックタイプ定義
 export const BLOCK_TYPES = {
@@ -17,7 +19,7 @@ export const BLOCK_TYPES = {
     WINDOW: 7,          // 窓
 };
 
-// ブロックの色（テクスチャが用意されるまでの仮）
+// ブロックの色（フォールバック用）
 export const BLOCK_COLORS = {
     [BLOCK_TYPES.STONE_WALL]: 0x888888,
     [BLOCK_TYPES.STONE_FLOOR]: 0x666666,
@@ -96,7 +98,6 @@ function generateSmallHouse() {
  */
 export class BuildingSystem {
     constructor(scene, renderingEngine) {
-        console.log('[BuildingSystem] Constructor called');
         this.scene = scene;
         this.renderingEngine = renderingEngine; // レンダリングエンジンへの参照（座標変換用）
         this.buildingGroup = new THREE.Group();
@@ -164,8 +165,11 @@ export class BuildingSystem {
      */
     initMaterials() {
         for (const [typeId, color] of Object.entries(BLOCK_COLORS)) {
+            const texture = textureGenerator.getTextureForBlockType(parseInt(typeId));
+
             this.materials[typeId] = new THREE.MeshStandardMaterial({
-                color: color,
+                color: texture ? 0xffffff : color,  // テクスチャ使用時は白色ベース
+                map: texture || undefined,
                 roughness: 0.8,
                 metalness: 0.1,
             });
@@ -181,78 +185,251 @@ export class BuildingSystem {
     getBuildingHeight(x, y) {
         for (const building of this.buildings) {
             // gridX, gridY が設定されていない場合はスキップ
-            if (building.gridX === undefined || building.gridY === undefined) continue;
+            if (building.gridX === undefined || building.gridY === undefined) {
+                continue;
+            }
 
-            // テンプレートからサイズを取得（回転は未実装のためrotation=0と仮定）
-            // 将来的に rotation 対応が必要
             const template = building.template || BUILDING_TEMPLATES[building.templateId];
             if (!template) continue;
 
-            // サイズ（グリッド単位換算）
-            // template.size はブロック数。this.blockSize=8。
-            // タイルサイズ=32? renderingのTILE_SIZEによるが...
-            // placeBuildingAtGridでのfootprint計算を参照
-            // const footprintX = Math.ceil(template.size.x * this.blockSize / 32);
-            // 32は定数TILE_SIZEと仮定（constants.js読み込んでる？）
-            // TILE_SIZEがインポートされていないので、building.js内では不明確。
-            // しかし placeBuildingAtGrid のロジックと合わせるべき。
+            const blockSize = template.blockSize || this.blockSize;
+            const origSizeX = building.customData ? building.customData.size.x : template.size.x;
+            const origSizeY = building.customData ? building.customData.size.y : template.size.y;
+            const footprintX = Math.ceil(origSizeX * blockSize / TILE_SIZE);
+            const footprintY = Math.ceil(origSizeY * blockSize / TILE_SIZE);
 
-            const footprintX = Math.ceil(template.size.x * this.blockSize / 32);
-            const footprintY = Math.ceil(template.size.y * this.blockSize / 32);
+            const minX = building.gridX;
+            const maxX = building.gridX + footprintX - 1;
+            const minY = building.gridY;
+            const maxY = building.gridY + footprintY - 1;
 
-            // 建物の配置基準は左下（gridX, gridY）から、X正・Y負方向へ？
-            // placeBuildingAtGridのループ:
-            //   for (let dy = -offsetY; dy < footprintY - offsetY; dy++)
-            //   getGroundHeight(gridX + dx, ...
-            // これは「中心」基準で配置している。 gridXが中心。
+            // 通常のグリッド座標チェック
+            let inFootprint = (x >= minX && x <= maxX && y >= minY && y <= maxY);
 
-            const offsetX = Math.floor(footprintX / 2);
-            const offsetY = Math.floor(footprintY / 2); // Yは?
+            // 建物がマップの大部分を覆う場合（城砦マップ等）、デプロイメントゾーンは
+            // 建物のブロック座標（0-49）として扱われる可能性がある
+            // 例：50x50ブロックの建物が50x50マップ全体にある場合
+            let useDirectBlockCoords = false;
+            if (!inFootprint && x < origSizeX && y < origSizeY) {
+                // グリッド座標が建物のブロックサイズ範囲内にある場合は、
+                // 直接ブロック座標として扱う
+                useDirectBlockCoords = true;
+            }
 
-            // placeBuildingAtGridでは gridX が中心指定。
-            // 範囲： [gridX - offsetX, gridX + footprintX - offsetX - 1]
+            if (inFootprint || useDirectBlockCoords) {
+                // ヒットした - その位置での実際の最高ブロックを探す
 
-            const minX = building.gridX - offsetX;
-            const maxX = building.gridX + footprintX - offsetX - 1; // inclusive
+                // 回転を考慮してブロック座標を計算
+                const rotation = building.rotation || 0;
 
-            const minY = building.gridY - offsetY;
-            const maxY = building.gridY + footprintY - offsetY - 1;
+                // 回転を無視するかどうかの判定
+                // カスタム建物でfootprintが実サイズと一致する場合は回転を無視
+                // （マップエディタで設定された座標をそのまま使用）
+                const ignoreRotation = (footprintX === origSizeX && footprintY === origSizeY);
 
-            if (x >= minX && x <= maxX && y >= minY && y <= maxY) {
-                // ヒットした
-                // 高さはブロック段数 * ブロック高さ * スケール？
-                // レンダリングエンジンのスケールに合わせる必要がある。
-                // unitsのyは worldPos.y。
-                // 建物の天辺は building.position.y + height
-                // height = template.size.z * this.blockSize
+                // グリッド単位からブロック単位への変換係数
+                // footprintX = Math.ceil(origSizeX * blockSize / TILE_SIZE) なので
+                // 1グリッドあたりのブロック数 = origSizeX / footprintX
+                const xScale = origSizeX / footprintX;
+                const yScale = origSizeY / footprintY;
 
-                // ただし、ユニットの足元座標系に合わせる。
-                // ブロック高さ8、ユニット高さは？
-                // 単純にジオメトリ高さを返す。
-                const buildingHeightWorld = template.size.z * this.blockSize;
+                // グリッド単位のローカル座標からブロック配列インデックスを計算
+                let blockX, blockY;
 
-                // 建物のベース高さも考慮
-                // (building.position.y はベース高さ)
-                // return building.position.y + buildingHeightWorld;
+                if (useDirectBlockCoords || ignoreRotation) {
+                    // 回転を適用せずに直接ブロック座標として扱う
+                    // （城砦マップ等で、デプロイメントゾーンがブロック配列の座標と一致する場合）
+                    const localX = x - building.gridX;
+                    const localY = y - building.gridY;
+                    const blockLocalX = Math.floor(localX * xScale);
+                    const blockLocalY = Math.floor(localY * yScale);
+                    blockX = blockLocalX;
+                    blockY = blockLocalY;
+                } else {
+                    // 通常のグリッド座標からブロック座標への変換
+                    const localX = x - building.gridX;
+                    const localY = y - building.gridY;
+                    const blockLocalX = Math.floor(localX * xScale);
+                    const blockLocalY = Math.floor(localY * yScale);
 
-                // しかし呼び出し元は getGroundHeight() + buildingHeight なので、
-                // 地形からの相対高さ（追加分）を返すべきか？
-                // rendering3d.js で mesh.position.y = hexHeight + offset している。
-                // hexHeight は地形高さ。
+                    switch (rotation) {
+                        case 0: blockX = blockLocalX; blockY = blockLocalY; break;
+                        case 1: blockX = blockLocalY; blockY = origSizeX - 1 - blockLocalX; break;
+                        case 2: blockX = origSizeX - 1 - blockLocalX; blockY = origSizeY - 1 - blockLocalY; break;
+                        case 3: blockX = origSizeY - 1 - blockLocalY; blockY = blockLocalX; break;
+                        default: blockX = blockLocalX; blockY = blockLocalY;
+                    }
+                }
 
-                // もし建物が埋まっているなら、その分を引かないといけないが、
-                // 簡略化して「建物の天辺の高さ - 地形高さ」を返したいが、地形高さは場所による。
+                // その位置の最高ブロックのZ値を探す
+                let maxZ = -1;
+                if (template.blocks) {
+                    for (let z = 0; z < template.size.z; z++) {
+                        if (template.blocks[z] &&
+                            template.blocks[z][Math.floor(blockY)] &&
+                            template.blocks[z][Math.floor(blockY)][Math.floor(blockX)] !== undefined &&
+                            template.blocks[z][Math.floor(blockY)][Math.floor(blockX)] !== 0) {
+                            maxZ = z;
+                        }
+                    }
+                }
 
-                // ここでは「建物の厚み」を返すのが無難だが、
-                // ユニットが「建物のベース高さ + 建物高さ」に乗るべき。
-                // return (building.position.y + buildingHeightWorld) - 地形高さ(x,y) ?
-                // 地形高さがわからないので、絶対高さ(Absolute Height)を返すAPIにするか？
-                // あるいは、BuildingSystemとしては「この座標には建物（天辺Y=...）がある」と返す。
+                if (maxZ >= 0) {
+                    // 最高ブロックの上面の高さ = baseY + (maxZ + 1) * blockSize
+                    const buildingHeightWorld = (maxZ + 1) * blockSize;
+                    const result = { isBuilding: true, height: building.position.y + buildingHeightWorld };
+                    return result;
+                }
 
-                return { isBuilding: true, height: building.position.y + buildingHeightWorld };
+                return null;
             }
         }
         return null;
+    }
+
+    /**
+     * ワールド座標を指定して、その正確な位置にある建物の高さを取得
+     * @param {number} worldX ワールドX座標
+     * @param {number} worldZ ワールドZ座標
+     * @returns {{isBuilding: boolean, height: number, buildingId: number}|null}
+     */
+    getBuildingHeightAtWorldPos(worldX, worldZ) {
+        for (const building of this.buildings) {
+            // バウンディングボックスチェック（簡易）
+            // まずは建物の位置を取得
+            const bx = building.position.x;
+            const bz = building.position.z;
+
+            // テンプレート情報を取得
+            const template = building.template || BUILDING_TEMPLATES[building.templateId];
+            if (!template) continue;
+
+            const blockSize = template.blockSize || this.blockSize;
+
+            // 建物のサイズ（ワールド座標系での幅・奥行）
+            // ブロック数 * ブロックサイズ
+            // アイソメトリック変換後の座標系に合わせる必要がある
+            // rendering3d.blockMesh生成時のロジック:
+            // wx = (bx - by) * (blockSize / 2)
+            // wz = (bx + by) * (blockSize / 4)
+            // これは中心基準。
+            // 逆に worldX, worldZ から bx, by (ブロックインデックス) を求めたい。
+
+            // worldX = (bx - by) * HW
+            // worldZ = (bx + by) * HH
+            // worldX / HW = bx - by
+            // worldZ / HH = bx + by
+            // (worldX/HW + worldZ/HH) / 2 = bx
+            // (worldZ/HH - worldX/HW) / 2 = by
+
+            // 建物グループの逆変換を行う
+            // 建物グループの位置 (building.position) を引く
+            const localWx = worldX - building.position.x;
+            const localWz = worldZ - building.position.z;
+
+            const HW = blockSize / 2;
+            const HH = blockSize / 4;
+
+            let bxCalculated = (localWx / HW + localWz / HH) / 2;
+            let byCalculated = (localWz / HH - localWx / HW) / 2;
+
+            // createBuildingMeshでは:
+            // bx = x - size.x / 2 + 0.5
+            // by = y - size.y / 2 + 0.5
+            // なので、x, y (ブロックインデックス 0..size-1) に戻すには:
+            // x = bxCalculated + size.x / 2 - 0.5
+            // y = byCalculated + size.y / 2 - 0.5
+
+            const sizeX = building.customData ? building.customData.size.x : template.size.x;
+            const sizeY = building.customData ? building.customData.size.y : template.size.y;
+
+            const rawBlockX = bxCalculated + sizeX / 2 - 0.5;
+            const rawBlockY = byCalculated + sizeY / 2 - 0.5;
+
+            // 整数座標（ブロックインデックス）
+            const blockX = Math.round(rawBlockX);
+            const blockY = Math.round(rawBlockY);
+
+            // 範囲チェック
+            if (blockX >= 0 && blockX < sizeX && blockY >= 0 && blockY < sizeY) {
+                // ブロックが存在するかチェック
+                // 回転を考慮
+                const rotation = building.rotation || 0;
+                let refBlockX, refBlockY;
+
+                // ブロック配列へのアクセスのための座標変換（回転逆変換ではない、データ構造上の回転対応）
+                // テンプレートデータは回転していない状態の配列
+                // 上記のblockX/Yは「表示上の配置位置」から逆算したもの＝回転後の配置における位置
+                // なので、テンプレート配列を読むには回転を考慮して元の座標に戻す必要がある
+
+                // rotation=0: 表示x = 配列x, 表示y = 配列y
+                // rotation=1: 表示x = 配列y, 表示y = size.x - 1 - 配列x
+                // ... 複雑なので、blockX/Yが「配置された状態でのローカルXY」であることを利用して、
+                // テンプレート側を回転させるか、インデックスを変換するか。
+
+                // createBuildingMeshのロジックを再確認すると:
+                // bx, by はループ変数 x, y (テンプレート配列のインデックス) から計算されている。
+                // つまり、blockMeshの位置決定において x, y が使われている。
+                // したがって、上で逆算した blockX, blockY は、そのままテンプレート配列のインデックス(x, y)に対応するはず。
+                // ただし、blocks自体が rotateBlocks で回転済みであれば直アクセスでOK。
+                // 実装を見る限り、rotateBlocks は使われておらず、createBuildingMesh 内では回転ロジックが見当たらない。
+                // しかし getBuildingHeight では switch文で回転考慮している。
+                // どうやら「メッシュ生成時は回転していない」か「グループ全体を回転させている」か？
+                // createBuildingMesh の最後: group.rotation.y = 0;
+                // ということは、メッシュ生成時にブロック位置を回転させて配置しているか？
+                // いや、createBuildingMeshを見ると、単純に x, y ループで mesh を配置しているだけ。
+                // つまり、建物自体の回転は「template.blocks自体を回転させておいてから渡す」か、
+                // 「group.rotation」を使うかのどちらか。
+                // コードの348行目で building オブジェクト生成時、buildingMesh を add している。
+                // placeBuilding 内で createBuildingMesh を呼んでいる。
+
+                // ここで重要なのは、getBuildingHeight の switch文。
+                // case 0: blockX = localX...
+                // これは「グリッド座標」からの変換。
+
+                // createBuildingMesh では単純に blocks[z][y][x] で配置している。
+                // つまり「描画されているブロック」は blocks 配列の配置そのまま。
+                // なので、逆算した blockX, blockY は blocks 配列の x, y そのもののはず。
+                // ただし、四捨五入の誤差や 0.5 オフセットに注意。
+
+                let maxZ = -1;
+                if (template.blocks) {
+                    for (let z = 0; z < template.size.z; z++) {
+                        if (template.blocks[z] &&
+                            template.blocks[z][blockY] &&
+                            template.blocks[z][blockY][blockX] !== undefined &&
+                            template.blocks[z][blockY][blockX] !== 0) {
+                            maxZ = z;
+                        }
+                    }
+                }
+
+                if (maxZ >= 0) {
+                    // 最高ブロックの上面の高さ = baseY + (maxZ + 1) * blockSize
+                    const buildingHeightWorld = (maxZ + 1) * blockSize;
+                    // 地形の高さ(baseY) + ブロック高さ
+                    return { isBuilding: true, height: building.position.y + buildingHeightWorld, buildingId: building.id };
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 指定座標の建物の高さレベル（地形z相当）を取得
+     * @param {number} x グリッドX
+     * @param {number} y グリッドY
+     * @returns {number} 建物の高さレベル (0 if no building)
+     */
+    getBuildingLevel(x, y) {
+        const heightInfo = this.getBuildingHeight(x, y);
+        if (heightInfo && heightInfo.isBuilding) {
+            // ワールド高さを地形高さ(16)で割ってレベルに換算
+            // 例: block(8)*3 = 24. 24/16 = 1.5 -> ceil(1.5) = 2
+            // getLevel called
+            return Math.ceil(heightInfo.height / TILE_HEIGHT);
+        }
+        return 0;
     }
 
     /**
@@ -275,20 +452,26 @@ export class BuildingSystem {
             return null;
         }
 
-        // グリッド座標からワールド座標を計算
-        const worldPos = this.renderingEngine.gridToWorld3D(gridX, gridY, 0);
+        const blockSize = template.blockSize || this.blockSize;
+        const footprintX = Math.ceil(template.size.x * blockSize / TILE_SIZE); // グリッドタイル数
+        const footprintY = Math.ceil(template.size.y * blockSize / TILE_SIZE);
+
+        // 指定された gridX, gridY を「配置矩形の左上のタイル」とする
+        // 建物の中心座標（論理的な中心）を計算
+        // 1x1なら (gridX, gridY) が中心
+        // 2x2なら (gridX + 0.5, gridY + 0.5) が中心
+        const centerX = gridX + (footprintX - 1) / 2;
+        const centerY = gridY + (footprintY - 1) / 2;
+
+        // グリッド座標からワールド座標を計算（中心位置）
+        const worldPos = this.renderingEngine.gridToWorld3D(centerX, centerY, 0);
 
         // 建物フットプリント内の最低地形高さを計算（ユーザー指示に準拠）
         let minHeight = Infinity;
-        const footprintX = Math.ceil(template.size.x * this.blockSize / 32); // グリッドタイル数（概算）
-        const footprintY = Math.ceil(template.size.y * this.blockSize / 32);
 
-        // フットプリントの中心を合わせるためのオフセット
-        const offsetX = Math.floor(footprintX / 2);
-        const offsetY = Math.floor(footprintY / 2);
-
-        for (let dy = -offsetY; dy < footprintY - offsetY; dy++) {
-            for (let dx = -offsetX; dx < footprintX - offsetX; dx++) {
+        // 高さ判定用のループ範囲（gridX, gridY から footprint 分だけ回す）
+        for (let dy = 0; dy < footprintY; dy++) {
+            for (let dx = 0; dx < footprintX; dx++) {
                 const height = this.renderingEngine.getGroundHeight(gridX + dx, gridY + dy);
                 if (height < minHeight) {
                     minHeight = height;
@@ -301,7 +484,7 @@ export class BuildingSystem {
             minHeight = this.renderingEngine.getGroundHeight(gridX, gridY);
         }
 
-        console.log(`[BuildingSystem] placeBuildingAtGrid: grid(${gridX}, ${gridY}), footprint: ${footprintX}x${footprintY}, minHeight: ${minHeight}`);
+        // placeBuildingAtGrid called
 
         const building = this.placeBuilding(templateId, worldPos.x, worldPos.z, minHeight);
 
@@ -341,7 +524,6 @@ export class BuildingSystem {
         };
         this.buildings.push(building);
 
-        console.log(`Building placed: ${template.name} at worldY=${baseY}`);
         return building;
     }
 
@@ -395,15 +577,26 @@ export class BuildingSystem {
                     const bx = x - size.x / 2 + 0.5;
                     const by = y - size.y / 2 + 0.5;
 
+                    // ブロック固有のサイズ（template.blockSize優先）
+                    const currentBlockSize = template.blockSize || this.blockSize;
+                    const scale = currentBlockSize / this.blockSize;
+
                     // アイソメトリック投影変換（rendering3d.gridToWorld3Dと同様のロジック）
                     // これにより建物もグリッドと同じ「歪んだ」座標系に乗る
-                    const wx = (bx - by) * (this.blockSize / 2);
-                    const wz = (bx + by) * (this.blockSize / 4);
+                    // createBuildingMeshのExtrudeGeometryはthis.blockSize(8)で作られているので、scale倍する
 
-                    // 高さはそのまま（ただしブロックの中心へ）
-                    const wy = z * this.blockSize + this.blockSize / 2;
+                    const wx = (bx - by) * (currentBlockSize / 2);
+                    const wz = (bx + by) * (currentBlockSize / 4);
+
+                    // 高さ計算（エディター仕様に準拠: wy = bz * blockSize）
+                    const blockHeight = currentBlockSize;
+                    const wy = z * blockHeight + blockHeight / 2;
 
                     blockMesh.position.set(wx, wy, wz);
+
+                    // メッシュ自体のスケール調整（8 -> currentBlockSize）
+                    // エディタと同じスケールを使用（高さ方向も同じ）
+                    blockMesh.scale.set(scale, scale, scale);
 
                     // ExtrudeGeometryはXY平面からZ方向への押し出しなので、
                     // これをXZ平面からY方向への立ち上がりに変換する
@@ -411,6 +604,7 @@ export class BuildingSystem {
 
                     blockMesh.castShadow = true;
                     blockMesh.receiveShadow = true;
+                    blockMesh.frustumCulled = false; // カメラ位置による誤カリングを防止
 
                     group.add(blockMesh);
                 }
@@ -453,28 +647,37 @@ export class BuildingSystem {
      * @param {number} rotation - 0,1,2,3 (90度刻み)
      */
     placeCustomBuildingAtGrid(customData, gridX, gridY, rotation = 0) {
-        if (!this.renderingEngine) return null;
-
-        // グリッド座標からワールド座標を計算
-        const worldPos = this.renderingEngine.gridToWorld3D(gridX, gridY, 0);
+        if (!this.renderingEngine) {
+            return null;
+        }
 
         // 回転後のサイズを考慮
         const rotatedSize = rotation % 2 === 0 ? customData.size : { x: customData.size.y, y: customData.size.x, z: customData.size.z };
 
+        // マップエディタは建物の左上角座標を保存する
+        // ゲームでは中心座標として配置するため、建物サイズの半分をオフセットとして加算
+        // 注: マップエディタの1ブロック = 1グリッドセル として計算
+        const centerGridX = gridX + rotatedSize.x / 2;
+        const centerGridY = gridY + rotatedSize.y / 2;
+
+        // グリッド座標からワールド座標を計算
+        const worldPos = this.renderingEngine.gridToWorld3D(centerGridX, centerGridY, 0);
+
         // 地形高さ計算（templateと同じロジック）
         let minHeight = Infinity;
-        const footprintX = Math.ceil(rotatedSize.x * this.blockSize / 32);
-        const footprintY = Math.ceil(rotatedSize.y * this.blockSize / 32);
+        const blockSize = customData.blockSize || this.blockSize;
+        const footprintX = Math.ceil(rotatedSize.x * blockSize / TILE_SIZE);
+        const footprintY = Math.ceil(rotatedSize.y * blockSize / TILE_SIZE);
         const offsetX = Math.floor(footprintX / 2);
         const offsetY = Math.floor(footprintY / 2);
 
         for (let dy = -offsetY; dy < footprintY - offsetY; dy++) {
             for (let dx = -offsetX; dx < footprintX - offsetX; dx++) {
-                const height = this.renderingEngine.getGroundHeight(gridX + dx, gridY + dy);
+                const height = this.renderingEngine.getGroundHeight(Math.round(centerGridX) + dx, Math.round(centerGridY) + dy);
                 if (height < minHeight) minHeight = height;
             }
         }
-        if (minHeight === Infinity) minHeight = this.renderingEngine.getGroundHeight(gridX, gridY);
+        if (minHeight === Infinity) minHeight = this.renderingEngine.getGroundHeight(Math.round(centerGridX), Math.round(centerGridY));
 
         return this.placeCustomBuilding(customData, worldPos.x, worldPos.z, minHeight, gridX, gridY, rotation);
     }
@@ -495,6 +698,10 @@ export class BuildingSystem {
             id: this.buildings.length,
             templateId: 'custom',
             customData: customData,
+            template: rotatedData, // getBuildingHeight用にテンプレートを保存
+            gridX: gridX,          // getBuildingHeight用にグリッド座標を保存
+            gridY: gridY,
+            rotation: rotation,
             position: { x: worldX, y: baseY, z: worldZ },
             mesh: buildingMesh
         };
