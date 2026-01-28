@@ -11,13 +11,13 @@ import { MAP_W, MAP_H, MAX_HEIGHT, TILE_SIZE, TILE_HEIGHT } from './constants.js
 export const TERRAIN_TYPES = {
     PLAIN: { name: '平地', moveCost: 1, passable: true, color: 0x7cba3d },
     GRASS: { name: '草原', moveCost: 1, passable: true, color: 0x8fbc8f },
-    HILL: { name: '丘陵', moveCost: 2, passable: true, color: 0xa0826d },
+    HILL: { name: '丘陵', moveCost: 1.5, passable: true, color: 0xa0826d },
     MTN: { name: '山岳', moveCost: Infinity, passable: false, color: 0x808080 },
     WATER: { name: '水域', moveCost: Infinity, passable: false, color: 0x4169e1 },
-    RIVER: { name: '川', moveCost: 3, passable: true, color: 0x6495ed },
+    RIVER: { name: '川', moveCost: 2, passable: true, color: 0x6495ed },
     ROAD: { name: '道', moveCost: 0.5, passable: true, color: 0xdeb887 },
     BRIDGE: { name: '橋', moveCost: 1, passable: true, color: 0x8b4513 },
-    FOREST: { name: '森', moveCost: 2, passable: true, color: 0x228b22 }
+    FOREST: { name: '森', moveCost: 1.5, passable: true, color: 0x228b22 }
 };
 
 /**
@@ -349,7 +349,7 @@ export class MapSystem {
             // 登り坂はコスト増（高さ差をグリッド単位に換算）
             const heightDiffInGrids = Math.abs(dz) / TILE_HEIGHT;
             if (dz > 0) {
-                cost += heightDiffInGrids * 0.5;
+                cost += heightDiffInGrids * 0.3;
             }
         }
 

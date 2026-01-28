@@ -56,12 +56,12 @@ import { MAP_REGISTRY } from './map-registry.js';
 export const TERRAIN_TYPES = {
     GRASS: { id: 'grass', name: '草原', moveCost: 1, passable: true, color: '#4a7c41' },
     PLAIN: { id: 'plain', name: '平原', moveCost: 1, passable: true, color: '#4a7c41' }, // GRASSと同じだが互換性のため追加
-    FOREST: { id: 'forest', name: '森', moveCost: 2, passable: true, color: '#2d5a27' },
+    FOREST: { id: 'forest', name: '森', moveCost: 1.5, passable: true, color: '#2d5a27' },
     WATER: { id: 'water', name: '水', moveCost: Infinity, passable: false, color: '#3b7cb8' },
-    MOUNTAIN: { id: 'mountain', name: '山', moveCost: 3, passable: true, color: '#7a6b5a' },
+    MOUNTAIN: { id: 'mountain', name: '山', moveCost: 2, passable: true, color: '#7a6b5a' },
     ROAD: { id: 'road', name: '道', moveCost: 0.5, passable: true, color: '#8b7355' },
-    SAND: { id: 'sand', name: '砂地', moveCost: 1.5, passable: true, color: '#c9b896' },
-    SWAMP: { id: 'swamp', name: '沼', moveCost: 3, passable: true, color: '#5a6b4a' },
+    SAND: { id: 'sand', name: '砂地', moveCost: 1.2, passable: true, color: '#c9b896' },
+    SWAMP: { id: 'swamp', name: '沼', moveCost: 2, passable: true, color: '#5a6b4a' },
     CLIFF: { id: 'cliff', name: '崖', moveCost: Infinity, passable: false, color: '#4a4a4a' }
 };
 

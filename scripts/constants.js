@@ -50,7 +50,7 @@ export const UNIT_TYPES = {
         atk: 50,
         def: 50,
         baseHp: 1000,
-        baseMoveRange: 3,
+        baseMoveRange: 6,
         mobility: 4,
         marker: '⚔️',
         description: '攻撃力防御力平均的。近接攻撃のみ。軽装鎧に剣装備。'
@@ -63,7 +63,7 @@ export const UNIT_TYPES = {
         atk: 40,
         def: 80,
         baseHp: 1200,
-        baseMoveRange: 2,
+        baseMoveRange: 4,
         mobility: 3,
         marker: '🛡️',
         description: '防御力が高く壁役。近接攻撃のみ。重装鎧に盾を装備。'
@@ -76,7 +76,7 @@ export const UNIT_TYPES = {
         atk: 40,
         def: 30,
         baseHp: 800,
-        baseMoveRange: 3,
+        baseMoveRange: 6,
         mobility: 5,
         marker: '🏹',
         description: '攻撃力防御力弱いが射程長い。皮装備に弓を装備。'
@@ -89,7 +89,7 @@ export const UNIT_TYPES = {
         atk: 50,
         def: 50,
         baseHp: 1000,
-        baseMoveRange: 3,
+        baseMoveRange: 6,
         mobility: 4,
         marker: '🔱',
         description: '攻撃力防御力平均的。前方2マス攻撃可。軽装鎧に槍装備。'
@@ -102,7 +102,7 @@ export const UNIT_TYPES = {
         atk: 70,
         def: 25,
         baseHp: 700,
-        baseMoveRange: 2,
+        baseMoveRange: 4,
         mobility: 2,
         marker: '🔫',
         description: '攻撃力高いが防御低い。射程長い。皮装備に長銃装備。'
@@ -115,7 +115,7 @@ export const UNIT_TYPES = {
         atk: 80,
         def: 15,
         baseHp: 600,
-        baseMoveRange: 2,
+        baseMoveRange: 4,
         mobility: 2,
         marker: '✨',
         isAoe: true,  // 範囲攻撃フラグ（着弾点+周囲8マスにダメージ）
@@ -129,7 +129,7 @@ export const UNIT_TYPES = {
         atk: 0,
         def: 50,
         baseHp: 800,
-        baseMoveRange: 2,
+        baseMoveRange: 4,
         mobility: 2,
         isHealer: true,
         marker: '✝️',
@@ -145,7 +145,7 @@ export const UNIT_TYPES = {
         atk: 70,
         def: 70,
         baseHp: 1500,
-        baseMoveRange: 5,
+        baseMoveRange: 8,
         mobility: 6,
         canPushBack: true,  // 押し出し能力
         marker: '🐴',
@@ -161,7 +161,7 @@ export const UNIT_TYPES = {
         atk: 90,
         def: 80,
         baseHp: 3000,
-        baseMoveRange: 4,
+        baseMoveRange: 7,
         mobility: 6,
         marker: '🐉',
         description: '強力な飛行ユニット。ブレス攻撃で前方扇状にダメージ。'
@@ -174,7 +174,7 @@ export const UNIT_TYPES = {
         atk: 85,
         def: 75,
         baseHp: 2500,
-        baseMoveRange: 5,
+        baseMoveRange: 8,
         mobility: 6,
         marker: '🦅',
         description: 'ドラゴンに騎乗した騎士。機動力と攻撃力を兼ね備える。'
@@ -187,7 +187,7 @@ export const UNIT_TYPES = {
         atk: 100,
         def: 20,
         baseHp: 1000,
-        baseMoveRange: 1,
+        baseMoveRange: 2,
         mobility: 1,
         marker: '💣',
         description: '圧倒的な攻撃力と超長射程。移動力は極端に低い。'
