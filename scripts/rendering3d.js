@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { HEX_SIZE, TILE_SIZE, TILE_HEIGHT, MAP_W, MAP_H, WARLORDS } from './constants.js';
 import { KamonDrawer } from './kamon.js';
-import { ANIMATIONS, DIRECTIONS, getSpriteInfo, getAllSpritePaths } from './sprite-config.js';
+import { ANIMATIONS, DIRECTIONS, SPRITE_SHEET_PATH, SHEET_LAYOUT, getSpriteIndex } from './sprite-config.js';
 
 import TerrainManager from './terrain-manager.js';
 import { BuildingSystem, BUILDING_TEMPLATES } from './building.js';
@@ -1504,41 +1504,29 @@ export class RenderingEngine3D {
      * 繧ｹ繝励Λ繧､繝医ユ繧ｯ繧ｹ繝√Ε繧偵Ο繝ｼ繝会ｼ亥句挨繝輔ぃ繧､繝ｫ迚・+ 濶ｲ逶ｸ繧ｷ繝輔ヨ・・
      * 譚ｱ霆・繧ｪ繝ｪ繧ｸ繝翫Ν・磯搨邉ｻ・峨∬･ｿ霆・濶ｲ逶ｸ繧ｷ繝輔ヨ・郁ｵ､邉ｻ・・
      */
+    /**
+     * スプライトシートテクスチャをロード（東軍・西軍用）
+     */
     loadSpriteTextures() {
-        const paths = getAllSpritePaths();
+        // 画像をロードしてからテクスチャを作成
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            // オリジナル（東軍用）
+            const eastTexture = this.createTextureFromImage(img);
+            this.spriteTextures.set('EAST_SHEET', eastTexture);
 
-        for (const path of paths) {
-            // 逕ｻ蜒上ｒ繝ｭ繝ｼ繝峨＠縺ｦ縺九ｉ繝・け繧ｹ繝√Ε繧剃ｽ懈・
-            const img = new Image();
-            img.crossOrigin = 'anonymous';
-            img.onload = () => {
-                // 繧ｪ繝ｪ繧ｸ繝翫Ν・域擲霆咲畑・・
-                const eastTexture = this.createTextureFromImage(img);
-                this.spriteTextures.set(`EAST:${path}`, eastTexture);
+            // 色相シフト版（西軍用・青→赤）
+            const westCanvas = this.hueShiftImage(img, 180);
+            const westTexture = this.createTextureFromCanvas(westCanvas);
+            this.spriteTextures.set('WEST_SHEET', westTexture);
 
-                // 濶ｲ逶ｸ繧ｷ繝輔ヨ迚茨ｼ郁･ｿ霆咲畑・・ 髱停・襍､
-                const westCanvas = this.hueShiftImage(img, 180); // 180蠎ｦ繧ｷ繝輔ヨ縺ｧ髱停・襍､
-                const westTexture = this.createTextureFromCanvas(westCanvas);
-                this.spriteTextures.set(`WEST:${path}`, westTexture);
-            };
-            img.src = path;
-            img.onerror = () => {
-                console.warn(`[Rendering] Failed to load sprite: ${path}. Generating fallback texture.`);
-                // フォールバック: カラー矩形
-                const canvas = document.createElement('canvas');
-                canvas.width = 64;
-                canvas.height = 64;
-                const ctx = canvas.getContext('2d');
-                ctx.fillStyle = '#888';
-                ctx.fillRect(0, 0, 64, 64);
-                ctx.strokeStyle = '#F00';
-                ctx.strokeRect(2, 2, 60, 60); // 枠線
-
-                const fallbackTex = this.createTextureFromCanvas(canvas);
-                this.spriteTextures.set(`EAST:${path}`, fallbackTex);
-                this.spriteTextures.set(`WEST:${path}`, fallbackTex); // 同じものをセット
-            };
-        }
+            console.log('[Rendering] Sprite sheets loaded.');
+        };
+        img.src = SPRITE_SHEET_PATH;
+        img.onerror = () => {
+            console.error(`[Rendering] Failed to load sprite sheet: ${SPRITE_SHEET_PATH}`);
+        };
     }
 
     /**
@@ -1660,47 +1648,91 @@ export class RenderingEngine3D {
     /**
      * 繝ｦ繝九ャ繝医Γ繝・す繝･繧剃ｽ懈・縺励※霑斐☆・亥句挨繧ｹ繝励Λ繧､繝医ヵ繧｡繧､繝ｫ迚茨ｼ・
      */
+    /**
+     * ユニットメッシュを作成して返す（スプライトシート版）
+     */
     createUnitMesh(unit) {
-        // 繧ｳ繝ｳ繝・リ繧ｰ繝ｫ繝ｼ繝励ｒ菴懈・
+        // コンテナグループを作成
         const group = new THREE.Group();
         group.userData = { unitId: unit.id };
 
         const size = HEX_SIZE * 0.6;
         const side = unit.side || 'EAST';
 
-        // 1. 繧ｹ繝励Λ繧､繝医ン繝ｫ繝懊・繝会ｼ・laneGeometry繧剃ｽｿ逕ｨ縺励※繝輔Μ繝・・蟇ｾ蠢懶ｼ・
+        // 1. スプライトビルボード
         const planeGeo = new THREE.PlaneGeometry(size * 2, size * 2);
-        const initialSpriteInfo = getSpriteInfo(unit.dir || 0, '00');
-        // 謇螻櫁ｻ阪↓蠢懊§縺溘ユ繧ｯ繧ｹ繝√Ε繧貞叙蠕暦ｼ・AST=髱・ WEST=襍､・・
-        const textureKey = `${side}:${initialSpriteInfo.path}`;
-        const initialTexture = this.spriteTextures.get(textureKey);
+
+        // ベーステクスチャ取得
+        const textureKey = `${side}_SHEET`;
+        let texture = this.spriteTextures.get(textureKey);
+
+        // テクスチャがまだロードされていない場合のフォールバック
+        if (!texture) {
+            // 簡易的なテクスチャを作成
+            const canvas = document.createElement('canvas');
+            canvas.width = 32; canvas.height = 32;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = side === 'EAST' ? 'blue' : 'red';
+            ctx.fillRect(0, 0, 32, 32);
+            texture = new THREE.CanvasTexture(canvas);
+        } else {
+            // テクスチャをクローンして個別のオフセットを設定可能にする
+            texture = texture.clone();
+            texture.needsUpdate = true;
+            // シート設定
+            texture.repeat.set(1 / SHEET_LAYOUT.cols, 1 / SHEET_LAYOUT.rows);
+        }
 
         const planeMat = new THREE.MeshBasicMaterial({
-            map: initialTexture || null,
+            map: texture,
             transparent: true,
             side: THREE.DoubleSide,
-            alphaTest: 0.5,      // 繧｢繝ｫ繝輔ぃ縺・.5莉･荳九・繝斐け繧ｻ繝ｫ縺ｯ謠冗判縺励↑縺・
-            depthWrite: false,   // 豺ｱ蠎ｦ繝舌ャ繝輔ぃ縺ｫ譖ｸ縺崎ｾｼ縺ｾ縺ｪ縺・
-            depthTest: false     // 豺ｱ蠎ｦ繝・せ繝育┌蜉ｹ・亥ｸｸ縺ｫ蝨ｰ蠖｢縺ｮ荳翫↓謠冗判・・
+            alphaTest: 0.5,
+            depthWrite: false,
+            depthTest: false
         });
+
+        // 初期フレーム設定
+        const initialDir = unit.dir || 0;
+        const initialAnim = ANIMATIONS['idle'] || { indices: [0] };
+        const baseIndex = initialAnim.indices[0];
+        const spriteInfo = getSpriteIndex(initialDir, baseIndex);
+
+        // UVオフセット設定
+        if (texture.repeat.x < 1) { // シートテクスチャの場合のみ
+            const col = spriteInfo.index % SHEET_LAYOUT.cols;
+            const row = Math.floor(spriteInfo.index / SHEET_LAYOUT.cols);
+
+            texture.offset.x = col / SHEET_LAYOUT.cols;
+            // UVのYは下から上なので反転させる
+            texture.offset.y = 1 - (row + 1) / SHEET_LAYOUT.rows;
+        }
+
         const plane = new THREE.Mesh(planeGeo, planeMat);
         plane.position.y = size * 1.0;
         plane.name = 'unitSprite';
-        plane.renderOrder = 100; // 蝨ｰ蠖｢繧医ｊ蠕後↓謠冗判・磯ｫ倥＞蛟､=蠕後↓謠冗判・・
+        plane.renderOrder = 100;
+
+        // フリップ（左右反転）
+        if (spriteInfo.flip) {
+            plane.scale.x = -1;
+        }
+
         group.add(plane);
 
-        // 繧｢繝九Γ繝ｼ繧ｷ繝ｧ繝ｳ迥ｶ諷九ｒ蛻晄悄蛹・
+        // アニメーション状態を初期化
         this.unitAnimationStates.set(unit.id, {
             anim: 'idle',
             frame: 0,
             lastUpdate: Date.now(),
-            dir: unit.dir || 0,
+            dir: initialDir,
             side: side,
             material: planeMat,
+            texture: texture, // テクスチャ参照を保存
             mesh: plane
         });
 
-        // 3. 譛ｬ髯｣縺ｮ蝣ｴ蜷医・≡濶ｲ縺ｮ繝ｪ繝ｳ繧ｰ繧定ｿｽ蜉
+        // 3. 本陣の場合、金色のリングを追加
         if (unit.unitType === 'HEADQUARTERS') {
             const ringGeo = new THREE.RingGeometry(size * 0.9, size * 1.0, 32);
             const ringMat = new THREE.MeshBasicMaterial({ color: 0xFFD700, side: THREE.DoubleSide });
@@ -1711,7 +1743,7 @@ export class RenderingEngine3D {
             group.add(ring);
         }
 
-        // 4. 驕ｸ謚槭Μ繝ｳ繧ｰ・亥・譛溽憾諷九・髱櫁｡ｨ遉ｺ・・
+        // 4. 選択リング
         const selRingGeo = new THREE.RingGeometry(size * 1.0, size * 1.1, 32);
         const selRingMat = new THREE.MeshBasicMaterial({
             color: 0xFFFFFF,
@@ -1728,7 +1760,7 @@ export class RenderingEngine3D {
         selRing.visible = false;
         group.add(selRing);
 
-        // 5. HitBox・医け繝ｪ繝・け蛻､螳夂畑・・
+        // 5. HitBox
         const hitBoxGeo = new THREE.BoxGeometry(size * 1.5, size * 2, size * 1.5);
         const hitBoxMat = new THREE.MeshBasicMaterial({
             color: 0xffffff,
@@ -1742,7 +1774,7 @@ export class RenderingEngine3D {
         hitBox.position.y = size;
         group.add(hitBox);
 
-        // 諠・ｱ繧ｪ繝ｼ繝舌・繝ｬ繧､蛻晄悄菴懈・
+        // 情報オーバーレイ初期作成
         this.createUnitInfoOverlay(group, unit);
 
         return group;
@@ -1754,13 +1786,16 @@ export class RenderingEngine3D {
      * @param {Object} unit - 繝ｦ繝九ャ繝医が繝悶ず繧ｧ繧ｯ繝・
      * @param {string} animName - 蛻・ｊ譖ｿ縺医ｋ繧｢繝九Γ繝ｼ繧ｷ繝ｧ繝ｳ蜷搾ｼ育怐逡･譎ゅ・迴ｾ蝨ｨ縺ｮ縺ｾ縺ｾ・・
      */
+    /**
+     * スプライトアニメーションを更新（スプライトシート版）
+     */
     updateSpriteAnimation(unitId, unit = null, animName = null) {
         const state = this.unitAnimationStates.get(unitId);
         if (!state) return;
 
         const now = Date.now();
 
-        // 繧｢繝九Γ繝ｼ繧ｷ繝ｧ繝ｳ蛻・ｊ譖ｿ縺・
+        // アニメーション切り替え
         if (animName && animName !== state.anim && ANIMATIONS[animName]) {
             state.anim = animName;
             state.frame = 0;
@@ -1770,14 +1805,14 @@ export class RenderingEngine3D {
         const anim = ANIMATIONS[state.anim];
         if (!anim) return;
 
-        // 譁ｹ蜷第峩譁ｰ
+        // 方向更新
         if (unit && unit.dir !== undefined) {
             state.dir = unit.dir;
         }
 
-        // 繝輔Ξ繝ｼ繝譖ｴ譁ｰ
+        // フレーム更新
         if (now - state.lastUpdate >= anim.speed) {
-            const frameCount = anim.frameIds.length;
+            const frameCount = anim.indices.length;
             state.frame++;
             if (state.frame >= frameCount) {
                 state.frame = anim.loop ? 0 : frameCount - 1;
@@ -1785,22 +1820,33 @@ export class RenderingEngine3D {
             state.lastUpdate = now;
         }
 
-        // 繝・け繧ｹ繝√Ε繧貞・繧頑崛縺茨ｼ域園螻櫁ｻ阪↓蠢懊§縺溯牡・・
-        const frameId = anim.frameIds[state.frame];
-        const spriteInfo = getSpriteInfo(state.dir, frameId);
-        // 蟇晁ｿ斐ｊ蟇ｾ蠢・ 繝ｦ繝九ャ繝医・迴ｾ蝨ｨ縺ｮside繧剃ｽｿ逕ｨ・医く繝｣繝・す繝･縺輔ｌ縺殱tate.side縺ｧ縺ｯ縺ｪ縺擾ｼ・
+        // インデックス取得
+        const baseIndex = anim.indices[state.frame];
+        const spriteInfo = getSpriteIndex(state.dir, baseIndex);
+
+        // 所属チェック（テクスチャが正しいか）
         const currentSide = unit && unit.side ? unit.side : state.side;
-        const textureKey = `${currentSide}:${spriteInfo.path}`;
-        const texture = this.spriteTextures.get(textureKey);
+        if (currentSide !== state.side) {
+            // サイドが変わった場合、ベーステクスチャを差し替える必要があるが
+            // 基本的にゲーム中にサイドは変わらない前提。
+            // もし変わるならここでtextureを再クローンする処理が必要
+            state.side = currentSide;
+        }
 
-        if (texture && state.material) {
-            state.material.map = texture;
-            state.material.needsUpdate = true;
+        // テクスチャオフセット更新
+        const texture = state.texture;
+        if (texture) {
+            const col = spriteInfo.index % SHEET_LAYOUT.cols;
+            const row = Math.floor(spriteInfo.index / SHEET_LAYOUT.cols);
 
-            // 蜿崎ｻ｢縺悟ｿ・ｦ√↑蝣ｴ蜷医・繧ｹ繧ｱ繝ｼ繝ｫ縺ｧ繝輔Μ繝・・
-            if (state.mesh) {
-                state.mesh.scale.x = spriteInfo.flip ? -1 : 1;
-            }
+            texture.offset.x = col / SHEET_LAYOUT.cols;
+            // UV反転考慮
+            texture.offset.y = 1 - (row + 1) / SHEET_LAYOUT.rows;
+        }
+
+        // フリップ更新
+        if (state.mesh) {
+            state.mesh.scale.x = spriteInfo.flip ? -1 : 1;
         }
     }
 
@@ -3438,178 +3484,178 @@ export class RenderingEngine3D {
     spawnArrowAnimation(fromUnit, toUnit, blockInfo) {
         return new Promise((resolve) => {
             try {
-            // 3D繧ｸ繧ｪ繝｡繝医Μ縺ｧ遏｢繧剃ｽ懈・
-            // 遏｢縺ｯ繝ｭ繝ｼ繧ｫ繝ｫ縺ｧ+X譁ｹ蜷代ｒ縲悟燕縲阪→縺励※讒狗ｯ会ｼ・HREE.js縺ｮlookAt縺ｨ逶ｸ諤ｧ縺瑚憶縺・ｼ・
-            const arrowGroup = new THREE.Group();
+                // 3D繧ｸ繧ｪ繝｡繝医Μ縺ｧ遏｢繧剃ｽ懈・
+                // 遏｢縺ｯ繝ｭ繝ｼ繧ｫ繝ｫ縺ｧ+X譁ｹ蜷代ｒ縲悟燕縲阪→縺励※讒狗ｯ会ｼ・HREE.js縺ｮlookAt縺ｨ逶ｸ諤ｧ縺瑚憶縺・ｼ・
+                const arrowGroup = new THREE.Group();
 
-            // 遏｢縺ｮ霆ｸ・医す繝ｪ繝ｳ繝繝ｼ・・ 2蛟阪し繧､繧ｺ縲々霆ｸ譁ｹ蜷代↓讓ｪ縺溘ｏ繧・
-            const shaftGeometry = new THREE.CylinderGeometry(2, 2, 48, 8);
-            const shaftMaterial = new THREE.MeshBasicMaterial({ color: 0xFF4444 }); // 譏弱ｋ縺・幻濶ｲ
-            const shaft = new THREE.Mesh(shaftGeometry, shaftMaterial);
-            shaft.rotation.z = Math.PI / 2; // X霆ｸ譁ｹ蜷代↓讓ｪ縺溘ｏ繧・
-            arrowGroup.add(shaft);
+                // 遏｢縺ｮ霆ｸ・医す繝ｪ繝ｳ繝繝ｼ・・ 2蛟阪し繧､繧ｺ縲々霆ｸ譁ｹ蜷代↓讓ｪ縺溘ｏ繧・
+                const shaftGeometry = new THREE.CylinderGeometry(2, 2, 48, 8);
+                const shaftMaterial = new THREE.MeshBasicMaterial({ color: 0xFF4444 }); // 譏弱ｋ縺・幻濶ｲ
+                const shaft = new THREE.Mesh(shaftGeometry, shaftMaterial);
+                shaft.rotation.z = Math.PI / 2; // X霆ｸ譁ｹ蜷代↓讓ｪ縺溘ｏ繧・
+                arrowGroup.add(shaft);
 
-            // 遏｢蟆ｻ・医さ繝ｼ繝ｳ・・ 2蛟阪し繧､繧ｺ
-            const headGeometry = new THREE.ConeGeometry(5, 14, 8);
-            const headMaterial = new THREE.MeshBasicMaterial({ color: 0xCCCCCC }); // 繧ｷ繝ｫ繝舌・
-            const head = new THREE.Mesh(headGeometry, headMaterial);
-            head.rotation.z = -Math.PI / 2; // 蜈育ｫｯ縺・X譁ｹ蜷代ｒ蜷代￥
-            head.position.x = 30; // 蜈育ｫｯ縺ｫ驟咲ｽｮ
-            arrowGroup.add(head);
+                // 遏｢蟆ｻ・医さ繝ｼ繝ｳ・・ 2蛟阪し繧､繧ｺ
+                const headGeometry = new THREE.ConeGeometry(5, 14, 8);
+                const headMaterial = new THREE.MeshBasicMaterial({ color: 0xCCCCCC }); // 繧ｷ繝ｫ繝舌・
+                const head = new THREE.Mesh(headGeometry, headMaterial);
+                head.rotation.z = -Math.PI / 2; // 蜈育ｫｯ縺・X譁ｹ蜷代ｒ蜷代￥
+                head.position.x = 30; // 蜈育ｫｯ縺ｫ驟咲ｽｮ
+                arrowGroup.add(head);
 
-            // 鄒ｽ譬ｹ・亥ｰ上＆繧√∫區/轣ｰ濶ｲ・・
-            const fletchGeometry = new THREE.ConeGeometry(3, 8, 4);
-            const fletchMaterial = new THREE.MeshBasicMaterial({ color: 0xEEEEEE }); // 逋ｽ縺｣縺ｽ縺・・濶ｲ
-            const fletch = new THREE.Mesh(fletchGeometry, fletchMaterial);
-            fletch.rotation.z = Math.PI / 2;
-            fletch.position.x = -24;
-            arrowGroup.add(fletch);
+                // 鄒ｽ譬ｹ・亥ｰ上＆繧√∫區/轣ｰ濶ｲ・・
+                const fletchGeometry = new THREE.ConeGeometry(3, 8, 4);
+                const fletchMaterial = new THREE.MeshBasicMaterial({ color: 0xEEEEEE }); // 逋ｽ縺｣縺ｽ縺・・濶ｲ
+                const fletch = new THREE.Mesh(fletchGeometry, fletchMaterial);
+                fletch.rotation.z = Math.PI / 2;
+                fletch.position.x = -24;
+                arrowGroup.add(fletch);
 
 
-            // 髢句ｧ九・邨ゆｺ・ｽ咲ｽｮ繧定ｨ育ｮ・
-            const fromPos = this.gridToWorld3D(fromUnit.x, fromUnit.y);
-            const toPos = this.gridToWorld3D(toUnit.x, toUnit.y);
+                // 髢句ｧ九・邨ゆｺ・ｽ咲ｽｮ繧定ｨ育ｮ・
+                const fromPos = this.gridToWorld3D(fromUnit.x, fromUnit.y);
+                const toPos = this.gridToWorld3D(toUnit.x, toUnit.y);
 
-            // 鬮倥＆諠・ｱ繧定ｨ育ｮ・（mapSystem縺九ｉ縺ッ繧ｭ繝｣繝・繝帙→繝ｼ縺ｾ縺ｾ縺ｨ繝ｻ繝ϯ繝・）
-            let fromTileHeight = 0;
-            let toTileHeight = 0;
-            if (this.hexHeights && this.hexHeights[fromUnit.y]) {
-                fromTileHeight = this.hexHeights[fromUnit.y][fromUnit.x] || 0;
-            }
-            if (this.hexHeights && this.hexHeights[toUnit.y]) {
-                toTileHeight = this.hexHeights[toUnit.y][toUnit.x] || 0;
-            }
-
-            // mapSystem縺吾ゥｭ莠∫髯ｷ蜀・蝣ｴ蜷茨ｼ育匱阪↓・（迺ｾ蜿ｷ縺上・縲∝邨､蜍慕峥縺ｫ豌ｴ鬮・莉･縺・）
-            let fromBuildingHeight = 0;
-            let toBuildingHeight = 0;
-            if (this.externalHeightProvider) {
-                const cacheKey1 = `${fromUnit.x},${fromUnit.y}`;
-                const cacheKey2 = `${toUnit.x},${toUnit.y}`;
-                if (!this.buildingHeightCache) this.buildingHeightCache = new Map();
-                if (!this.buildingHeightCache.has(cacheKey1)) {
-                    this.buildingHeightCache.set(cacheKey1, this.externalHeightProvider(fromUnit.x, fromUnit.y));
+                // 鬮倥＆諠・ｱ繧定ｨ育ｮ・（mapSystem縺九ｉ縺ッ繧ｭ繝｣繝・繝帙→繝ｼ縺ｾ縺ｾ縺ｨ繝ｻ繝ϯ繝・）
+                let fromTileHeight = 0;
+                let toTileHeight = 0;
+                if (this.hexHeights && this.hexHeights[fromUnit.y]) {
+                    fromTileHeight = this.hexHeights[fromUnit.y][fromUnit.x] || 0;
                 }
-                if (!this.buildingHeightCache.has(cacheKey2)) {
-                    this.buildingHeightCache.set(cacheKey2, this.externalHeightProvider(toUnit.x, toUnit.y));
-                }
-                fromBuildingHeight = this.buildingHeightCache.get(cacheKey1) || 0;
-                toBuildingHeight = this.buildingHeightCache.get(cacheKey2) || 0;
-            }
-
-            // 鬮倥↓荳也AE蜷・ｼ∝ｻｰ繝ｼ繧ｸ縺ｧ髢｢遐捐縺ｾ縺ｨ縺セ縺阪↓・ (TILE_HEIGHT = 16)
-            // 鬮倥↓荳也AE蜷・ｼ∝ｻｰ繝ｼ繧ｸ繧定ｨ育ｮ・
-            //逶ｷ蜉・九′繧√∵逶ｷ繝ｳ繝医″蝣ｴ蜷・医⊥縺セ繺阪↓・
-            const fromZ = fromBuildingHeight > 0 ? fromBuildingHeight : fromTileHeight * TILE_HEIGHT;
-            const toZ = toBuildingHeight > 0 ? toBuildingHeight : toTileHeight * TILE_HEIGHT;
-
-            // Height limit check (backup in case combat.js is cached)
-            const TILE_HEIGHT_CHECK = 16;
-            const MAX_HEIGHT_GRIDS = 3;
-            const MAX_HEIGHT_DIFF_CHECK = MAX_HEIGHT_GRIDS * TILE_HEIGHT_CHECK; // 48
-            const heightDiffCheck = toZ - fromZ;
-            if (heightDiffCheck > MAX_HEIGHT_DIFF_CHECK) {
-                resolve();
-                return;
-            }
-
-            // 驕ｮ阡ｽ譎ゅ・驕ｮ阡ｽ繝昴う繝ｳ繝医〒豁｢縺ｾ繧・
-            let endPos = { x: toPos.x, y: toZ + 32, z: toPos.z };
-            if (blockInfo && blockInfo.blocked && blockInfo.blockPos) {
-                const blockWorldPos = this.gridToWorld3D(blockInfo.blockPos.x, blockInfo.blockPos.y);
-                // blockPos.zはworld unitsで返ってくるので、そのまま+32でターゲット位置に合わせる
-                endPos = { x: blockWorldPos.x, y: blockInfo.blockPos.z + 32, z: blockWorldPos.z };
-            }
-
-            // 霍晞屬縺ｫ蝓ｺ縺･縺上い繝九Γ繝ｼ繧ｷ繝ｧ繝ｳ譎る俣・亥ｼｧ繧呈緒縺上・縺ｧ髟ｷ繧√↓・・
-            const dx = endPos.x - fromPos.x;
-            const dz = endPos.z - fromPos.z;
-            const distance = Math.sqrt(dx * dx + dz * dz);
-            // 騾溷ｺｦ蛟咲紫繧帝←逕ｨ (window.game.actionSpeed繧貞盾辣ｧ)
-            const speedMultiplier = (window.game && window.game.actionSpeed) ? window.game.actionSpeed : 1.0;
-            const duration = Math.max(1200, Math.min(2500, distance * 15)) / speedMultiplier;
-
-            // 謾ｾ迚ｩ邱壹・鬮倥＆・磯ｫ倥￥蠑ｧ繧呈緒縺・※關ｽ荳九☆繧九ｈ縺・↓・・
-            // タクティクスオウガ風の軌道計算
-            // 近距離ほど高い弧を描く（障害物をクリア）、遠距離ほど低い弧（障害物に阻まれやすい）
-            let arcHeight;
-            if (blockInfo && blockInfo.arcHeight !== undefined) {
-                // combat.js側で計算された弧の高さを使用
-                arcHeight = blockInfo.arcHeight;
-            } else {
-                // フォールバック: 同じ計算式を適用（グリッド距離を推定）
-                const gridDist = distance / 32; // おおよそのグリッド距離
-                const maxRange = 12;
-                const minArcHeight = 20;
-                const maxArcHeight = 80;
-                const distFactor = 1 - Math.min(gridDist / maxRange, 1);
-                arcHeight = minArcHeight + (maxArcHeight - minArcHeight) * distFactor;
-            }
-
-            // 蛻晄悄菴咲ｽｮ險ｭ螳・（繝ｦ繝九ャ繝育ｚ縺ｮ髢｢邂ｶ縺ｾ縺ｨ縺セ縺阪↑）
-            const startY = fromZ + 48;
-            arrowGroup.position.set(fromPos.x, startY, fromPos.z);
-            this.scene.add(arrowGroup);
-
-            const startTime = Date.now();
-
-
-            const animate = () => {
-                const elapsed = Date.now() - startTime;
-                const linearT = Math.min(1, elapsed / duration);
-
-                // Debug: log first frame
-                if (elapsed < 50) {
+                if (this.hexHeights && this.hexHeights[toUnit.y]) {
+                    toTileHeight = this.hexHeights[toUnit.y][toUnit.x] || 0;
                 }
 
-                const t = linearT;
-
-                // 邱壼ｽ｢陬憺俣縺ｧXZ菴咲ｽｮ繧定ｨ育ｮ・
-                const currentX = fromPos.x + (endPos.x - fromPos.x) * t;
-                const currentZ = fromPos.z + (endPos.z - fromPos.z) * t;
-
-                // 謾ｾ迚ｩ邱壹〒Y蠎ｧ讓吶ｒ險育ｮ・
-                const endY = endPos.y;
-                const baseY = startY + (endY - startY) * t;
-                const arcY = 4 * arcHeight * t * (1 - t);
-                const currentY = baseY + arcY;
-
-                arrowGroup.position.set(currentX, currentY, currentZ);
-
-                // 矢を進行方向に向ける（lookAtをシミュレート）
-                const nextT = Math.min(1, t + 0.01);
-                const nextX = fromPos.x + (endPos.x - fromPos.x) * nextT;
-                const nextZ = fromPos.z + (endPos.z - fromPos.z) * nextT;
-                const nextBaseY = startY + (endY - startY) * nextT;
-                const nextArcY = 4 * arcHeight * nextT * (1 - nextT);
-                const nextY = nextBaseY + nextArcY;
-
-                const dirX = nextX - currentX;
-                const dirY = nextY - currentY;
-                const dirZ = nextZ - currentZ;
-
-                const targetVec = new THREE.Vector3(dirX, dirY, dirZ);
-                if (targetVec.length() > 0.001) {
-                    const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1, 0, 0), targetVec.normalize());
-                    arrowGroup.setRotationFromQuaternion(quaternion);
+                // mapSystem縺吾ゥｭ莠∫髯ｷ蜀・蝣ｴ蜷茨ｼ育匱阪↓・（迺ｾ蜿ｷ縺上・縲∝邨､蜍慕峥縺ｫ豌ｴ鬮・莉･縺・）
+                let fromBuildingHeight = 0;
+                let toBuildingHeight = 0;
+                if (this.externalHeightProvider) {
+                    const cacheKey1 = `${fromUnit.x},${fromUnit.y}`;
+                    const cacheKey2 = `${toUnit.x},${toUnit.y}`;
+                    if (!this.buildingHeightCache) this.buildingHeightCache = new Map();
+                    if (!this.buildingHeightCache.has(cacheKey1)) {
+                        this.buildingHeightCache.set(cacheKey1, this.externalHeightProvider(fromUnit.x, fromUnit.y));
+                    }
+                    if (!this.buildingHeightCache.has(cacheKey2)) {
+                        this.buildingHeightCache.set(cacheKey2, this.externalHeightProvider(toUnit.x, toUnit.y));
+                    }
+                    fromBuildingHeight = this.buildingHeightCache.get(cacheKey1) || 0;
+                    toBuildingHeight = this.buildingHeightCache.get(cacheKey2) || 0;
                 }
 
-                if (t < 1) {
-                    requestAnimationFrame(animate);
-                } else {
-                    // アニメーション終了時の処理
-                    this.scene.remove(arrowGroup);
-                    shaftGeometry.dispose();
-                    shaftMaterial.dispose();
-                    headGeometry.dispose();
-                    headMaterial.dispose();
-                    fletchGeometry.dispose();
-                    fletchMaterial.dispose();
+                // 鬮倥↓荳也AE蜷・ｼ∝ｻｰ繝ｼ繧ｸ縺ｧ髢｢遐捐縺ｾ縺ｨ縺セ縺阪↓・ (TILE_HEIGHT = 16)
+                // 鬮倥↓荳也AE蜷・ｼ∝ｻｰ繝ｼ繧ｸ繧定ｨ育ｮ・
+                //逶ｷ蜉・九′繧√∵逶ｷ繝ｳ繝医″蝣ｴ蜷・医⊥縺セ繺阪↓・
+                const fromZ = fromBuildingHeight > 0 ? fromBuildingHeight : fromTileHeight * TILE_HEIGHT;
+                const toZ = toBuildingHeight > 0 ? toBuildingHeight : toTileHeight * TILE_HEIGHT;
+
+                // Height limit check (backup in case combat.js is cached)
+                const TILE_HEIGHT_CHECK = 16;
+                const MAX_HEIGHT_GRIDS = 3;
+                const MAX_HEIGHT_DIFF_CHECK = MAX_HEIGHT_GRIDS * TILE_HEIGHT_CHECK; // 48
+                const heightDiffCheck = toZ - fromZ;
+                if (heightDiffCheck > MAX_HEIGHT_DIFF_CHECK) {
                     resolve();
+                    return;
                 }
-            };
 
-            animate();
+                // 驕ｮ阡ｽ譎ゅ・驕ｮ阡ｽ繝昴う繝ｳ繝医〒豁｢縺ｾ繧・
+                let endPos = { x: toPos.x, y: toZ + 32, z: toPos.z };
+                if (blockInfo && blockInfo.blocked && blockInfo.blockPos) {
+                    const blockWorldPos = this.gridToWorld3D(blockInfo.blockPos.x, blockInfo.blockPos.y);
+                    // blockPos.zはworld unitsで返ってくるので、そのまま+32でターゲット位置に合わせる
+                    endPos = { x: blockWorldPos.x, y: blockInfo.blockPos.z + 32, z: blockWorldPos.z };
+                }
+
+                // 霍晞屬縺ｫ蝓ｺ縺･縺上い繝九Γ繝ｼ繧ｷ繝ｧ繝ｳ譎る俣・亥ｼｧ繧呈緒縺上・縺ｧ髟ｷ繧√↓・・
+                const dx = endPos.x - fromPos.x;
+                const dz = endPos.z - fromPos.z;
+                const distance = Math.sqrt(dx * dx + dz * dz);
+                // 騾溷ｺｦ蛟咲紫繧帝←逕ｨ (window.game.actionSpeed繧貞盾辣ｧ)
+                const speedMultiplier = (window.game && window.game.actionSpeed) ? window.game.actionSpeed : 1.0;
+                const duration = Math.max(1200, Math.min(2500, distance * 15)) / speedMultiplier;
+
+                // 謾ｾ迚ｩ邱壹・鬮倥＆・磯ｫ倥￥蠑ｧ繧呈緒縺・※關ｽ荳九☆繧九ｈ縺・↓・・
+                // タクティクスオウガ風の軌道計算
+                // 近距離ほど高い弧を描く（障害物をクリア）、遠距離ほど低い弧（障害物に阻まれやすい）
+                let arcHeight;
+                if (blockInfo && blockInfo.arcHeight !== undefined) {
+                    // combat.js側で計算された弧の高さを使用
+                    arcHeight = blockInfo.arcHeight;
+                } else {
+                    // フォールバック: 同じ計算式を適用（グリッド距離を推定）
+                    const gridDist = distance / 32; // おおよそのグリッド距離
+                    const maxRange = 12;
+                    const minArcHeight = 20;
+                    const maxArcHeight = 80;
+                    const distFactor = 1 - Math.min(gridDist / maxRange, 1);
+                    arcHeight = minArcHeight + (maxArcHeight - minArcHeight) * distFactor;
+                }
+
+                // 蛻晄悄菴咲ｽｮ險ｭ螳・（繝ｦ繝九ャ繝育ｚ縺ｮ髢｢邂ｶ縺ｾ縺ｨ縺セ縺阪↑）
+                const startY = fromZ + 48;
+                arrowGroup.position.set(fromPos.x, startY, fromPos.z);
+                this.scene.add(arrowGroup);
+
+                const startTime = Date.now();
+
+
+                const animate = () => {
+                    const elapsed = Date.now() - startTime;
+                    const linearT = Math.min(1, elapsed / duration);
+
+                    // Debug: log first frame
+                    if (elapsed < 50) {
+                    }
+
+                    const t = linearT;
+
+                    // 邱壼ｽ｢陬憺俣縺ｧXZ菴咲ｽｮ繧定ｨ育ｮ・
+                    const currentX = fromPos.x + (endPos.x - fromPos.x) * t;
+                    const currentZ = fromPos.z + (endPos.z - fromPos.z) * t;
+
+                    // 謾ｾ迚ｩ邱壹〒Y蠎ｧ讓吶ｒ險育ｮ・
+                    const endY = endPos.y;
+                    const baseY = startY + (endY - startY) * t;
+                    const arcY = 4 * arcHeight * t * (1 - t);
+                    const currentY = baseY + arcY;
+
+                    arrowGroup.position.set(currentX, currentY, currentZ);
+
+                    // 矢を進行方向に向ける（lookAtをシミュレート）
+                    const nextT = Math.min(1, t + 0.01);
+                    const nextX = fromPos.x + (endPos.x - fromPos.x) * nextT;
+                    const nextZ = fromPos.z + (endPos.z - fromPos.z) * nextT;
+                    const nextBaseY = startY + (endY - startY) * nextT;
+                    const nextArcY = 4 * arcHeight * nextT * (1 - nextT);
+                    const nextY = nextBaseY + nextArcY;
+
+                    const dirX = nextX - currentX;
+                    const dirY = nextY - currentY;
+                    const dirZ = nextZ - currentZ;
+
+                    const targetVec = new THREE.Vector3(dirX, dirY, dirZ);
+                    if (targetVec.length() > 0.001) {
+                        const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1, 0, 0), targetVec.normalize());
+                        arrowGroup.setRotationFromQuaternion(quaternion);
+                    }
+
+                    if (t < 1) {
+                        requestAnimationFrame(animate);
+                    } else {
+                        // アニメーション終了時の処理
+                        this.scene.remove(arrowGroup);
+                        shaftGeometry.dispose();
+                        shaftMaterial.dispose();
+                        headGeometry.dispose();
+                        headMaterial.dispose();
+                        fletchGeometry.dispose();
+                        fletchMaterial.dispose();
+                        resolve();
+                    }
+                };
+
+                animate();
             } catch (error) {
                 console.error('[ARROW ANIM] ERROR:', error);
                 console.error('[ARROW ANIM] ERROR stack:', error.stack);

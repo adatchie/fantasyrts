@@ -3,67 +3,95 @@
  * 個別スプライトファイルによるアニメーション定義
  */
 
-// スプライトファイルのベースパス
-export const SPRITE_BASE_PATH = 'sprites/soldier/';
+// スプライトファイルのベースパス（シート画像）
+export const SPRITE_SHEET_PATH = 'sprites/soldier/soldier.png';
+
+// スプライトシート構成
+export const SHEET_LAYOUT = {
+    cols: 7,
+    rows: 4
+};
 
 /**
  * 方向定義（クォータービュー4方向）
  * ゲーム内の dir (0=右, 1=下, 2=左, 3=上) との対応
- * クォータービューでは：
- *   0 (右) → front_right（右下向き）
- *   1 (下) → front_left（左下向き）← front_rightを反転
- *   2 (左) → back_left（左上向き）
- *   3 (上) → back_right（右上向き）← back_leftを反転
+ * isBack: trueなら +7 オフセット（back_left列を使用）
  */
 export const DIRECTIONS = {
-    0: { prefix: 'front_right', flip: false },  // 右（右下向き）
-    1: { prefix: 'front_right', flip: true },   // 下（左下向き）= front_right反転
-    2: { prefix: 'back_left', flip: false },    // 左（左上向き）
-    3: { prefix: 'back_left', flip: true }      // 上（右上向き）= back_left反転
+    0: { name: 'front_right', isBack: false, flip: false },  // 右（右下向き）
+    1: { name: 'front_right', isBack: false, flip: true },   // 下（左下向き）
+    2: { name: 'back_left', isBack: true, flip: false },    // 左（左上向き）
+    3: { name: 'back_left', isBack: true, flip: true }      // 上（右上向き）
 };
 
 /**
  * アニメーション定義
- * frameIds: 使用するフレーム番号（ファイル名の末尾2桁）
+ * indices: 使用するスプライト番号（front_right基準）
  * speed: アニメーション速度（ミリ秒/フレーム）
  * loop: ループするかどうか
+ * 
+ * note: back_leftの場合は index + 7 される
  */
 export const ANIMATIONS = {
     // 行動済みユニット（静止）
     idle: {
-        frameIds: ['00'],
+        indices: [0], // 00
         speed: 1000,
         loop: false
     },
     // 未行動ユニット（待機中、体を揺らす）
     ready: {
-        frameIds: ['01', '02'],
+        indices: [1, 2], // 01, 02
         speed: 300,
         loop: true
     },
     // 移動中
     walk: {
-        frameIds: ['01', '02'],
+        indices: [1, 2], // 01, 02
         speed: 200,
         loop: true
     },
     // 攻撃中
     attack: {
-        frameIds: ['03', '04'],
+        indices: [17, 18], // 17, 18
         speed: 150,
         loop: true
     },
     // 被ダメージ
     damage: {
-        frameIds: ['05'],
+        indices: [3], // 03
         speed: 300,
         loop: false
     },
     // 倒れ
     death: {
-        frameIds: ['06'],
+        indices: [14], // 14
         speed: 500,
         loop: false
+    },
+    // 防御
+    defence: {
+        indices: [4], // 04
+        speed: 300,
+        loop: false
+    },
+    // 勝利ポーズ
+    victory: {
+        indices: [6, 5], // 06, 05
+        speed: 500,
+        loop: true
+    },
+    // 魔法
+    magic: {
+        indices: [15],
+        speed: 300,
+        loop: true
+    },
+    // 会話
+    talk: {
+        indices: [16],
+        speed: 200,
+        loop: true
     }
 };
 
@@ -76,29 +104,16 @@ export const ARMY_COLORS = {
 };
 
 /**
- * スプライトのファイルパスを取得
+ * スプライト情報取得ヘルパー（廃止予定だが互換性のため残す、または用途変更）
  * @param {number} dir - 方向 (0-3)
- * @param {string} frameId - フレーム番号 ('00'-'06')
- * @returns {{ path: string, flip: boolean }}
+ * @param {number} baseIndex - front_right基準のインデックス
+ * @returns {{ index: number, flip: boolean }}
  */
-export function getSpriteInfo(dir, frameId) {
+export function getSpriteIndex(dir, baseIndex) {
     const dirInfo = DIRECTIONS[dir] || DIRECTIONS[0];
-    const path = `${SPRITE_BASE_PATH}${dirInfo.prefix}_${frameId}.png`;
-    return { path, flip: dirInfo.flip };
-}
-
-/**
- * 全スプライトファイルのパスを取得（プリロード用）
- */
-export function getAllSpritePaths() {
-    const paths = [];
-    const prefixes = ['back_left', 'front_right'];
-    const frameIds = ['00', '01', '02', '03', '04', '05', '06'];
-
-    for (const prefix of prefixes) {
-        for (const frameId of frameIds) {
-            paths.push(`${SPRITE_BASE_PATH}${prefix}_${frameId}.png`);
-        }
-    }
-    return paths;
+    const offset = dirInfo.isBack ? 7 : 0;
+    return {
+        index: baseIndex + offset,
+        flip: dirInfo.flip
+    };
 }
