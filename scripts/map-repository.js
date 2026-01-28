@@ -207,24 +207,35 @@ export class MapDataRepository {
      * MapRegistryから定義済みマップを読み込む
      */
     loadFromRegistry() {
-        // 定義済みマップを読み込む
-        const maps = MAP_REGISTRY;
-        maps.forEach(mapData => {
-            // ディープコピーを作成して参照汚染を防ぐ
-            const mapClone = JSON.parse(JSON.stringify(mapData));
+        try {
+            // 定義済みマップを読み込む
+            const maps = MAP_REGISTRY;
+            let loadedCount = 0;
+            maps.forEach(mapData => {
+                try {
+                    // ディープコピーを作成して参照汚染を防ぐ
+                    const mapClone = JSON.parse(JSON.stringify(mapData));
 
-            // 日付文字列をDateオブジェクトに変換
-            if (typeof mapClone.createdAt === 'string') mapClone.createdAt = new Date(mapClone.createdAt);
-            if (typeof mapClone.updatedAt === 'string') mapClone.updatedAt = new Date(mapClone.updatedAt);
+                    // 日付文字列をDateオブジェクトに変換
+                    if (typeof mapClone.createdAt === 'string') mapClone.createdAt = new Date(mapClone.createdAt);
+                    if (typeof mapClone.updatedAt === 'string') mapClone.updatedAt = new Date(mapClone.updatedAt);
 
-            // メモリ上に既にロードされている（ユーザーが編集中の）場合は上書きしない
-            // ただし、初回ロード時はセットする
-            if (!this.maps.has(mapClone.id)) {
-                this.maps.set(mapClone.id, mapClone);
-            }
-        });
-        console.log(`[MapRepository] Loaded ${this.maps.size} maps from registry.`);
-        return true;
+                    // メモリ上に既にロードされている（ユーザーが編集中の）場合は上書きしない
+                    // ただし、初回ロード時はセットする
+                    if (!this.maps.has(mapClone.id)) {
+                        this.maps.set(mapClone.id, mapClone);
+                        loadedCount++;
+                    }
+                } catch (e) {
+                    console.error(`[MapRepository] Failed to load map ${mapData?.id || 'unknown'}:`, e);
+                }
+            });
+            console.log(`[MapRepository] Loaded ${loadedCount} maps from registry (Total: ${this.maps.size}).`);
+            return true;
+        } catch (e) {
+            console.error('[MapRepository] Failed to load from registry:', e);
+            return false;
+        }
     }
 
     /**
@@ -526,46 +537,59 @@ export class MapDataRepository {
 
             const json = localStorage.getItem('fantasy_rts_maps');
             if (json) {
-                const mapsArray = JSON.parse(json);
-                mapsArray.forEach(data => {
-                    // 日付文字列復元
-                    if (typeof data.createdAt === 'string') data.createdAt = new Date(data.createdAt);
-                    if (typeof data.updatedAt === 'string') data.updatedAt = new Date(data.updatedAt);
+                try {
+                    const mapsArray = JSON.parse(json);
+                    let storageLoadedCount = 0;
+                    mapsArray.forEach(data => {
+                        try {
+                            // 日付文字列復元
+                            if (typeof data.createdAt === 'string') data.createdAt = new Date(data.createdAt);
+                            if (typeof data.updatedAt === 'string') data.updatedAt = new Date(data.updatedAt);
 
-                    // デフォルト値を設定（createメソッドと同様）
-                    if (!data.zones) {
-                        data.zones = {
-                            playerDeployment: { x: 0, y: 0, width: 10, height: 10 },
-                            enemyDeployment: { x: 20, y: 20, width: 10, height: 10 },
-                            objectives: []
-                        };
-                    }
-                    if (!data.playerDeploymentZones) {
-                        data.playerDeploymentZones = [];
-                    }
-                    if (!data.buildings) {
-                        data.buildings = [];
-                    }
-                    if (!data.unitDefinitions) {
-                        data.unitDefinitions = [];
-                    }
-                    if (!data.customBuildingDefinitions) {
-                        data.customBuildingDefinitions = [];
-                    }
-                    if (!data.units) {
-                        data.units = [];
-                    }
+                            // デフォルト値を設定（createメソッドと同様）
+                            if (!data.zones) {
+                                data.zones = {
+                                    playerDeployment: { x: 0, y: 0, width: 10, height: 10 },
+                                    enemyDeployment: { x: 20, y: 20, width: 10, height: 10 },
+                                    objectives: []
+                                };
+                            }
+                            if (!data.playerDeploymentZones) {
+                                data.playerDeploymentZones = [];
+                            }
+                            if (!data.buildings) {
+                                data.buildings = [];
+                            }
+                            if (!data.unitDefinitions) {
+                                data.unitDefinitions = [];
+                            }
+                            if (!data.customBuildingDefinitions) {
+                                data.customBuildingDefinitions = [];
+                            }
+                            if (!data.units) {
+                                data.units = [];
+                            }
 
-                    // 重複時はStorage優先（ユーザー編集データのため）
-                    this.maps.set(data.id, data);
-                });
-                console.log(`[MapRepository] Loaded ${mapsArray.length} maps from storage (Total: ${this.maps.size}).`);
-                return true;
+                            // 重複時はStorage優先（ユーザー編集データのため）
+                            this.maps.set(data.id, data);
+                            storageLoadedCount++;
+                        } catch (e) {
+                            console.error(`[MapRepository] Failed to load storage map ${data?.id || 'unknown'}:`, e);
+                        }
+                    });
+                    console.log(`[MapRepository] Loaded ${storageLoadedCount} maps from storage (Total: ${this.maps.size}).`);
+                } catch (e) {
+                    console.error('[MapRepository] Failed to parse storage JSON:', e);
+                    // JSONパースに失敗しても、Registryからのマップは保持される
+                }
+            } else {
+                console.log('[MapRepository] No maps in localStorage, using registry maps only.');
             }
-            return false;
+            return true;
         } catch (e) {
             console.error('[MapRepository] Load failed:', e);
-            return false;
+            // 何があってもRegistryからのマップは保持される
+            return this.maps.size > 0;
         }
     }
 }

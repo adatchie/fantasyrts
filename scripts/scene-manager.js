@@ -131,9 +131,14 @@ class MapSelectScene {
 
         // カスタムマップリストを確実に最新化
         if (mapRepository) {
-            mapRepository.loadFromStorage();
+            try {
+                mapRepository.loadFromStorage();
+            } catch (e) {
+                console.error('[MapSelectScene] Failed to load maps:', e);
+            }
         }
         const customMaps = mapRepository ? mapRepository.list() : [];
+        console.log(`[MapSelectScene] Available custom maps: ${customMaps.length}`, customMaps.map(m => `${m.name} (${m.id})`));
 
         const mapSelect = document.createElement('div');
         mapSelect.className = 'scene-ui map-select-screen';
