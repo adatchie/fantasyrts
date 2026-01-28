@@ -1656,7 +1656,12 @@ export class RenderingEngine3D {
         const group = new THREE.Group();
         group.userData = { unitId: unit.id };
 
-        const size = HEX_SIZE * 0.6;
+        // ユニットサイズに基づいた表示サイズを計算
+        // size: 1=小, 2=中, 4=大
+        const unitSize = unit.size || 1;
+        const sizeScale = unitSize === 4 ? 1.8 : unitSize === 2 ? 1.3 : 1.0;
+        const size = HEX_SIZE * 0.6 * sizeScale;
+
         const side = unit.side || 'EAST';
 
         // 1. スプライトビルボード
@@ -1983,6 +1988,8 @@ export class RenderingEngine3D {
     }
 
     createBarSprite(unit) {
+        // ユニットサイズに基づいてバーのサイズを調整
+        const unitSize = unit.size || 1;
         const barWidth = 128;
         const barHeight = 16;
         const canvas = document.createElement('canvas');
@@ -1990,12 +1997,18 @@ export class RenderingEngine3D {
         canvas.height = barHeight;
         const ctx = canvas.getContext('2d');
 
-        this.drawBar(ctx, unit.soldiers, unit.maxSoldiers, barWidth, barHeight);
+        // hpプロパティがあればそれを使用、なければsoldiersを使用
+        const currentHp = unit.hp !== undefined ? unit.hp : unit.soldiers;
+        const maxHp = unit.maxHp !== undefined ? unit.maxHp : unit.maxSoldiers;
+
+        this.drawBar(ctx, currentHp, maxHp, barWidth, barHeight);
 
         const texture = new THREE.CanvasTexture(canvas);
         const material = new THREE.SpriteMaterial({ map: texture });
         const sprite = new THREE.Sprite(material);
-        sprite.scale.set(15, 2, 1);
+        // ユニットサイズに合わせてスケール調整
+        const scale = unitSize === 4 ? 22 : unitSize === 2 ? 18 : 15;
+        sprite.scale.set(scale, scale / 7.5, 1);
         return sprite;
     }
 
@@ -2035,25 +2048,28 @@ export class RenderingEngine3D {
     }
 
     updateUnitInfo(mesh, unit) {
-        // 蜈ｵ螢ｫ繧ｲ繝ｼ繧ｸ縺ｮ譖ｴ譁ｰ
+        // HPバーの更新
         const barSprite = mesh.getObjectByName('barSprite');
         if (barSprite) {
-            // 蛟､縺悟､峨ｏ縺｣縺溘→縺阪・縺ｿ譖ｴ譁ｰ
-            if (mesh.userData.lastSoldiers === unit.soldiers && mesh.userData.lastMaxSoldiers === unit.maxSoldiers) {
+            // hpプロパティがあればそれを使用、なければsoldiersを使用
+            const currentHp = unit.hp !== undefined ? unit.hp : unit.soldiers;
+            const maxHp = unit.maxHp !== undefined ? unit.maxHp : unit.maxSoldiers;
+
+            // 値が変わっていない場合は更新しない
+            if (mesh.userData.lastHp === currentHp && mesh.userData.lastMaxHp === maxHp) {
                 return;
             }
 
-            // 繝・け繧ｹ繝√Ε縺ｮ縺ｿ譖ｴ譁ｰ縺励◆縺・′縲，anvasTexture縺ｮ譖ｴ譁ｰ縺ｯ繧ｳ繧ｹ繝医′鬮倥＞縺ｮ縺ｧ
-            // 蜈ｵ謨ｰ縺悟､峨ｏ縺｣縺溘→縺阪・縺ｿ蜀肴緒逕ｻ縺吶ｋ繝ｭ繧ｸ繝・け繧貞・繧後ｋ縺ｹ縺・
+            // テクスチャの更新にはCanvasTextureの更新が必要
             const texture = barSprite.material.map;
             const canvas = texture.image;
             const ctx = canvas.getContext('2d');
-            this.drawBar(ctx, unit.soldiers, unit.maxSoldiers, canvas.width, canvas.height);
+            this.drawBar(ctx, currentHp, maxHp, canvas.width, canvas.height);
             texture.needsUpdate = true;
 
-            // 繧ｭ繝｣繝・す繝･譖ｴ譁ｰ
-            mesh.userData.lastSoldiers = unit.soldiers;
-            mesh.userData.lastMaxSoldiers = unit.maxSoldiers;
+            // キャッシュ更新
+            mesh.userData.lastHp = currentHp;
+            mesh.userData.lastMaxHp = maxHp;
         }
     }
 

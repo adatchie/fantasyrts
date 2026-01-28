@@ -7,7 +7,7 @@ import { hexToPixel } from './pathfinding.js';
 import { generatePortrait } from './rendering.js';
 
 // ユニットタイプ定数
-import { UNIT_TYPE_HEADQUARTERS, UNIT_TYPE_NORMAL } from './constants.js';
+import { UNIT_TYPE_HEADQUARTERS, UNIT_TYPE_NORMAL, UNIT_TYPES, getUnitTypeInfo } from './constants.js';
 
 // 定数インポート
 import { MAP_W, MAP_H } from './constants.js';
@@ -64,6 +64,10 @@ export class UnitManager {
 
         // ユニット生成
         const units = [];
+        // 武将ユニットのデフォルトタイプ（歩兵）
+        const defaultUnitType = 'INFANTRY';
+        const typeInfo = getUnitTypeInfo(defaultUnitType) || UNIT_TYPES.INFANTRY;
+
         for (let i = 0; i < totalUnits; i++) {
             const isHeadquarters = (i === 0); // 最初のユニット（中央）が本陣
             const unit = {
@@ -72,6 +76,9 @@ export class UnitManager {
                 squadronId: squadronId, // 部隊IDを紐付け
                 warlordName: warlord.name,
                 unitType: isHeadquarters ? UNIT_TYPE_HEADQUARTERS : UNIT_TYPE_NORMAL,
+
+                // ユニットタイプ
+                type: isHeadquarters ? null : defaultUnitType, // 本陣はタイプなし
 
                 // 武将の属性を継承
                 name: warlord.name,
@@ -102,12 +109,20 @@ export class UnitManager {
                 dead: false,
                 formation: null,
 
-                // 描画情報
-                radius: 0.45,
-                size: 1,
+                // 描画情報 - ユニットタイプに基づくサイズ
+                size: isHeadquarters ? 1 : typeInfo.size,
+                sizeShape: isHeadquarters ? 'single' : typeInfo.sizeShape || 'single',
+                radius: isHeadquarters ? 0.45 : 0.45 * (typeInfo.size === 4 ? 1.5 : typeInfo.size === 2 ? 1.2 : 1),
 
-                // 移動力
-                movePower: 6,
+                // 移動力 - ユニットタイプに基づく
+                movePower: isHeadquarters ? 6 : typeInfo.baseMoveRange || 3,
+                mobility: isHeadquarters ? 4 : typeInfo.mobility || 4,
+
+                // 攻撃タイプ
+                rangeType: isHeadquarters ? 'melee' : typeInfo.rangeType || 'melee',
+                isAoe: isHeadquarters ? false : typeInfo.isAoe || false,
+                isHealer: isHeadquarters ? false : typeInfo.isHealer || false,
+                canPushBack: isHeadquarters ? false : typeInfo.canPushBack || false,
 
                 // 画像は本陣のみ生成
                 imgCanvas: isHeadquarters ? generatePortrait(warlord) : null
@@ -174,6 +189,10 @@ export class UnitManager {
         const squadronId = `squad_${this.nextSquadronId++}`;
         const squadron = new Squadron(squadronId, null);
 
+        // ユニットタイプから基本パラメータを取得
+        const unitTypeId = unitData.type || 'INFANTRY';
+        const typeInfo = getUnitTypeInfo(unitTypeId) || UNIT_TYPES.INFANTRY;
+
         const unit = {
             id: this.nextUnitId++,
             warlordId: unitData.warlordId || `custom_${this.nextUnitId}`,
@@ -184,23 +203,24 @@ export class UnitManager {
             // ユニット属性
             name: unitData.name,
             side: side,
-            atk: unitData.atk || 50,
-            def: unitData.def || 50,
-            jin: unitData.jin || 50,
-            loyalty: unitData.loyalty || 100,
-            p: unitData.p || 1000,
+            // ユニットタイプの基本ステータスを適用（unitDataの値で上書き可能）
+            atk: unitData.atk ?? typeInfo.atk,
+            def: unitData.def ?? typeInfo.def,
+            jin: unitData.jin ?? 50,
+            loyalty: unitData.loyalty ?? 100,
+            p: unitData.p ?? 1000,
             kamon: unitData.kamon || null,
             bg: unitData.bg || '#333',
             face: unitData.face || null,
-            type: unitData.type || 'INFANTRY',
+            type: unitTypeId, // ユニットタイプID
 
             // 兵力
             soldiers: unitData.soldiers || 1000,
             maxSoldiers: unitData.maxSoldiers || unitData.soldiers || 1000,
 
             // HP（カスタムマップ用）
-            hp: unitData.hp || unitData.maxHp || 1000,
-            maxHp: unitData.maxHp || unitData.hp || 1000,
+            hp: unitData.hp || unitData.maxHp || typeInfo.baseHp,
+            maxHp: unitData.maxHp || unitData.hp || typeInfo.baseHp,
             level: unitData.level || 1,
 
             // 位置情報
@@ -216,12 +236,20 @@ export class UnitManager {
             dead: false,
             formation: null,
 
-            // 描画情報
-            radius: 0.45,
-            size: 1,
+            // 描画情報 - ユニットタイプに基づくサイズ
+            size: typeInfo.size,
+            sizeShape: typeInfo.sizeShape || 'single',
+            radius: 0.45 * (typeInfo.size === 4 ? 1.5 : typeInfo.size === 2 ? 1.2 : 1),
 
-            // 移動力
-            movePower: 6,
+            // 移動力 - ユニットタイプに基づく
+            movePower: typeInfo.baseMoveRange || 3,
+            mobility: typeInfo.mobility || 4,
+
+            // 攻撃タイプ
+            rangeType: typeInfo.rangeType || 'melee',
+            isAoe: typeInfo.isAoe || false,
+            isHealer: typeInfo.isHealer || false,
+            canPushBack: typeInfo.canPushBack || false,
 
             // 画像
             imgCanvas: unitData.unitType === UNIT_TYPE_HEADQUARTERS ? generatePortrait(unitData) : null
