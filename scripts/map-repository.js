@@ -3,7 +3,8 @@
  * フィールド（地形）と建造物配置データを複数保存・管理
  */
 
-import { TUTORIAL_PLAIN_DATA } from './data/maps/tutorial_plain.js';
+import { MAP_REGISTRY } from './map-registry.js';
+// import { TUTORIAL_PLAIN_DATA } from './data/maps/tutorial_plain.js'; // Removed in favor of registry
 
 // ============================================
 // マップデータ構造
@@ -207,7 +208,7 @@ export class MapDataRepository {
      */
     loadFromRegistry() {
         // 定義済みマップを読み込む
-        const maps = [TUTORIAL_PLAIN_DATA];
+        const maps = MAP_REGISTRY;
         maps.forEach(mapData => {
             // ディープコピーを作成して参照汚染を防ぐ
             const mapClone = JSON.parse(JSON.stringify(mapData));
