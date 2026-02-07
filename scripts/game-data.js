@@ -45,31 +45,11 @@ export const STAGES = {
         name: 'チュートリアル',
         description: '初めての戦場 - 基本操作を学ぼう',
         difficulty: 1,
-        mapSize: { width: 30, height: 30 },
-        thumbnail: null, // 将来的に画像パス
-        customMapName: 'チュートリアル平原', // mapRepositoryからロードするマップ名
+        mapName: 'チュートリアル平原',
         enemyForces: [
             { type: 'INFANTRY', count: 5 },
             { type: 'ARCHER', count: 3 }
         ],
-        deploymentZone: { x: 0, y: 20, width: 10, height: 10 },
-        victoryCondition: 'eliminate', // 全滅
-        turns: null // 無制限
-    },
-    plains: {
-        id: 'plains',
-        name: '平原の戦い',
-        description: '広大な平原での会戦',
-        difficulty: 2,
-        mapSize: { width: 50, height: 50 },
-        thumbnail: null,
-        enemyForces: [
-            { type: 'INFANTRY', count: 8 },
-            { type: 'ARCHER', count: 4 },
-            { type: 'CAVALRY', count: 2 },
-            { type: 'KNIGHT', count: 3 }
-        ],
-        deploymentZone: { x: 0, y: 35, width: 15, height: 15 },
         victoryCondition: 'eliminate',
         turns: null
     },
@@ -78,33 +58,15 @@ export const STAGES = {
         name: '山岳決戦',
         description: '高低差を活かした戦い',
         difficulty: 3,
-        mapSize: { width: 40, height: 40 },
-        thumbnail: null,
+        mapName: '山岳決戦',
         enemyForces: [
             { type: 'INFANTRY', count: 6 },
             { type: 'ARCHER', count: 6 },
             { type: 'MAGE', count: 2 },
             { type: 'ARTILLERY', count: 1 }
         ],
-        deploymentZone: { x: 0, y: 25, width: 12, height: 15 },
         victoryCondition: 'eliminate',
         turns: 30
-    },
-    dragon_lair: {
-        id: 'dragon_lair',
-        name: '竜の巣窟',
-        description: 'ドラゴンを討伐せよ',
-        difficulty: 5,
-        mapSize: { width: 35, height: 35 },
-        thumbnail: null,
-        enemyForces: [
-            { type: 'DRAGON', count: 1 },
-            { type: 'DRAGOON', count: 2 },
-            { type: 'MAGE', count: 4 }
-        ],
-        deploymentZone: { x: 0, y: 25, width: 10, height: 10 },
-        victoryCondition: 'boss', // ボス撃破
-        turns: null
     }
 };
 
@@ -149,7 +111,7 @@ export class GameProgress {
         }
 
         // 次のステージをアンロック
-        const stageOrder = ['tutorial', 'plains', 'mountain', 'dragon_lair'];
+        const stageOrder = ['tutorial', 'mountain'];
         const currentIndex = stageOrder.indexOf(stageId);
         if (currentIndex >= 0 && currentIndex < stageOrder.length - 1) {
             const nextStage = stageOrder[currentIndex + 1];

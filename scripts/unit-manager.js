@@ -64,8 +64,9 @@ export class UnitManager {
 
         // ユニット生成
         const units = [];
-        // 武将ユニットのデフォルトタイプ（歩兵）
-        const defaultUnitType = 'INFANTRY';
+        // 武将ユニットのデフォルトタイプ（未指定なら歩兵）
+        const rawType = warlord.type || warlord.unitType || 'INFANTRY';
+        const defaultUnitType = String(rawType).toUpperCase();
         const typeInfo = getUnitTypeInfo(defaultUnitType) || UNIT_TYPES.INFANTRY;
 
         for (let i = 0; i < totalUnits; i++) {
@@ -78,7 +79,7 @@ export class UnitManager {
                 unitType: isHeadquarters ? UNIT_TYPE_HEADQUARTERS : UNIT_TYPE_NORMAL,
 
                 // ユニットタイプ
-                type: isHeadquarters ? null : defaultUnitType, // 本陣はタイプなし
+                type: defaultUnitType, // 本陣もタイプを持つ
 
                 // 武将の属性を継承
                 name: warlord.name,

@@ -8,23 +8,23 @@ import { UNIT_TYPE_HEADQUARTERS, WARLORDS, FORMATION_HOKO, FORMATION_KAKUYOKU, F
 import { TUTORIAL_PLAIN_DATA } from './data/maps/tutorial_plain.js';
 import * as THREE from 'three';
 import { AudioEngine } from './audio.js';
-import { MapSystem } from './map.js?v=5';
-import { RenderingEngine3D } from './rendering3d.js?v=60';
-import { generatePortrait } from './rendering.js?v=2';
-import { CombatSystem } from './combat.js?v=25';
-import { AISystem } from './ai.js';
-import { UnitManager } from './unit-manager.js?v=5';
+import { MapSystem } from './map.js?v=118';
+import { RenderingEngine3D } from './rendering3d.js?v=122';
+import { generatePortrait } from './rendering.js?v=118';
+import { CombatSystem } from './combat.js?v=119';
+import { AISystem } from './ai.js?v=118';
+import { UnitManager } from './unit-manager.js?v=118';
 import { hexToPixel, pixelToHex, isValidHex, getDistRaw, getReachableTiles, estimateTurns } from './pathfinding.js';
-import { FORMATION_INFO, getAvailableFormations } from './formation.js?v=4'; // Removed invalid import
-import { BuildingSystem, BUILDING_TEMPLATES } from './building.js?v=17';
+import { FORMATION_INFO, getAvailableFormations } from './formation.js?v=118'; // Removed invalid import
+import { BuildingSystem, BUILDING_TEMPLATES } from './building.js?v=118';
 import { BuildingEditor } from './editor/building-editor.js';
 import { decompressBlocks } from './map-repository.js';
 import { StageLoader } from './stage-loader.js';
-import { createSceneManager, SCENES } from './scene-manager.js?v=5'; // Added import
+import { createSceneManager, SCENES } from './scene-manager.js?v=118'; // Added import
 import { mapRepository } from './map-repository.js'; // カスタムマップ用
 
 // Main Game Logic
-console.log("Main JS Version: 53 - Debug map list"); // Updated version
+console.log("%c FIXED VERSION LOADED: v118 Arrow Orientation & Height Provider Fix", "background: #00ff00; color: black; font-size: 16px; font-weight: bold; padding: 4px; border: 2px solid green;");
 
 export class Game {
     constructor() {
@@ -135,6 +135,9 @@ export class Game {
                 }
                 return 0;
             });
+
+            // RenderingEngineにも同じ高さプロバイダを設定（矢の高さ計算用）
+            this.renderingEngine.externalHeightProvider = this.mapSystem.externalHeightProvider;
 
             // Stage Loader
             try {
@@ -452,73 +455,73 @@ export class Game {
 
                     // ステージデータに敵軍設定がある場合
                     if (stageConfig && stageConfig.enemyForces) {
-                    console.log(`Generating enemies for stage: ${stageConfig.name}`);
-                    console.log(`Player side: ${this.playerSide}, Enemy side will be: ${this.playerSide === 'EAST' ? 'WEST' : 'EAST'}`);
-                    let enemyUnitIdCounter = 0;
+                        console.log(`Generating enemies for stage: ${stageConfig.name}`);
+                        console.log(`Player side: ${this.playerSide}, Enemy side will be: ${this.playerSide === 'EAST' ? 'WEST' : 'EAST'}`);
+                        let enemyUnitIdCounter = 0;
 
-                    // 配置エリア（なければデフォルト）
-                    const zone = stageConfig.deploymentZone || { x: 0, y: 20, width: 20, height: 20 };
+                        // 配置エリア（なければデフォルト）
+                        const zone = stageConfig.deploymentZone || { x: 0, y: 20, width: 20, height: 20 };
 
-                    stageConfig.enemyForces.forEach(force => {
-                        const typeInfo = Object.values(UNIT_TYPES).find(t => t.name === force.type) || UNIT_TYPES.INFANTRY; // 名前一致またはデフォルト
+                        stageConfig.enemyForces.forEach(force => {
+                            const typeInfo = Object.values(UNIT_TYPES).find(t => t.name === force.type) || UNIT_TYPES.INFANTRY; // 名前一致またはデフォルト
 
-                        for (let i = 0; i < force.count; i++) {
-                            // 配置座標をランダム決定 (簡易)
-                            const ex = zone.x + Math.floor(Math.random() * zone.width);
-                            const ey = zone.y + Math.floor(Math.random() * zone.height);
+                            for (let i = 0; i < force.count; i++) {
+                                // 配置座標をランダム決定 (簡易)
+                                const ex = zone.x + Math.floor(Math.random() * zone.width);
+                                const ey = zone.y + Math.floor(Math.random() * zone.height);
 
-                            // ダミー武将データ作成
-                            const enemyWarlord = {
-                                name: `敵将${enemyUnitIdCounter}`,
-                                side: this.playerSide === 'EAST' ? 'WEST' : 'EAST', // プレイヤーと反対サイド
-                                x: ex,
-                                y: ey,
-                                soldiers: 3000, // 3000 = 3ユニット分
-                                atk: 50,
-                                def: 50,
-                                jin: 50,
-                                loyalty: 0,
-                                type: force.type, // ユニットタイプを指定
-                                face: null // 顔なし
-                            };
+                                // ダミー武将データ作成
+                                const enemyWarlord = {
+                                    name: `敵将${enemyUnitIdCounter}`,
+                                    side: this.playerSide === 'EAST' ? 'WEST' : 'EAST', // プレイヤーと反対サイド
+                                    x: ex,
+                                    y: ey,
+                                    soldiers: 3000, // 3000 = 3ユニット分
+                                    atk: 50,
+                                    def: 50,
+                                    jin: 50,
+                                    loyalty: 0,
+                                    type: force.type, // ユニットタイプを指定
+                                    face: null // 顔なし
+                                };
 
-                            const warlordId = `enemy_stage_${enemyUnitIdCounter}`;
-                            const generatedEnemies = this.unitManager.createUnitsFromWarlord(
-                                enemyWarlord,
-                                warlordId,
-                                [], // allWarlords (重複チェック用だが敵は無視)
-                                this.mapSystem
-                            );
+                                const warlordId = `enemy_stage_${enemyUnitIdCounter}`;
+                                const generatedEnemies = this.unitManager.createUnitsFromWarlord(
+                                    enemyWarlord,
+                                    warlordId,
+                                    [], // allWarlords (重複チェック用だが敵は無視)
+                                    this.mapSystem
+                                );
 
-                            // タイプ情報を付与
-                            generatedEnemies.forEach(u => {
-                                u.unitType = 'NORMAL'; // 本陣ではない
-                                u.type = force.type || 'INFANTRY'; // 兵種を設定（重要！）
-                                console.log('[ENEMY] Created: ' + u.name + ' type=' + u.type + ' force.type=' + force.type);
-                            });
+                                // タイプ情報を付与
+                                generatedEnemies.forEach(u => {
+                                    u.unitType = 'NORMAL'; // 本陣ではない
+                                    u.type = force.type || 'INFANTRY'; // 兵種を設定（重要！）
+                                    console.log('[ENEMY] Created: ' + u.name + ' type=' + u.type + ' force.type=' + force.type);
+                                });
 
-                            this.units.push(...generatedEnemies);
-                            enemyUnitIdCounter++;
-                        }
-                    });
-                }
-                // カスタムマップなどで敵設定がない場合、かつ関ヶ原デモの場合のみフォールバック
-                else if (!stageConfig && !this.customMapData) {
-                    console.log('[WARNING] Using WARLORDS fallback - units will be INFANTRY only!');
-                    // 既存の関ヶ原データ（WARLORDS）を使用
-                    Object.values(WARLORDS).forEach((warlord, index) => {
-                        if (warlord.side !== this.playerSide) {
-                            const warlordId = `enemy_${index}`;
-                            const generatedEnemies = this.unitManager.createUnitsFromWarlord(
-                                warlord,
-                                warlordId,
-                                Object.values(WARLORDS),
-                                this.mapSystem
-                            );
-                            this.units.push(...generatedEnemies);
-                        }
-                    });
-                }
+                                this.units.push(...generatedEnemies);
+                                enemyUnitIdCounter++;
+                            }
+                        });
+                    }
+                    // カスタムマップなどで敵設定がない場合、かつ関ヶ原デモの場合のみフォールバック
+                    else if (!stageConfig && !this.customMapData) {
+                        console.log('[WARNING] Using WARLORDS fallback - units will be INFANTRY only!');
+                        // 既存の関ヶ原データ（WARLORDS）を使用
+                        Object.values(WARLORDS).forEach((warlord, index) => {
+                            if (warlord.side !== this.playerSide) {
+                                const warlordId = `enemy_${index}`;
+                                const generatedEnemies = this.unitManager.createUnitsFromWarlord(
+                                    warlord,
+                                    warlordId,
+                                    Object.values(WARLORDS),
+                                    this.mapSystem
+                                );
+                                this.units.push(...generatedEnemies);
+                            }
+                        });
+                    }
                 } // if (!customMapEnemiesLoaded) の終わり
 
             }

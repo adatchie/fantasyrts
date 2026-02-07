@@ -66,21 +66,21 @@ export class AISystem {
 
         if (plotCandidates.length === 0) return null;
 
+        // [PERF] 兵力計算をループ外に移動
+        const eTotal = allUnits.filter(u => u.side === 'EAST' && !u.dead)
+            .reduce((a, c) => a + c.soldiers, 0);
+        const wTotal = allUnits.filter(u => u.side === 'WEST' && !u.dead)
+            .reduce((a, c) => a + c.soldiers, 0);
+        const myTotal = unit.side === 'EAST' ? eTotal : wTotal;
+        const total = eTotal + wTotal;
+        const tideRatio = myTotal / (total || 1);
+        const tideMod = (tideRatio - 0.5) * 100;
+
         // 最も調略しやすそうな敵を選択
         let bestScore = -Infinity;
         let bestCandidate = null;
 
         for (const enemy of plotCandidates) {
-            // 戦況を考慮
-            const eTotal = allUnits.filter(u => u.side === 'EAST' && !u.dead)
-                .reduce((a, c) => a + c.soldiers, 0);
-            const wTotal = allUnits.filter(u => u.side === 'WEST' && !u.dead)
-                .reduce((a, c) => a + c.soldiers, 0);
-            const myTotal = unit.side === 'EAST' ? eTotal : wTotal;
-            const total = eTotal + wTotal;
-            const tideRatio = myTotal / (total || 1);
-            const tideMod = (tideRatio - 0.5) * 100;
-
             const successChance = 30 + (unit.jin - enemy.loyalty) + tideMod;
 
             // 成功率が30%以上なら検討
@@ -292,3 +292,4 @@ export class AISystem {
         return { friendly, enemy };
     }
 }
+

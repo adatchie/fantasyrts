@@ -490,7 +490,9 @@
         </div>
 
         <!-- Action Button - 直接配置して確実にクリック可能に -->
-        <button id="action-btn" onclick="commitTurn()" style="display:none; pointer-events:auto !important; position:fixed; bottom:30px; right:30px; font-size:22px; padding:15px 50px; background:#8b0000; color:white; border:1px solid #ff4500; cursor:pointer; font-family:serif; box-shadow:0 5px 15px rgba(0,0,0,0.5); z-index:9999;">全軍 行動開始</button>
+        <button id="action-btn" onclick="commitTurn()"
+            style="display:none; pointer-events:auto !important; position:fixed; bottom:30px; right:30px; font-size:22px; padding:15px 50px; background:#8b0000; color:white; border:1px solid #ff4500; cursor:pointer; font-family:serif; box-shadow:0 5px 15px rgba(0,0,0,0.5); z-index:9999;">全軍
+            行動開始</button>
 
         <!-- start-screen は sekigahara.html でのみ使用 -->
 
@@ -516,7 +518,7 @@
     </script>
 
     <script type="module">
-        import { Game } from './scripts/main.js?v=52';
+import { Game } from './scripts/main.js?v=119';
 
         try {
             // グローバルスコープにGameインスタンスを作成

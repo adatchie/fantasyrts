@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { HEX_SIZE, TILE_SIZE, TILE_HEIGHT, MAP_W, MAP_H, WARLORDS } from './constants.js';
 import { KamonDrawer } from './kamon.js';
-import { ANIMATIONS, DIRECTIONS, SPRITE_SHEET_PATH, SHEET_LAYOUT, getSpriteIndex } from './sprite-config.js';
+import { ANIMATIONS, DIRECTIONS, SPRITE_SHEET_PATH, SHEET_LAYOUT, getSpriteIndex, SPRITE_PATHS, UNIT_TYPE_TO_SPRITE } from './sprite-config.js';
 
 import TerrainManager from './terrain-manager.js';
 import { BuildingSystem, BUILDING_TEMPLATES } from './building.js';
@@ -1287,31 +1287,28 @@ export class RenderingEngine3D {
                 this.scene.add(mesh);
             }
 
-            // 繧｢繝九Γ繝ｼ繧ｷ繝ｧ繝ｳ蜃ｦ逅・ｼ医く繝｣繝・す繝･縺輔ｌ縺欸ector3繧貞・蛻ｩ逕ｨ・・
+            // アニメーション処理（キャッシュされたVector3を再利用）
             this._tempAnimOffset.set(0, 0, 0);
             if (mesh.userData.attackAnim && mesh.userData.attackAnim.active) {
                 const anim = mesh.userData.attackAnim;
-                // 騾溷ｺｦ蛟咲紫繧帝←逕ｨ
+                // 速度倍率を適用
                 const speedMultiplier = (window.game && window.game.actionSpeed) ? window.game.actionSpeed : 1.0;
                 anim.progress += speedMultiplier;
 
                 const t = anim.progress / anim.duration;
-                let scale = 0;
 
+                // フェーズ更新 (スプライト切り替え用)
+                // フェーズ1 (0-20%): 構え（attack1）
+                // フェーズ2 (20-100%): 攻撃（attack2）
                 if (t < 0.2) {
-                    scale = t / 0.2;
-                } else if (t < 0.4) {
-                    scale = 1.0;
+                    anim.phase = 'windup';
+                } else if (t < 1.0) {
+                    anim.phase = 'attack';
                 } else {
-                    scale = 1.0 - (t - 0.4) / 0.6;
-                }
-
-                if (t >= 1.0) {
                     anim.active = false;
-                    scale = 0;
                 }
 
-                this._tempAnimOffset.copy(anim.offsetVec).multiplyScalar(scale);
+                // 座標移動は廃止（スプライト切り替えのみで表現）
             }
 
             // 菴咲ｽｮ譖ｴ譁ｰ
@@ -1470,11 +1467,35 @@ export class RenderingEngine3D {
                 // 豁ｻ莠｡繧｢繝九Γ繝ｼ繧ｷ繝ｧ繝ｳ・・6繝代ち繝ｼ繝ｳ・・
                 animType = 'death';
             } else if (unit.isDamaged) {
-                // 陲ｫ繝繝｡繝ｼ繧ｸ繧｢繝九Γ繝ｼ繧ｷ繝ｧ繝ｳ・・5繝代ち繝ｼ繝ｳ・・
+                // 被ダメージアニメーション（5パターン）
                 animType = 'damage';
             } else if (unit.isAttacking) {
-                // 謾ｻ謦・い繝九Γ繝ｼ繧ｷ繝ｧ繝ｳ荳ｭ
+                // 攻撃アニメーション中
                 animType = 'attack';
+                // console.log(`[Update] Unit ${unit.id} IS ATTACKING`); // Extremely verbose, enable only if needed
+
+                if (mesh.userData.attackAnim && mesh.userData.attackAnim.active) {
+                    if (mesh.userData.attackAnim.phase === 'windup') {
+                        animType = 'attack1';
+                    } else {
+                        animType = 'attack2';
+                    }
+
+                    // ユニットタイプ固有のアニメーション定義があればそちらを優先
+                    const specificAnim = `${animType}_${unit.type}`;
+                    if (ANIMATIONS[specificAnim]) {
+                        animType = specificAnim;
+                    }
+                } else {
+                    // Mesh data missing but flag is true
+                    // Force simple attack
+                    animType = 'attack';
+                    // Try specific default fallback
+                    const specificAnim = `attack_${unit.type}`;
+                    if (ANIMATIONS[specificAnim]) {
+                        animType = specificAnim;
+                    }
+                }
             } else if (unit.hasActed) {
                 // 陦悟虚貂医∩・磯撕豁｢・・ 謾ｻ謦・ｄ遘ｻ蜍輔′螳御ｺ・＠縺溷ｾ・
                 animType = 'idle';
@@ -1508,25 +1529,33 @@ export class RenderingEngine3D {
      * スプライトシートテクスチャをロード（東軍・西軍用）
      */
     loadSpriteTextures() {
-        // 画像をロードしてからテクスチャを作成
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => {
-            // オリジナル（東軍用）
-            const eastTexture = this.createTextureFromImage(img);
-            this.spriteTextures.set('EAST_SHEET', eastTexture);
+        // SPRITE_PATHSから全ユニットタイプのスプライトを読み込む
+        Object.entries(SPRITE_PATHS).forEach(([key, path]) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+                // オリジナル（東軍用）
+                const eastTexture = this.createTextureFromImage(img);
+                this.spriteTextures.set(`${key}_EAST_SHEET`, eastTexture);
 
-            // 色相シフト版（西軍用・青→赤）
-            const westCanvas = this.hueShiftImage(img, 180);
-            const westTexture = this.createTextureFromCanvas(westCanvas);
-            this.spriteTextures.set('WEST_SHEET', westTexture);
+                // 色相シフト版（西軍用・青→赤）
+                const westCanvas = this.hueShiftImage(img, 180);
+                const westTexture = this.createTextureFromCanvas(westCanvas);
+                this.spriteTextures.set(`${key}_WEST_SHEET`, westTexture);
 
-            console.log('[Rendering] Sprite sheets loaded.');
-        };
-        img.src = SPRITE_SHEET_PATH;
-        img.onerror = () => {
-            console.error(`[Rendering] Failed to load sprite sheet: ${SPRITE_SHEET_PATH}`);
-        };
+                // 後方互換性（DEFAULTの場合は旧キーも設定）
+                if (key === 'DEFAULT') {
+                    this.spriteTextures.set('EAST_SHEET', eastTexture);
+                    this.spriteTextures.set('WEST_SHEET', westTexture);
+                }
+
+                console.log(`[Rendering] Sprite sheet loaded: ${key} (${path})`);
+            };
+            img.src = path;
+            img.onerror = () => {
+                console.error(`[Rendering] Failed to load sprite sheet: ${path}`);
+            };
+        });
     }
 
     /**
@@ -1667,9 +1696,21 @@ export class RenderingEngine3D {
         // 1. スプライトビルボード
         const planeGeo = new THREE.PlaneGeometry(size * 2, size * 2);
 
-        // ベーステクスチャ取得
-        const textureKey = `${side}_SHEET`;
+        // ユニットタイプに基づくスプライトキー解決
+        let spriteKey = 'DEFAULT';
+        const typeUpper = unit.type ? unit.type.toUpperCase() : 'DEFAULT';
+        if (UNIT_TYPE_TO_SPRITE[typeUpper]) {
+            spriteKey = UNIT_TYPE_TO_SPRITE[typeUpper];
+        }
+
+        // テクスチャ取得（ユニットタイプ別）
+        const textureKey = `${spriteKey}_${side}_SHEET`;
         let texture = this.spriteTextures.get(textureKey);
+
+        // フォールバック: ユニットタイプ別テクスチャがなければDEFAULTを使用
+        if (!texture && spriteKey !== 'DEFAULT') {
+            texture = this.spriteTextures.get(`DEFAULT_${side}_SHEET`);
+        }
 
         // テクスチャがまだロードされていない場合のフォールバック
         if (!texture) {
@@ -1802,6 +1843,10 @@ export class RenderingEngine3D {
 
         // アニメーション切り替え
         if (animName && animName !== state.anim && ANIMATIONS[animName]) {
+            // DEBUG: Sprite Anim Change
+            if (animName.startsWith('attack')) {
+                console.log(`[SpriteDebug] Unit:${unitId} Anim Change: ${state.anim} -> ${animName}`);
+            }
             state.anim = animName;
             state.frame = 0;
             state.lastUpdate = now;
@@ -1856,23 +1901,58 @@ export class RenderingEngine3D {
     }
 
     /**
-     * 繝ｦ繝九ャ繝医・謾ｻ謦・い繝九Γ繝ｼ繧ｷ繝ｧ繝ｳ繧偵ヨ繝ｪ繧ｬ繝ｼ
-     * @param {string} attackerId - 謾ｻ謦・・・繝ｦ繝九ャ繝・D
-     * @param {string} targetId - 謾ｻ謦・ｯｾ雎｡縺ｮ繝ｦ繝九ャ繝・D
+     * ユニットの攻撃アニメーションをトリガー
+     * @param {string} attackerId - 攻撃者のユニットID
+     * @param {string} targetId - 攻撃対象のユニットID
      */
     triggerUnitAttackAnimation(attackerId, targetId) {
-        // 謾ｻ謦・・↓isAttacking繝輔Λ繧ｰ繧堤ｫ九※繧具ｼ井ｸ螳壽凾髢灘ｾ後↓隗｣髯､・・
-        if (window.game && window.game.unitManager) {
-            const units = window.game.unitManager.getUnits();
-            const attacker = units.find(u => u.id === attackerId);
-            if (attacker) {
-                attacker.isAttacking = true;
-                // 謾ｻ謦・い繝九Γ繝ｼ繧ｷ繝ｧ繝ｳ邨ゆｺ・ｾ後↓繝輔Λ繧ｰ繧定ｧ｣髯､
-                setTimeout(() => {
-                    attacker.isAttacking = false;
-                }, 900); // 謾ｻ謦・い繝九Γ繝ｼ繧ｷ繝ｧ繝ｳ縺ｮ謖∫ｶ壽凾髢・
-            }
+        if (!window.game || !window.gameState || !window.gameState.units) {
+            console.warn('[triggerUnitAttackAnimation] GameState missing');
+            return;
         }
+
+        // updateUnitsでレンダリングされている参照を取得する (UnitManagerのコピーではなく)
+        const units = window.gameState.units;
+        const attacker = units.find(u => u.id === attackerId);
+        const target = units.find(u => u.id === targetId);
+
+        if (!attacker) {
+            console.warn(`[triggerUnitAttackAnimation] Attacker not found: ${attackerId}`);
+            return;
+        }
+
+        // 攻撃フラグを立てる
+        attacker.isAttacking = true;
+        console.log(`[Animation] Attack Triggered for Unit ${attackerId} -> ${targetId}`);
+
+        // 攻撃方向ベクトルを計算
+        const attackerMesh = this.unitMeshes.get(attackerId);
+        if (attackerMesh && target) {
+            // ワールド座標での方向を計算
+            const startPos = this.gridToWorld3D(attacker.x, attacker.y);
+            // target may be far, but we need direction
+            const endPos = this.gridToWorld3D(target.x, target.y);
+            const worldDir = new THREE.Vector3().subVectors(endPos, startPos).normalize();
+
+            // 攻撃アニメーション設定（3フェーズ）
+            // フレーム0-1: 構え（後方に下がる）
+            // フレーム2-3: 攻撃実行（前方に踏み込む）
+            // フレーム4-5: 元の位置に戻る
+            attackerMesh.userData.attackAnim = {
+                active: true,
+                progress: 0,
+                duration: 50, // 約850ms（60fpsで50フレーム）
+                phase: 'windup'
+            };
+        } else if (!attackerMesh) {
+            console.warn(`[Animation] Attacker Mesh not found for ${attackerId}`);
+        }
+
+        // 攻撃アニメーション完了後にフラグを解除
+        setTimeout(() => {
+            attacker.isAttacking = false;
+            // console.log(`[Animation] Attack Ended for Unit ${attackerId}`); // Verbose
+        }, 900);
     }
 
     /**
@@ -2777,41 +2857,6 @@ export class RenderingEngine3D {
         }
     }
 
-    triggerUnitAttackAnimation(unitId, targetId) {
-        const mesh = this.unitMeshes.get(unitId);
-        // targetId縺九ｉ繝ｦ繝九ャ繝医ｒ謗｢縺呻ｼ・esh縺後∪縺縺ｪ縺・庄閭ｽ諤ｧ繧ゅ≠繧九◆繧“ameState縺九ｉ・・
-        const targetUnit = window.gameState.units.find(u => u.id === targetId);
-
-        if (mesh && targetUnit) {
-            // 迴ｾ蝨ｨ縺ｮ繝ｦ繝九ャ繝井ｽ咲ｽｮ・・EX荳ｭ蠢・ｼ・
-            const unit = window.gameState.units.find(u => u.id === unitId);
-            if (!unit) return;
-
-            const startPos = this.hexToWorld3D(unit.x, unit.y);
-            const targetPos = this.hexToWorld3D(targetUnit.x, targetUnit.y);
-
-            // 繧ｿ繝ｼ繧ｲ繝・ヨ譁ｹ蜷代∈縺ｮ繝吶け繝医Ν
-            const dir = new THREE.Vector3().subVectors(targetPos, startPos);
-            // Y謌仙・・磯ｫ倥＆・峨・蟾ｮ縺ｯ辟｡隕悶＠縺ｦ豌ｴ蟷ｳ遘ｻ蜍輔□縺代↓縺吶ｋ
-            dir.y = 0;
-
-            const dist = dir.length();
-            if (dist > 0) dir.normalize();
-
-            // 霍晞屬縺ｮ蜊雁・縺｡繧・＞謇句燕縺ｾ縺ｧ (縺ゅ∪繧願ｿ代▼縺阪☆縺弱ｋ縺ｨ繧√ｊ霎ｼ繧縺ｮ縺ｧ隱ｿ謨ｴ)
-            // HEX_SIZE(40) * 1.5 遞句ｺｦ縺後Θ繝九ャ繝医し繧､繧ｺ縺ｪ縺ｮ縺ｧ縲？EX髢楢ｷ晞屬(邏・0)縺ｮ蜊雁・=35縺上ｉ縺・
-            // dist * 0.4 縺上ｉ縺・′驕ｩ蠖薙°
-            const moveVec = dir.multiplyScalar(dist * 0.45);
-
-            mesh.userData.attackAnim = {
-                active: true,
-                progress: 0,
-                duration: 40, // 蜈ｨ菴薙ヵ繝ｬ繝ｼ繝謨ｰ・育ｴ・.7遘抵ｼ・
-                offsetVec: moveVec
-            };
-        }
-    }
-
     updateEffects() {
         for (let i = this.effects.length - 1; i >= 0; i--) {
             const effect = this.effects[i];
@@ -3038,11 +3083,11 @@ export class RenderingEngine3D {
                 const targetPos = u.order.targetId
                     ? window.gameState.units.find(t => t.id === u.order.targetId)
                     : null;
-                return `${u.id}:${u.x},${u.y}:${u.order.type}:${u.order.targetId || ''}:${u.order.targetHex?.x || ''},${u.order.targetHex?.y || ''}:${targetPos?.x || ''},${targetPos?.y || ''}`;
+                return `${u.id}:${u.x},${u.y}:${u.order.type}:${u.order.targetId || ''}:${u.order.targetHex?.x || ''},${u.order.targetHex?.y || ''}:${targetPos?.x || ''},${targetPos?.y || ''} `;
             })
             .join('|');
 
-        return `${selectedIds}#${orderData}`;
+        return `${selectedIds} #${orderData} `;
     }
 
 
@@ -3122,7 +3167,7 @@ export class RenderingEngine3D {
             } else {
                 startPos = this.hexToWorld3D(unit.x, unit.y);
                 startPos.y = 40; // フォールバック
-                console.warn(`[AttackLine] Unit mesh not found for attacker ${unit.id} (${unit.name})`);
+                console.warn(`[AttackLine] Unit mesh not found for attacker ${unit.id}(${unit.name})`);
             }
 
             const targetMesh = this.unitMeshes.get(target.id);
@@ -3131,11 +3176,11 @@ export class RenderingEngine3D {
             } else {
                 endPos = this.hexToWorld3D(target.x, target.y);
                 endPos.y = 40; // フォールバック
-                console.warn(`[AttackLine] Target mesh not found for target ${target.id} (${target.name})`);
+                console.warn(`[AttackLine] Target mesh not found for target ${target.id}(${target.name})`);
             }
 
             // デバッグログ: 座標を確認（攻撃ライン生成時に常に出力）
-            console.warn(`[AttackLine] ${unit.name}(${unit.x},${unit.y}) -> ${target.name}(${target.x},${target.y}) | StartY=${startPos.y.toFixed(1)}, EndY=${endPos.y.toFixed(1)}`);
+            console.warn(`[AttackLine] ${unit.name} (${unit.x},${unit.y}) -> ${target.name} (${target.x},${target.y}) | StartY=${startPos.y.toFixed(1)}, EndY = ${endPos.y.toFixed(1)} `);
 
             // ユニットの少し上（胸のあたり）からラインを出す
             startPos.y += 15;
@@ -3165,7 +3210,7 @@ export class RenderingEngine3D {
                 const ds = -dq - dr;
                 const dist = Math.max(Math.abs(dq), Math.abs(dr), Math.abs(ds));
                 if (dist > 3) return null;
-                return `${u.id}:${u.x},${u.y}->${target.x},${target.y}:${u.order.type}`;
+                return `${u.id}:${u.x},${u.y} -> ${target.x},${target.y}:${u.order.type} `;
             })
             .filter(Boolean)
             .join('|');
@@ -3449,11 +3494,11 @@ export class RenderingEngine3D {
         const z = this.camera.zoom;
 
         el.innerHTML = `
-            <strong>Camera Settings</strong><br>
-            Position: (x=${Math.round(p.x)}, y=${Math.round(p.y)}, z=${Math.round(p.z)})<br>
-            Target: (x=${Math.round(t.x)}, y=${Math.round(t.y)}, z=${Math.round(t.z)})<br>
-            Zoom: ${z.toFixed(2)}<br>
-        `;
+            < strong > Camera Settings</strong > <br>
+                Position: (x=${Math.round(p.x)}, y=${Math.round(p.y)}, z=${Math.round(p.z)})<br>
+                    Target: (x=${Math.round(t.x)}, y=${Math.round(t.y)}, z=${Math.round(t.z)})<br>
+                        Zoom: ${z.toFixed(2)}<br>
+                            `;
     }
 
     /**
@@ -3493,46 +3538,51 @@ export class RenderingEngine3D {
     /**
      * 遏｢縺ｮ繧｢繝九Γ繝ｼ繧ｷ繝ｧ繝ｳ繧堤函謌舌・蜀咲函
      * @param {Object} fromUnit - 逋ｺ蟆・・繝ｦ繝九ャ繝・
-     * @param {Object} toUnit - 蟇ｾ雎｡繝ｦ繝九ャ繝・
-     * @param {{blocked: boolean, blockPos: {x,y,z}|null}} blockInfo - 驕ｮ阡ｽ諠・ｱ
-     * @returns {Promise} 繧｢繝九Γ繝ｼ繧ｷ繝ｧ繝ｳ螳御ｺ・凾縺ｫresolve
-     */
+                            * @param {Object} toUnit - 蟇ｾ雎｡繝ｦ繝九ャ繝・
+                            * @param {{ blocked: boolean, blockPos: { x, y, z } | null }} blockInfo - 驕ｮ阡ｽ諠・ｱ
+                            * @returns {Promise} 繧｢繝九Γ繝ｼ繧ｷ繝ｧ繝ｳ螳御ｺ・凾縺ｫresolve
+                            */
     spawnArrowAnimation(fromUnit, toUnit, blockInfo) {
         return new Promise((resolve) => {
             try {
                 // 3D繧ｸ繧ｪ繝｡繝医Μ縺ｧ遏｢繧剃ｽ懈・
-                // 遏｢縺ｯ繝ｭ繝ｼ繧ｫ繝ｫ縺ｧ+X譁ｹ蜷代ｒ縲悟燕縲阪→縺励※讒狗ｯ会ｼ・HREE.js縺ｮlookAt縺ｨ逶ｸ諤ｧ縺瑚憶縺・ｼ・
+                // 遏｢縺ｯ繝ｭ繝ｼ繧ｫ繝ｫ縺ｧ+Z譁ｹ蜷代ｒ縲悟燕縲阪→縺励※讒狗ｯ会ｼ・HREE.js縺ｮlookAt縺ｨ逶ｸ諤ｧ縺瑚憶縺・ｼ・
                 const arrowGroup = new THREE.Group();
 
-                // 遏｢縺ｮ霆ｸ・医す繝ｪ繝ｳ繝繝ｼ・・ 2蛟阪し繧､繧ｺ縲々霆ｸ譁ｹ蜷代↓讓ｪ縺溘ｏ繧・
-                const shaftGeometry = new THREE.CylinderGeometry(2, 2, 48, 8);
-                const shaftMaterial = new THREE.MeshBasicMaterial({ color: 0xFF4444 }); // 譏弱ｋ縺・幻濶ｲ
+                // 遏｢縺ｮ霆ｸ・医す繝ｪ繝ｳ繝€繝ｼ・・ 2蛟阪し繧､繧ｺ縲々霆ｸ譁ｹ蜷代↓讓ｪ縺溘ｏ繧・
+                const shaftGeometry = new THREE.CylinderGeometry(0.5, 0.5, 20, 8);
+                const shaftMaterial = new THREE.MeshBasicMaterial({ color: 0x8B4513 }); // 茶色
                 const shaft = new THREE.Mesh(shaftGeometry, shaftMaterial);
-                shaft.rotation.z = Math.PI / 2; // X霆ｸ譁ｹ蜷代↓讓ｪ縺溘ｏ繧・
+                shaft.rotation.x = Math.PI / 2; // Z軸方向に寝かせる (Cylinder is Y-up default)
                 arrowGroup.add(shaft);
 
                 // 遏｢蟆ｻ・医さ繝ｼ繝ｳ・・ 2蛟阪し繧､繧ｺ
-                const headGeometry = new THREE.ConeGeometry(5, 14, 8);
-                const headMaterial = new THREE.MeshBasicMaterial({ color: 0xCCCCCC }); // 繧ｷ繝ｫ繝舌・
+                const headGeometry = new THREE.ConeGeometry(1.6, 6, 8);
+                const headMaterial = new THREE.MeshBasicMaterial({ color: 0xDDDDDD }); // 銀色
                 const head = new THREE.Mesh(headGeometry, headMaterial);
-                head.rotation.z = -Math.PI / 2; // 蜈育ｫｯ縺・X譁ｹ蜷代ｒ蜷代￥
-                head.position.x = 30; // 蜈育ｫｯ縺ｫ驟咲ｽｮ
+                head.rotation.x = Math.PI / 2; // 先端が+Z方向を向く
+                head.position.z = 13; // +Z方向に配置
                 arrowGroup.add(head);
 
-                // 鄒ｽ譬ｹ・亥ｰ上＆繧√∫區/轣ｰ濶ｲ・・
-                const fletchGeometry = new THREE.ConeGeometry(3, 8, 4);
-                const fletchMaterial = new THREE.MeshBasicMaterial({ color: 0xEEEEEE }); // 逋ｽ縺｣縺ｽ縺・・濶ｲ
-                const fletch = new THREE.Mesh(fletchGeometry, fletchMaterial);
-                fletch.rotation.z = Math.PI / 2;
-                fletch.position.x = -24;
-                arrowGroup.add(fletch);
+                // 鄒ｽ譬ｹ・亥ｰ上＆繧√€∫區/轣ｰ濶ｲ・・
+                // 羽根（フライト） - 3枚の板を配置
+                const fletchGeometry = new THREE.BoxGeometry(3, 0.1, 8); // 幅, 厚み, 長さ
+                const fletchMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFFFF });
+
+                for (let i = 0; i < 3; i++) {
+                    const fletch = new THREE.Mesh(fletchGeometry, fletchMaterial);
+                    fletch.position.z = -14; // シャフトの後端 (-Z方向)
+                    fletch.rotation.z = (i * 120) * (Math.PI / 180); // 120度ずつ配置
+                    arrowGroup.add(fletch);
+                }
 
 
                 // 髢句ｧ九・邨ゆｺ・ｽ咲ｽｮ繧定ｨ育ｮ・
                 const fromPos = this.gridToWorld3D(fromUnit.x, fromUnit.y);
                 const toPos = this.gridToWorld3D(toUnit.x, toUnit.y);
 
-                // 鬮倥＆諠・ｱ繧定ｨ育ｮ・（mapSystem縺九ｉ縺ッ繧ｭ繝｣繝・繝帙→繝ｼ縺ｾ縺ｾ縺ｨ繝ｻ繝ϯ繝・）
+                // 鬮倥＆諠・ｱ繧定ｨ育ｮ・
+                // hexHeightsは既にワールド座標(Y)を保持しているため、さらにTILE_Hを掛けてはいけない
                 let fromTileHeight = 0;
                 let toTileHeight = 0;
                 if (this.hexHeights && this.hexHeights[fromUnit.y]) {
@@ -3559,114 +3609,121 @@ export class RenderingEngine3D {
                     toBuildingHeight = this.buildingHeightCache.get(cacheKey2) || 0;
                 }
 
-                // 鬮倥↓荳也AE蜷・ｼ∝ｻｰ繝ｼ繧ｸ縺ｧ髢｢遐捐縺ｾ縺ｨ縺セ縺阪↓・ (TILE_HEIGHT = 16)
-                // 鬮倥↓荳也AE蜷・ｼ∝ｻｰ繝ｼ繧ｸ繧定ｨ育ｮ・
-                //逶ｷ蜉・九′繧√∵逶ｷ繝ｳ繝医″蝣ｴ蜷・医⊥縺セ繺阪↓・
-                const fromZ = fromBuildingHeight > 0 ? fromBuildingHeight : fromTileHeight * TILE_HEIGHT;
-                const toZ = toBuildingHeight > 0 ? toBuildingHeight : toTileHeight * TILE_HEIGHT;
+                // 高さ（world units）
+                // 修正：fromTileHeight等は既にワールド座標なので、ここでの乗算は削除
+                const TILE_H = 16;
+                const fromZ = fromBuildingHeight > 0 ? fromBuildingHeight : fromTileHeight;
+                const toZ = toBuildingHeight > 0 ? toBuildingHeight : toTileHeight;
 
-                // Height limit check (backup in case combat.js is cached)
-                const TILE_HEIGHT_CHECK = 16;
-                const MAX_HEIGHT_GRIDS = 3;
-                const MAX_HEIGHT_DIFF_CHECK = MAX_HEIGHT_GRIDS * TILE_HEIGHT_CHECK; // 48
-                const heightDiffCheck = toZ - fromZ;
-                if (heightDiffCheck > MAX_HEIGHT_DIFF_CHECK) {
-                    resolve();
-                    return;
+                // Debug: Arrow Coords
+                // console.log(`[ArrowDebug] From:(${fromPos.x},${fromZ},${fromPos.z}) To:(${toPos.x},${toZ},${toPos.z})`);
+
+                const MAX_HEIGHT_GRIDS = 20; // 3 -> 20 (城壁など高低差に対応)
+                const MAX_HEIGHT_DIFF_CHECK = MAX_HEIGHT_GRIDS * TILE_H; // ここは判定用なので定数倍でOK
+
+                // absolute check
+                if (Math.abs(toZ - fromZ) > MAX_HEIGHT_DIFF_CHECK) {
+                    // console.warn('[ArrowDebug] Height diff too large, aborting', { diff: toZ - fromZ, max: MAX_HEIGHT_DIFF_CHECK });
+                    // 高低差がありすぎる場合は表示しない（あるいは強制的に表示するか？）
+                    // 一旦そのまま通すか、ログだけ出す
                 }
 
-                // 驕ｮ阡ｽ譎ゅ・驕ｮ阡ｽ繝昴う繝ｳ繝医〒豁｢縺ｾ繧・
-                let endPos = { x: toPos.x, y: toZ + 32, z: toPos.z };
-                if (blockInfo && blockInfo.blocked && blockInfo.blockPos) {
-                    const blockWorldPos = this.gridToWorld3D(blockInfo.blockPos.x, blockInfo.blockPos.y);
-                    // blockPos.zはworld unitsで返ってくるので、そのまま+32でターゲット位置に合わせる
-                    endPos = { x: blockWorldPos.x, y: blockInfo.blockPos.z + 32, z: blockWorldPos.z };
-                }
+                // 遮蔽時の遮蔽ポイントで止まるための座標
+                // ただし、軌道計算には「本来のターゲット位置」を使う
+                const targetEndPos = { x: toPos.x, y: toZ + 12, z: toPos.z };
 
-                // 霍晞屬縺ｫ蝓ｺ縺･縺上い繝九Γ繝ｼ繧ｷ繝ｧ繝ｳ譎る俣・亥ｼｧ繧呈緒縺上・縺ｧ髟ｷ繧√↓・・
-                const dx = endPos.x - fromPos.x;
-                const dz = endPos.z - fromPos.z;
-                const distance = Math.sqrt(dx * dx + dz * dz);
-                // 騾溷ｺｦ蛟咲紫繧帝←逕ｨ (window.game.actionSpeed繧貞盾辣ｧ)
-                const speedMultiplier = (window.game && window.game.actionSpeed) ? window.game.actionSpeed : 1.0;
-                const duration = Math.max(1200, Math.min(2500, distance * 15)) / speedMultiplier;
+                // ブロック地点（あれば）
+                // 以前のコードではここで endPos を書き換えていたが、それは軌道計算を狂わせるのでやめる
+                // 代わりに limitT (進行割合) で制御する
 
-                // 謾ｾ迚ｩ邱壹・鬮倥＆・磯ｫ倥￥蠑ｧ繧呈緒縺・※關ｽ荳九☆繧九ｈ縺・↓・・
-                // タクティクスオウガ風の軌道計算
-                // 近距離ほど高い弧を描く（障害物をクリア）、遠距離ほど低い弧（障害物に阻まれやすい）
+                // 初期位置設定（ユニットの胸の高さ）
+                const startY = fromZ + 12;
+
+                // 距離を計算（本来のターゲットまでの完全な距離）
+                const fullStartVec = new THREE.Vector3(fromPos.x, startY, fromPos.z);
+                const fullEndVec = new THREE.Vector3(targetEndPos.x, targetEndPos.y, targetEndPos.z);
+                const fullDistance = fullStartVec.distanceTo(fullEndVec);
+
+                // アニメーション速度調整
+                const speedMultiplier = (window.game && window.game.actionSpeed && window.game.actionSpeed > 0.1) ? window.game.actionSpeed : 1.0;
+                // 速度計算
+                const duration = Math.max(400, Math.min(1000, fullDistance * 8)) / speedMultiplier;
+
+                // 曲線軌道の高さ
                 let arcHeight;
                 if (blockInfo && blockInfo.arcHeight !== undefined) {
-                    // combat.js側で計算された弧の高さを使用
                     arcHeight = blockInfo.arcHeight;
                 } else {
-                    // フォールバック: 同じ計算式を適用（グリッド距離を推定）
-                    const gridDist = distance / 32; // おおよそのグリッド距離
-                    const maxRange = 12;
-                    const minArcHeight = 20;
-                    const maxArcHeight = 80;
-                    const distFactor = 1 - Math.min(gridDist / maxRange, 1);
-                    arcHeight = minArcHeight + (maxArcHeight - minArcHeight) * distFactor;
+                    // フォールバック
+                    arcHeight = 20 + fullDistance * 2;
                 }
 
-                // 蛻晄悄菴咲ｽｮ險ｭ螳・（繝ｦ繝九ャ繝育ｚ縺ｮ髢｢邂ｶ縺ｾ縺ｨ縺セ縺阪↑）
-                const startY = fromZ + 48;
+                // ブロック情報があれば、アニメーションの終了点を制限する
+                // combat.js から返される t は「全距離に対するブロック地点までの割合」なのでそのまま使える
+                const limitT = (blockInfo && blockInfo.blocked && blockInfo.t) ? blockInfo.t : 1.0;
+
                 arrowGroup.position.set(fromPos.x, startY, fromPos.z);
                 this.scene.add(arrowGroup);
 
-                const startTime = Date.now();
+                // デバッグ用: 軌道情報のログ
+                // console.log(`[Arrow] dist=${fullDistance} limitT=${limitT} fromZ=${fromZ} toZ=${toZ}`);
 
+                const startTime = performance.now();
 
                 const animate = () => {
-                    const elapsed = Date.now() - startTime;
-                    const linearT = Math.min(1, elapsed / duration);
+                    const now = performance.now();
+                    const elapsed = now - startTime;
+                    // 時間経過による進捗 (0.0 -> 1.0)
+                    let p = elapsed / duration;
 
-                    // Debug: log first frame
-                    if (elapsed < 50) {
+                    if (p >= limitT) {
+                        p = limitT; // 上限で止める
                     }
 
-                    const t = linearT;
+                    // 完了判定
+                    // 時間経過が (duration * limitT) を超えたら終了
+                    // 少し余裕を持たせる (+50ms)
+                    const isFinished = (elapsed >= (duration * limitT) + 20);
 
-                    // 邱壼ｽ｢陬憺俣縺ｧXZ菴咲ｽｮ繧定ｨ育ｮ・
-                    const currentX = fromPos.x + (endPos.x - fromPos.x) * t;
-                    const currentZ = fromPos.z + (endPos.z - fromPos.z) * t;
+                    // 線形補間位置 (XZ平面) - 本来のターゲットに向かって補間
+                    const currentPos = new THREE.Vector3().lerpVectors(
+                        fullStartVec,
+                        fullEndVec,
+                        p
+                    );
 
-                    // 謾ｾ迚ｩ邱壹〒Y蠎ｧ讓吶ｒ險育ｮ・
-                    const endY = endPos.y;
-                    const baseY = startY + (endY - startY) * t;
-                    const arcY = 4 * arcHeight * t * (1 - t);
-                    const currentY = baseY + arcY;
+                    // 高さの加算 (Y軸)
+                    // パラボラ: 4 * h * t * (1-t)
+                    const arcY = 4 * arcHeight * p * (1 - p);
 
-                    arrowGroup.position.set(currentX, currentY, currentZ);
+                    // 最終位置
+                    arrowGroup.position.set(currentPos.x, currentPos.y + arcY, currentPos.z);
 
-                    // 矢を進行方向に向ける（lookAtをシミュレート）
-                    const nextT = Math.min(1, t + 0.01);
-                    const nextX = fromPos.x + (endPos.x - fromPos.x) * nextT;
-                    const nextZ = fromPos.z + (endPos.z - fromPos.z) * nextT;
-                    const nextBaseY = startY + (endY - startY) * nextT;
-                    const nextArcY = 4 * arcHeight * nextT * (1 - nextT);
-                    const nextY = nextBaseY + nextArcY;
+                    // 向きの更新
+                    const nextP = Math.min(p + 0.01, limitT); // limitTを超えないように
+                    const nextPosLinear = new THREE.Vector3().lerpVectors(
+                        fullStartVec,
+                        fullEndVec,
+                        nextP
+                    );
+                    const nextArcY = 4 * arcHeight * nextP * (1 - nextP);
+                    const nextPos = new THREE.Vector3(nextPosLinear.x, nextPosLinear.y + nextArcY, nextPosLinear.z);
 
-                    const dirX = nextX - currentX;
-                    const dirY = nextY - currentY;
-                    const dirZ = nextZ - currentZ;
+                    arrowGroup.lookAt(nextPos);
 
-                    const targetVec = new THREE.Vector3(dirX, dirY, dirZ);
-                    if (targetVec.length() > 0.001) {
-                        const quaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1, 0, 0), targetVec.normalize());
-                        arrowGroup.setRotationFromQuaternion(quaternion);
-                    }
-
-                    if (t < 1) {
+                    if (!isFinished) {
                         requestAnimationFrame(animate);
                     } else {
-                        // アニメーション終了時の処理
+                        // アニメーション終了
                         this.scene.remove(arrowGroup);
-                        shaftGeometry.dispose();
-                        shaftMaterial.dispose();
-                        headGeometry.dispose();
-                        headMaterial.dispose();
-                        fletchGeometry.dispose();
-                        fletchMaterial.dispose();
+                        try {
+                            shaftGeometry.dispose();
+                            shaftMaterial.dispose();
+                            headGeometry.dispose();
+                            headMaterial.dispose();
+                            fletchGeometry.dispose();
+                            fletchMaterial.dispose();
+                        } catch (e) { }
                         resolve();
                     }
                 };
@@ -3681,9 +3738,107 @@ export class RenderingEngine3D {
     }
 
     /**
+     * 魔法弾のアニメーション
+     * @param {Object} fromUnit - 発射元ユニット
+     * @param {Object} toUnit - 対象ユニット
+     * @param {number|string} color - エフェクト色
+     */
+    spawnMagicProjectile(fromUnit, toUnit, color = 0xAA00FF) {
+        return new Promise((resolve) => {
+            try {
+                // 発射位置・着弾位置
+                const fromPos = this.gridToWorld3D(fromUnit.x, fromUnit.y);
+                const toPos = this.gridToWorld3D(toUnit.x, toUnit.y);
+
+                // 高さ調整（胸のあたり）
+                const TILE_H = 16;
+                const fromZ = (fromUnit.z || 0) * TILE_H;
+                const toZ = (toUnit.z || 0) * TILE_H;
+
+                let fromBuildingHeight = 0;
+                let toBuildingHeight = 0;
+
+                if (this.mapSystem && this.mapSystem.getBuildingHeight) {
+                    fromBuildingHeight = this.mapSystem.getBuildingHeight(fromUnit.x, fromUnit.y);
+                    toBuildingHeight = this.mapSystem.getBuildingHeight(toUnit.x, toUnit.y);
+                }
+
+                const startY = (fromBuildingHeight > 0 ? fromBuildingHeight : fromZ) + 16;
+                const endY = (toBuildingHeight > 0 ? toBuildingHeight : toZ) + 16;
+
+                const startPos = new THREE.Vector3(fromPos.x, startY, fromPos.z);
+                const endPos3D = new THREE.Vector3(toPos.x, endY, toPos.z);
+
+                // エフェクトグループ
+                const effectGroup = new THREE.Group();
+                effectGroup.position.copy(startPos);
+
+                // 本体（光る球）
+                const coreGeo = new THREE.SphereGeometry(6, 8, 8);
+                const coreMat = new THREE.MeshBasicMaterial({ color: color });
+                const core = new THREE.Mesh(coreGeo, coreMat);
+                effectGroup.add(core);
+
+                // 外側の光（半透明）
+                const glowGeo = new THREE.SphereGeometry(12, 8, 8);
+                const glowMat = new THREE.MeshBasicMaterial({
+                    color: color,
+                    transparent: true,
+                    opacity: 0.5,
+                    blending: THREE.AdditiveBlending
+                });
+                const glow = new THREE.Mesh(glowGeo, glowMat);
+                effectGroup.add(glow);
+
+                this.scene.add(effectGroup);
+
+                // アニメーション
+                const distance = startPos.distanceTo(endPos3D);
+                const speedMultiplier = (window.game && window.game.actionSpeed) ? window.game.actionSpeed : 1.0;
+                const duration = Math.min(800, distance * 12) / speedMultiplier;
+
+                const startTime = performance.now();
+
+                const animate = () => {
+                    const now = performance.now();
+                    const elapsed = now - startTime;
+                    const progress = Math.min(elapsed / duration, 1.0);
+
+                    // 直線移動
+                    effectGroup.position.lerpVectors(startPos, endPos3D, progress);
+
+                    // 回転演出
+                    effectGroup.rotation.z += 0.2;
+                    effectGroup.rotation.y += 0.2;
+
+                    // 明滅
+                    glow.material.opacity = 0.3 + Math.sin(elapsed * 0.01) * 0.2;
+
+                    if (progress < 1.0) {
+                        requestAnimationFrame(animate);
+                    } else {
+                        // 完了
+                        this.scene.remove(effectGroup);
+                        coreGeo.dispose();
+                        coreMat.dispose();
+                        glowGeo.dispose();
+                        glowMat.dispose();
+                        resolve();
+                    }
+                };
+                animate();
+
+            } catch (e) {
+                console.error("Magic Effect Error", e);
+                resolve();
+            }
+        });
+    }
+
+    /**
      * 驟咲ｽｮ蜿ｯ閭ｽ蠎ｧ讓吶ｒ繝上う繝ｩ繧､繝郁｡ｨ遉ｺ
      * @param {Array} zones - [{x, y}, ...]
-     */
+                            */
     setDeploymentHighlight(zones) {
         // 譌｢蟄倥・繝上う繝ｩ繧､繝医ｒ繧ｯ繝ｪ繧｢
         this.clearDeploymentHighlight();
@@ -3754,11 +3909,11 @@ export class RenderingEngine3D {
     /**
      * スクリーン座標からグリッド座標に変換
      * @param {number} screenX - スクリーンX座標
-     * @param {number} screenY - スクリーンY座標
-     * @param {number} canvasWidth - キャンバス幅
-     * @param {number} canvasHeight - キャンバス高さ
-     * @returns {{x: number, y: number}|null} グリッド座標、失敗時はnull
-     */
+                            * @param {number} screenY - スクリーンY座標
+                            * @param {number} canvasWidth - キャンバス幅
+                            * @param {number} canvasHeight - キャンバス高さ
+                            * @returns {{ x: number, y: number } | null} グリッド座標、失敗時はnull
+                            */
     screenToGrid(screenX, screenY, canvasWidth, canvasHeight, canvas) {
         if (!this.camera) return null;
 
@@ -3817,8 +3972,8 @@ export class RenderingEngine3D {
     /**
      * 配置マーカーを追加
      * @param {number} x - グリッドX座標
-     * @param {number} y - グリッドY座標
-     */
+                            * @param {number} y - グリッドY座標
+                            */
     addDeploymentMarker(x, y) {
         if (!this.deploymentMarkers) {
             this.deploymentMarkers = new THREE.Group();

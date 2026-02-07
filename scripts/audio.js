@@ -238,4 +238,16 @@ export class AudioEngine {
     sfxArrangementFail() {
         this.playSound('arrangementFail');
     }
+    // 弓発射音
+    sfxShoot() {
+        this.playNoise(0.1, 0.3);
+        this.playTone(600, 'triangle', 0.05, 0.1, 0.2);
+    }
+
+    // 雷鳴 (Magic)
+    sfxThunder() {
+        this.playNoise(0.4, 0.6);
+        this.playTone(100, 'sawtooth', 0.1, 0.4, 0.5);
+        this.playTone(50, 'square', 0.1, 0.5, 0.5);
+    }
 }

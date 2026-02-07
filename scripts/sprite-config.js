@@ -4,7 +4,31 @@
  */
 
 // スプライトファイルのベースパス（シート画像）
+// スプライトファイルのベースパス（シート画像）
+// 後方互換性のため残すが、基本はSPRITE_PATHSを使用する
 export const SPRITE_SHEET_PATH = 'sprites/soldier/soldier.png';
+
+// ユニットタイプごとのスプライトファイル定義
+export const SPRITE_PATHS = {
+    DEFAULT: 'sprites/soldier/soldier.png',
+    ARCHER: 'sprites/archer/archer.png',
+    MAGE: 'sprites/mage/mage.png',
+    PRIEST: 'sprites/priest/priest.png'
+};
+
+// ユニットタイプIDとスプライトキーの対応
+export const UNIT_TYPE_TO_SPRITE = {
+    'ARCHER': 'ARCHER',
+    'MAGE': 'MAGE',
+    // 他はデフォルトを使用するため定義省略可、または明示的に指定
+    'INFANTRY': 'DEFAULT',
+    'SPEAR': 'DEFAULT',
+    'GUNNER': 'DEFAULT',
+    // 'MAGE': 'DEFAULT', // Removed duplicate override
+    'PRIEST': 'PRIEST',
+    'KNIGHT': 'DEFAULT',
+    'CAVALRY': 'DEFAULT'
+};
 
 // スプライトシート構成
 export const SHEET_LAYOUT = {
@@ -51,11 +75,29 @@ export const ANIMATIONS = {
         speed: 200,
         loop: true
     },
-    // 攻撃中
+    // 攻撃中 (旧互換)
     attack: {
         indices: [17, 18], // 17, 18
         speed: 150,
         loop: true
+    },
+    // 射撃（弓・銃）
+    shoot: {
+        indices: [18], // 18=Aim (修正)
+        speed: 1000,   // ループしないので適当
+        loop: false
+    },
+    // 攻撃パターン1（通常）
+    attack1: {
+        indices: [17], // 17=Wind up (溜め)
+        speed: 150,
+        loop: false // ループさせない
+    },
+    // 攻撃パターン2（強攻撃/別パターン）
+    attack2: {
+        indices: [17, 18], // 17->18 (振り下ろし)
+        speed: 100, // 高速
+        loop: false // 一回切り
     },
     // 被ダメージ
     damage: {

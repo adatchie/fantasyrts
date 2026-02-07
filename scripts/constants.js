@@ -26,6 +26,8 @@ export const UNIT_TYPE_NORMAL = 'NORMAL';             // 通常ユニット
 // マルチユニットシステム定数
 export const SOLDIERS_PER_UNIT = 1000; // 1ユニットあたりの標準兵力
 
+
+
 // ========================================
 // ファンタジーRTS ユニットタイプ定義
 // ========================================
@@ -50,10 +52,11 @@ export const UNIT_TYPES = {
         atk: 50,
         def: 50,
         baseHp: 1000,
-        baseMoveRange: 6,
+        baseMoveRange: 9,
         mobility: 4,
         marker: '⚔️',
-        description: '攻撃力防御力平均的。近接攻撃のみ。軽装鎧に剣装備。'
+        description: '攻撃力防御力平均的。近接攻撃のみ。軽装鎧に剣装備。',
+        weapon: 'sword'
     },
     KNIGHT: {
         name: '騎士',
@@ -63,10 +66,11 @@ export const UNIT_TYPES = {
         atk: 40,
         def: 80,
         baseHp: 1200,
-        baseMoveRange: 4,
+        baseMoveRange: 6,
         mobility: 3,
         marker: '🛡️',
-        description: '防御力が高く壁役。近接攻撃のみ。重装鎧に盾を装備。'
+        description: '防御力が高く壁役。近接攻撃のみ。重装鎧に盾を装備。',
+        weapon: 'sword'
     },
     ARCHER: {
         name: '弓兵',
@@ -76,10 +80,11 @@ export const UNIT_TYPES = {
         atk: 40,
         def: 30,
         baseHp: 800,
-        baseMoveRange: 6,
+        baseMoveRange: 9,
         mobility: 5,
         marker: '🏹',
-        description: '攻撃力防御力弱いが射程長い。皮装備に弓を装備。'
+        description: '攻撃力防御力弱いが射程長い。皮装備に弓を装備。',
+        weapon: 'bow'
     },
     SPEAR: {
         name: '槍兵',
@@ -89,10 +94,11 @@ export const UNIT_TYPES = {
         atk: 50,
         def: 50,
         baseHp: 1000,
-        baseMoveRange: 6,
+        baseMoveRange: 9,
         mobility: 4,
         marker: '🔱',
-        description: '攻撃力防御力平均的。前方2マス攻撃可。軽装鎧に槍装備。'
+        description: '攻撃力防御力平均的。前方2マス攻撃可。軽装鎧に槍装備。',
+        weapon: 'spear'
     },
     GUNNER: {
         name: '銃士',
@@ -102,10 +108,11 @@ export const UNIT_TYPES = {
         atk: 70,
         def: 25,
         baseHp: 700,
-        baseMoveRange: 4,
+        baseMoveRange: 6,
         mobility: 2,
         marker: '🔫',
-        description: '攻撃力高いが防御低い。射程長い。皮装備に長銃装備。'
+        description: '攻撃力高いが防御低い。射程長い。皮装備に長銃装備。',
+        weapon: 'gun'
     },
     MAGE: {
         name: '魔術師',
@@ -115,11 +122,12 @@ export const UNIT_TYPES = {
         atk: 80,
         def: 15,
         baseHp: 600,
-        baseMoveRange: 4,
+        baseMoveRange: 6,
         mobility: 2,
         marker: '✨',
         isAoe: true,  // 範囲攻撃フラグ（着弾点+周囲8マスにダメージ）
-        description: '攻撃力高いが防御極度に低い。射程中。範囲攻撃。ローブに魔導書。'
+        description: '攻撃力高いが防御極度に低い。射程中。範囲攻撃。ローブに魔導書。',
+        weapon: 'staff'
     },
     PRIEST: {
         name: '僧侶',
@@ -129,11 +137,12 @@ export const UNIT_TYPES = {
         atk: 0,
         def: 50,
         baseHp: 800,
-        baseMoveRange: 4,
+        baseMoveRange: 6,
         mobility: 2,
         isHealer: true,
         marker: '✝️',
-        description: '攻撃力なし防御平均的。味方を回復。僧衣に杖。'
+        description: '攻撃力なし防御平均的。味方を回復。僧衣に杖。',
+        weapon: 'staff'
     },
 
     // ────────── 中サイズ (縦2グリッド) ──────────
@@ -145,7 +154,7 @@ export const UNIT_TYPES = {
         atk: 70,
         def: 70,
         baseHp: 1500,
-        baseMoveRange: 8,
+        baseMoveRange: 12,
         mobility: 6,
         canPushBack: true,  // 押し出し能力
         marker: '🐴',
@@ -161,7 +170,7 @@ export const UNIT_TYPES = {
         atk: 90,
         def: 80,
         baseHp: 3000,
-        baseMoveRange: 7,
+        baseMoveRange: 11,
         mobility: 6,
         marker: '🐉',
         description: '強力な飛行ユニット。ブレス攻撃で前方扇状にダメージ。'
@@ -174,7 +183,7 @@ export const UNIT_TYPES = {
         atk: 85,
         def: 75,
         baseHp: 2500,
-        baseMoveRange: 8,
+        baseMoveRange: 12,
         mobility: 6,
         marker: '🦅',
         description: 'ドラゴンに騎乗した騎士。機動力と攻撃力を兼ね備える。'
@@ -187,11 +196,21 @@ export const UNIT_TYPES = {
         atk: 100,
         def: 20,
         baseHp: 1000,
-        baseMoveRange: 2,
+        baseMoveRange: 3,
         mobility: 1,
         marker: '💣',
-        description: '圧倒的な攻撃力と超長射程。移動力は極端に低い。'
+        description: '圧倒的な攻撃力と超長射程。移動力は極端に低い。',
+        weapon: 'cannon' // 武器種別
     }
+};
+
+// 武器定義
+export const WEAPON_TYPES = {
+    sword: { sprite: 'sword.png', offset: { x: 5, y: -5 }, scale: 0.8 },
+    spear: { sprite: 'spear.png', offset: { x: 10, y: -5 }, scale: 1.0 },
+    bow: { sprite: 'bow.png', offset: { x: 5, y: 0 }, scale: 0.8 },
+    gun: { sprite: 'gun.png', offset: { x: 8, y: -2 }, scale: 0.9 },
+    staff: { sprite: 'staff.png', offset: { x: 8, y: -5 }, scale: 0.9 }
 };
 
 /**
@@ -307,19 +326,19 @@ export const WARLORDS = [
     { name: "石田三成", side: 'WEST', soldiers: 6900, atk: 80, def: 85, jin: 95, loyalty: 100, x: 8, y: 12, size: 2, p: P_LOYAL, kamon: 'DAIICHI', bg: '#4a0080', face: 'ishida_mitsunari.png' },
     { name: "島左近", side: 'WEST', soldiers: 1000, atk: 95, def: 90, jin: 85, loyalty: 100, x: 10, y: 14, size: 1, p: P_BRAVE, kamon: 'MITSU_GASHIWA', bg: '#8b0000', face: 'shima_sakon.png' }, // 鬼左近の赤
     { name: "蒲生郷舎", side: 'WEST', soldiers: 800, atk: 80, def: 80, jin: 80, loyalty: 100, x: 9, y: 13, size: 1, p: P_LOYAL, kamon: 'MUKAI_TSURU', bg: '#444', face: 'gamo_satoie.png' },
-    { name: "島津義弘", side: 'WEST', soldiers: 1500, atk: 98, def: 95, jin: 90, loyalty: 100, x: 12, y: 18, size: 1, p: P_BRAVE, kamon: 'MARUNI_JUJI', bg: '#222', face: 'shimazu_yoshihiro.png' },
-    { name: "島津豊久", side: 'WEST', soldiers: 500, atk: 90, def: 85, jin: 80, loyalty: 100, x: 13, y: 19, size: 1, p: P_BRAVE, kamon: 'MARUNI_JUJI', bg: '#222', face: 'shimazu_toyohisa.png' },
-    { name: "小西行長", side: 'WEST', soldiers: 4000, atk: 80, def: 85, jin: 75, loyalty: 100, x: 15, y: 25, size: 1, p: P_CALM, kamon: 'GION_MAMORI', bg: '#333', face: 'konishi_yukinaga.png' },
+    { name: "島津義弘", side: 'WEST', soldiers: 1500, atk: 98, def: 95, jin: 90, loyalty: 100, x: 12, y: 18, size: 1, p: P_BRAVE, kamon: 'MARUNI_JUJI', bg: '#222', face: 'shimazu_yoshihiro.png', type: 'GUNNER' },
+    { name: "島津豊久", side: 'WEST', soldiers: 500, atk: 90, def: 85, jin: 80, loyalty: 100, x: 13, y: 19, size: 1, p: P_BRAVE, kamon: 'MARUNI_JUJI', bg: '#222', face: 'shimazu_toyohisa.png', type: 'GUNNER' },
+    { name: "小西行長", side: 'WEST', soldiers: 4000, atk: 80, def: 85, jin: 75, loyalty: 100, x: 15, y: 25, size: 1, p: P_CALM, kamon: 'GION_MAMORI', bg: '#333', face: 'konishi_yukinaga.png', type: 'GUNNER' }, // キリシタン大名
     { name: "宇喜多秀家", side: 'WEST', soldiers: 17000, atk: 85, def: 85, jin: 80, loyalty: 100, x: 18, y: 30, size: 2, p: P_BRAVE, kamon: 'JI', bg: '#222', face: 'ukita_hideie.png' },
-    { name: "明石全登", side: 'WEST', soldiers: 2000, atk: 88, def: 80, jin: 75, loyalty: 100, x: 20, y: 31, size: 1, p: P_BRAVE, kamon: 'JI', bg: '#444', face: 'akashi_teruzumi.png' },
+    { name: "明石全登", side: 'WEST', soldiers: 2000, atk: 88, def: 80, jin: 75, loyalty: 100, x: 20, y: 31, size: 1, p: P_BRAVE, kamon: 'JI', bg: '#444', face: 'akashi_teruzumi.png' }, // 宇喜多家の猛将
     { name: "大谷吉継", side: 'WEST', soldiers: 600, atk: 90, def: 90, jin: 95, loyalty: 100, x: 15, y: 40, size: 1, p: P_CALM, kamon: 'MUKAI_CHO', bg: '#fff', face: 'otani_yoshitsugu.png' }, // 白頭巾
     { name: "大谷吉治", side: 'WEST', soldiers: 1000, atk: 75, def: 75, jin: 70, loyalty: 100, x: 16, y: 41, size: 1, p: P_LOYAL, kamon: 'MUKAI_CHO', bg: '#ccc', face: 'ootani_yoshiharu.png' },
     { name: "戸田重政", side: 'WEST', soldiers: 1500, atk: 70, def: 70, jin: 60, loyalty: 100, x: 18, y: 39, size: 1, p: P_LOYAL, kamon: 'MUTSUBOSHI', bg: '#555', face: 'toda_shigemasa.png' },
     { name: "平塚為広", side: 'WEST', soldiers: 360, atk: 75, def: 70, jin: 60, loyalty: 100, x: 17, y: 42, size: 1, p: P_BRAVE, kamon: 'MITSU_UROKO', bg: '#555', face: 'hiratsuka_tamehiro.png' },
-    { name: "脇坂安治", side: 'WEST', soldiers: 990, atk: 70, def: 70, jin: 50, loyalty: 60, x: 12, y: 48, size: 1, p: P_COWARD, kamon: 'WA_CHIGAI', bg: '#666', face: 'wakisaka_yasuharu.png' },
-    { name: "朽木元綱", side: 'WEST', soldiers: 600, atk: 65, def: 65, jin: 50, loyalty: 60, x: 13, y: 49, size: 1, p: P_COWARD, kamon: 'FOUR_DIAMONDS', bg: '#666', face: 'kuchiki_mototsuna.png' },
-    { name: "小川祐忠", side: 'WEST', soldiers: 2100, atk: 70, def: 70, jin: 50, loyalty: 60, x: 11, y: 47, size: 1, p: P_COWARD, kamon: 'MARUNI_DAKIGASHIWA', bg: '#666', face: 'ogawa_suketada.png' },
-    { name: "赤座直保", side: 'WEST', soldiers: 600, atk: 65, def: 65, jin: 50, loyalty: 60, x: 10, y: 50, size: 1, p: P_COWARD, kamon: 'MARUNI_MITSUMEBISHI', bg: '#666', face: 'akaza_naoyasu.png' },
+    { name: "脇坂安治", side: 'WEST', soldiers: 990, atk: 70, def: 70, jin: 50, loyalty: 60, x: 12, y: 48, size: 1, p: P_COWARD, kamon: 'WA_CHIGAI', bg: '#666', face: 'wakisaka_yasuharu.png', type: 'SPEAR' },
+    { name: "朽木元綱", side: 'WEST', soldiers: 600, atk: 65, def: 65, jin: 50, loyalty: 60, x: 13, y: 49, size: 1, p: P_COWARD, kamon: 'FOUR_DIAMONDS', bg: '#666', face: 'kuchiki_mototsuna.png', type: 'ARCHER' }, // 弓隊として設定
+    { name: "小川祐忠", side: 'WEST', soldiers: 2100, atk: 70, def: 70, jin: 50, loyalty: 60, x: 11, y: 47, size: 1, p: P_COWARD, kamon: 'MARUNI_DAKIGASHIWA', bg: '#666', face: 'ogawa_suketada.png', type: 'ARCHER' }, // 弓隊として設定
+    { name: "赤座直保", side: 'WEST', soldiers: 600, atk: 65, def: 65, jin: 50, loyalty: 60, x: 10, y: 50, size: 1, p: P_COWARD, kamon: 'MARUNI_MITSUMEBISHI', bg: '#666', face: 'akaza_naoyasu.png', type: 'GUNNER' }, // 鉄砲隊として設定
 
     // --- 不確定勢力（松尾山）---
     { name: "小早川秀秋", side: 'WEST', soldiers: 15600, atk: 85, def: 80, jin: 70, loyalty: 40, x: 5, y: 60, size: 2, p: P_COWARD, kamon: 'CHIGAI_GAMA', bg: '#a52a2a', face: 'kobayakawa_hideaki.png' },
@@ -328,7 +347,7 @@ export const WARLORDS = [
     // --- 不確定勢力（南宮山）---
     { name: "毛利秀元", side: 'WEST', soldiers: 16000, atk: 85, def: 90, jin: 80, loyalty: 70, x: 60, y: 60, size: 2, p: P_CALM, kamon: 'MITSUBOSHI', bg: '#222', face: 'mouri_hidemoto.png' },
     { name: "吉川広家", side: 'WEST', soldiers: 3000, atk: 80, def: 85, jin: 85, loyalty: 20, x: 58, y: 58, size: 1, p: P_CALM, kamon: 'MITSUBOSHI', bg: '#333', face: 'kikkawa_hiroie.png' },
-    { name: "安国寺恵瓊", side: 'WEST', soldiers: 1800, atk: 70, def: 70, jin: 75, loyalty: 90, x: 62, y: 58, size: 1, p: P_CALM, kamon: 'TAKEDA_BISHI', bg: '#555', face: 'ankokuji_ekei.png' },
-    { name: "長宗我部盛親", side: 'WEST', soldiers: 6600, atk: 88, def: 85, jin: 80, loyalty: 80, x: 65, y: 55, size: 1, p: P_BRAVE, kamon: 'KATABAMI', bg: '#333', face: 'chosokabe_nobuchika.png' },
-    { name: "長束正家", side: 'WEST', soldiers: 1500, atk: 75, def: 75, jin: 70, loyalty: 90, x: 63, y: 56, size: 1, p: P_LOYAL, kamon: 'HANABISHI', bg: '#444', face: 'nagatsuka_masaie.png' }
+    { name: "安国寺恵瓊", side: 'WEST', soldiers: 1800, atk: 70, def: 70, jin: 75, loyalty: 90, x: 62, y: 58, size: 1, p: P_CALM, kamon: 'TAKEDA_BISHI', bg: '#555', face: 'ankokuji_ekei.png', type: 'MAGE' }, // 僧兵/魔術師扱い
+    { name: "長宗我部盛親", side: 'WEST', soldiers: 6600, atk: 88, def: 85, jin: 80, loyalty: 80, x: 65, y: 55, size: 1, p: P_BRAVE, kamon: 'KATABAMI', bg: '#333', face: 'chosokabe_nobuchika.png', type: 'SPEAR' }, // 四国の雄（長槍）
+    { name: "長束正家", side: 'WEST', soldiers: 1500, atk: 75, def: 75, jin: 70, loyalty: 90, x: 63, y: 56, size: 1, p: P_LOYAL, kamon: 'HANABISHI', bg: '#444', face: 'nagatsuka_masaie.png', type: 'ARCHER' } // 算術家（弓）
 ];

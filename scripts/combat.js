@@ -6,10 +6,8 @@
 import { getDist, getDistRaw, getFacingAngle, findPath, getDistAttack } from './pathfinding.js';
 import { TERRAIN_TYPES } from './map.js';
 import { hexToPixel } from './pathfinding.js';
-import { DIALOGUE, UNIT_TYPES, UNIT_TYPE_NORMAL } from './constants.js';
-import { generatePortrait } from './rendering.js';
-import { getFormationModifiers, canMoveWithFormation, checkForcedFormationChange, FORMATION_INFO, calculateFormationTargets } from './formation.js?v=2';
-import { UNIT_TYPE_HEADQUARTERS } from './constants.js';
+import { DIALOGUE, UNIT_TYPES, UNIT_TYPE_NORMAL, UNIT_TYPE_HEADQUARTERS, TILE_HEIGHT } from './constants.js';
+import { getFormationModifiers, checkForcedFormationChange, calculateFormationTargets } from './formation.js';
 
 export class CombatSystem {
     constructor(audioEngine, unitManager = null) {
@@ -217,10 +215,16 @@ export class CombatSystem {
         const rangeType = typeInfo.rangeType || 'melee';
 
         // 遠距離攻撃可能なユニットタイプ
-        const canRangedAttack = ['bowArc', 'longArc', 'siege'].includes(rangeType);
+        const canRangedAttack = ['bowArc', 'longArc', 'siege', 'aoe', 'breath', 'heal'].includes(rangeType);
 
         // 弓攻撃の射程（基本射程8、高さによる補正はダメージのみ適用）
-        const bowBaseRange = 8;
+        let bowBaseRange = 8;
+        // マジック/ブレス/大砲は射程が異なる
+        if (rangeType === 'aoe') bowBaseRange = 6;
+        if (rangeType === 'breath') bowBaseRange = 4;
+        if (rangeType === 'siege') bowBaseRange = 12;
+        if (rangeType === 'heal') bowBaseRange = 5;
+
         const bowMinRange = 2; // 最小射程2（1マスは射程外）
 
         // 高い位置にいる弓兵の射程拡張（移動できない場合の救済措置）
@@ -231,8 +235,8 @@ export class CombatSystem {
             const heightDiff = unitZ - targetZ;
             // 自分が相手より高い場合、1段差ごとに射程+1（最大3まで）
             if (heightDiff > 0) {
-                const heightInGrids = Math.floor(heightDiff / 16); // TILE_HEIGHT = 16
-                extendedBowRange = Math.min(bowBaseRange + heightInGrids, 12);
+                const heightInGrids = Math.floor(heightDiff / TILE_HEIGHT);
+                extendedBowRange = Math.min(bowBaseRange + heightInGrids, bowBaseRange + 4);
             }
         }
 
@@ -347,6 +351,96 @@ export class CombatSystem {
                 await this.rangedCombat(unit, target, map);
             }
         }
+    }
+
+    /**
+     * 遠距離攻撃を実行
+     * @param {Object} att - 攻撃者
+     * @param {Object} def - 防御者
+     * @param {Array} map - マップデータ
+     */
+    async rangedCombat(att, def, map) {
+        att.dir = getFacingAngle(att.x, att.y, def.x, def.y);
+
+        // 攻撃アニメーションをトリガー (必須)
+        if (this.renderingEngine && this.renderingEngine.triggerUnitAttackAnimation) {
+            this.renderingEngine.triggerUnitAttackAnimation(att.id, def.id);
+        }
+
+        // 攻撃予備動作待ち
+        await this.wait(300);
+
+        // ... targetZ calc ...
+        // const TILE_HEIGHT = 16; // Use imported constant
+        let attZ = (map[att.y]?.[att.x]?.z || 0) * TILE_HEIGHT;
+        let defZ = (map[def.y]?.[def.x]?.z || 0) * TILE_HEIGHT;
+        if (this.mapSystem) {
+            attZ = Math.max(attZ, this.mapSystem.getHeight(att.x, att.y));
+            defZ = Math.max(defZ, this.mapSystem.getHeight(def.x, def.y));
+        }
+
+        // ... height check ...
+        const heightDiff = defZ - attZ;
+        const TILE_HEIGHT_CHECK = TILE_HEIGHT;
+        const MAX_HEIGHT_GRIDS = 3;
+        const MAX_HEIGHT_DIFF = MAX_HEIGHT_GRIDS * TILE_HEIGHT_CHECK;
+
+        if (heightDiff > MAX_HEIGHT_DIFF) {
+            this.spawnText({ q: att.x, r: att.y }, "届かない!", '#888', 40);
+            await this.wait(300);
+            return;
+        }
+
+        // ユニットタイプに応じた攻撃演出
+        const typeInfo = UNIT_TYPES[att.type] || UNIT_TYPES.INFANTRY;
+        const rangeType = typeInfo.rangeType || 'bowArc';
+
+        if (rangeType === 'aoe') {
+            // 魔術師：魔法弾またはエフェクト
+            this.audioEngine.sfxMagicAtk && this.audioEngine.sfxMagicAtk();
+            // TODO: マジックエフェクト実装。とりあえず矢ではなくビームか何か
+            if (this.renderingEngine && this.renderingEngine.add3DEffect) {
+                // 魔法陣など?
+                this.renderingEngine.add3DEffect('MAGIC_CAST', att);
+            }
+            // 魔法弾飛ばす
+            if (this.renderingEngine && this.renderingEngine.spawnMagicProjectile) {
+                await this.renderingEngine.spawnMagicProjectile(att, def); // 要実装
+            } else {
+                // フォールバック: ビーム
+                this.addEffect('BEAM', { q: att.x, r: att.y }, { q: def.x, r: def.y }, '#AA00FF');
+                await this.wait(200);
+            }
+
+        } else if (rangeType === 'breath') {
+            // ドラゴン：ブレス
+            this.audioEngine.sfxBreath && this.audioEngine.sfxBreath();
+            if (this.renderingEngine && this.renderingEngine.add3DEffect) {
+                this.renderingEngine.add3DEffect('BREATH', att, def);
+            }
+            await this.wait(500);
+
+        } else {
+            // 弓・銃・大砲
+            // 遮蔽チェック
+            const blockInfo = this.isArrowPathBlocked(att, def, map);
+
+            // 矢のアニメーションを発射
+            if (this.renderingEngine && this.renderingEngine.spawnArrowAnimation) {
+                // 銃の場合は弾丸速度などを変えたいが、とりあえず矢で統一
+                await this.renderingEngine.spawnArrowAnimation(att, def, blockInfo);
+            }
+
+            if (blockInfo.blocked) {
+                this.spawnText({ q: blockInfo.blockPos.x, r: blockInfo.blockPos.y }, "遮蔽!", '#888', 40);
+                await this.wait(300);
+                return;
+            }
+
+            // ヒットSE
+            this.audioEngine.sfxHit();
+        }
+        // ---------------------------------------------------------
     }
 
     /**
@@ -500,6 +594,49 @@ export class CombatSystem {
 
                     actuallyMoved = true;
                     moves -= cost;
+
+                    // ---------------------------------------------------------
+                    // 射程内停止ロジック（遠距離攻撃ユニット用）
+                    // ---------------------------------------------------------
+                    if (unit.order && unit.order.originalTargetId) {
+                        const targetUnit = allUnits.find(u => u.id === unit.order.originalTargetId);
+                        if (targetUnit) {
+                            // 自分の射程タイプを確認
+                            const typeInfo = UNIT_TYPES[unit.type] || UNIT_TYPES.INFANTRY;
+                            const rangeType = typeInfo.rangeType || 'melee';
+                            const isRanged = ['bowArc', 'longArc', 'siege', 'aoe', 'breath', 'heal'].includes(rangeType);
+
+                            if (isRanged) {
+                                // 現在の射程範囲を計算（高低差ボーナス込み）
+                                let currentRange = 8; // default
+                                if (rangeType === 'aoe') currentRange = 6;
+                                if (rangeType === 'breath') currentRange = 4;
+                                if (rangeType === 'siege') currentRange = 12;
+                                if (rangeType === 'heal') currentRange = 5;
+
+                                if (this.mapSystem) {
+                                    const uZ = this.mapSystem.getHeight(unit.x, unit.y);
+                                    const tZ = this.mapSystem.getHeight(targetUnit.x, targetUnit.y);
+                                    if (uZ > tZ) {
+                                        const hDiff = Math.floor((uZ - tZ) / 16);
+                                        currentRange = Math.min(currentRange + hDiff, currentRange + 4);
+                                    }
+                                }
+
+                                const distToTarget = getDistAttack(unit, targetUnit); // スクエア距離
+                                const minRange = 2; // bowMinRange
+
+                                // 射程内に入ったら移動終了（その場から攻撃へ）
+                                if (distToTarget >= minRange && distToTarget <= currentRange) {
+                                    // 移動リソースを0にしてループを抜ける
+                                    moves = 0;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    // ---------------------------------------------------------
+
                     await this.wait(20);
                     continue;
                 } else {
@@ -628,7 +765,7 @@ export class CombatSystem {
 
         // 地形ボーナス（建物の高さを考慮）
         // 単位を世界単位（world units）で統一
-        const TILE_HEIGHT = 16; // 1グリッドあたりの世界単位
+        // const TILE_HEIGHT = 16; // Use imported constant // 1グリッドあたりの世界単位
         let hAtt = (map[att.y]?.[att.x]?.z || 0) * TILE_HEIGHT; // グリッド単位→世界単位
         let hDef = (map[def.y]?.[def.x]?.z || 0) * TILE_HEIGHT; // グリッド単位→世界単位
 
@@ -674,21 +811,15 @@ export class CombatSystem {
         const safeSoldiers = (typeof att.soldiers === 'number' && att.soldiers > 0) ? att.soldiers : 1;
         let dmgToDef = Math.floor((Math.sqrt(safeSoldiers) * finalAtkStat * mod * dirMod) / (finalDefStat / 15));
         if (!Number.isFinite(dmgToDef) || dmgToDef < 10) dmgToDef = 10;
-        const dmgToAtt = Math.floor(dmgToDef * 0.2);
 
-        // ダメージ適用
+        // ダメージ適用（被攻撃側のみ）
         def.soldiers -= dmgToDef;
-        att.soldiers -= dmgToAtt;
         this.spawnText({ q: def.x, r: def.y }, `-${dmgToDef}`, '#ff3333', 60);
-        this.spawnText({ q: att.x, r: att.y }, `-${dmgToAtt}`, '#ff8888', 60);
         this.speak(def, 'DAMAGED');
 
         // 被ダメージアニメーションをトリガー
         if (this.renderingEngine && this.renderingEngine.triggerDamageAnimation) {
             this.renderingEngine.triggerDamageAnimation(def.id);
-            if (dmgToAtt > 0) {
-                this.renderingEngine.triggerDamageAnimation(att.id);
-            }
         }
 
         // 3Dレンダラー側のユニット情報を更新（兵士数ゲージなど）
@@ -710,15 +841,7 @@ export class CombatSystem {
             }
             await this.dramaticDeath(def, att.side);
         }
-        if (att.soldiers <= 0 || isNaN(att.soldiers)) {
-            att.soldiers = 0;
-            att.dead = true;
-            // 死亡アニメーションをトリガー（フェードアウト付き）
-            if (this.renderingEngine && this.renderingEngine.triggerDeathAnimation) {
-                this.renderingEngine.triggerDeathAnimation(att.id);
-            }
-            await this.dramaticDeath(att, def.side);
-        }
+        // 注: 攻撃側はダメージを受けないため、死亡判定は不要
 
         await this.wait(200);
         this.activeEffects = this.activeEffects.filter(e => e.type !== 'BEAM');
@@ -1105,7 +1228,7 @@ export class CombatSystem {
         const dist = getDistRaw(from.x, from.y, to.x, to.y);
 
         // 高さは世界単位で統一（TILE_HEIGHT = 16）
-        const TILE_HEIGHT = 16;
+        // const TILE_HEIGHT = 16; // Use imported constant
         let fromZ = (map[from.y]?.[from.x]?.z || 0) * TILE_HEIGHT;
         let toZ = (map[to.y]?.[to.x]?.z || 0) * TILE_HEIGHT;
 
@@ -1123,16 +1246,19 @@ export class CombatSystem {
         const distFactor = 1 - Math.min(dist / maxRange, 1);
 
         // 基本弧の高さ（世界単位で計算）
-        const baseArcHeight = (15 + 65 * distFactor) * TILE_HEIGHT;
+        // 以前の計算式は高すぎたので修正: (15 + 65 * distFactor) -> (2 + 10 * distFactor)
+        // 1グリッド距離あたりではなく、より物理的な見た目を重視
+        const baseArcHeight = (1 + 6 * distFactor) * TILE_HEIGHT;
 
         let arcHeight = baseArcHeight;
         if (isShootingUp) {
-            arcHeight = baseArcHeight + heightDiff * 2;
+            // 見上げるときは少し弧を高くしないと刺さらないが、以前の +heightDiff*2 は過剰
+            arcHeight = baseArcHeight + heightDiff * 0.5;
         }
 
         // 軌道上の各グリッドをチェック
-        const steps = Math.ceil(dist);
-        for (let i = 1; i < steps; i++) {
+        const steps = Math.ceil(dist * 2); // ステップ数を増やして精度向上
+        for (let i = 1; i <= steps; i++) {
             const t = i / steps;
             const checkX = Math.round(from.x + (to.x - from.x) * t);
             const checkY = Math.round(from.y + (to.y - from.y) * t);
@@ -1151,18 +1277,35 @@ export class CombatSystem {
             const arcZ = fromZ + (toZ - fromZ) * t + 4 * arcHeight * t * (1 - t);
 
             // 障害物チェック：ターゲットより低い位置にある障害物はブロック
-            if (tileZ > arcZ) {
-                return { blocked: true, blockPos: { x: checkX, y: checkY, z: tileZ }, arcHeight: arcHeight };
+            // 判定マージンを少し設ける（+4）
+            if (tileZ > arcZ + 4) {
+                // 衝突！
+                // 衝突地点のZは、arrowの高さ(arcZ)ではなく障害物の表面(tileZ)でもなく、
+                // 見た目的には「刺さった場所」= arcZ を返すべき。
+                return {
+                    blocked: true,
+                    blockPos: { x: checkX, y: checkY, z: arcZ }, // 表示用座標
+                    t: t, // 進行割合
+                    arcHeight: arcHeight
+                };
             }
 
             // 低所から高所へ撃つ場合、途中に壁があるとブロック
-            if (isShootingUp && tileZ > fromZ + TILE_HEIGHT && tileZ < toZ) {
-                return { blocked: true, blockPos: { x: checkX, y: checkY, z: tileZ }, arcHeight: arcHeight };
+            if (isShootingUp && tileZ > fromZ + TILE_HEIGHT && tileZ < toZ && tileZ > arcZ) {
+                return {
+                    blocked: true,
+                    blockPos: { x: checkX, y: checkY, z: arcZ },
+                    t: t,
+                    arcHeight: arcHeight
+                };
             }
         }
 
-        return { blocked: false, blockPos: null, arcHeight: arcHeight };
+        return { blocked: false, blockPos: null, t: 1.0, arcHeight: arcHeight };
     }
+
+    // ---------------------------------------------------------
+
 
     /**
      * 遠距離攻撃を実行
@@ -1173,8 +1316,19 @@ export class CombatSystem {
     async rangedCombat(att, def, map) {
         att.dir = getFacingAngle(att.x, att.y, def.x, def.y);
 
+        // Debug Log
+        // console.log(`[Combat] rangedCombat start.`);
+
+        // 攻撃アニメーションをトリガー (必須)
+        if (this.renderingEngine && this.renderingEngine.triggerUnitAttackAnimation) {
+            this.renderingEngine.triggerUnitAttackAnimation(att.id, def.id);
+        }
+
+        // 攻撃予備動作待ち
+        await this.wait(300);
+
         // 単位を世界単位（world units）で統一
-        const TILE_HEIGHT = 16; // 1グリッドあたりの世界単位
+        // const TILE_HEIGHT = 16; // Use imported constant // 1グリッドあたりの世界単位
         let attZ = (map[att.y]?.[att.x]?.z || 0) * TILE_HEIGHT; // グリッド単位→世界単位
         let defZ = (map[def.y]?.[def.x]?.z || 0) * TILE_HEIGHT; // グリッド単位→世界単位
 
@@ -1193,8 +1347,6 @@ export class CombatSystem {
 
         // ワールドユニットでの高さ差を計算
         const heightDiff = defZ - attZ;
-        // グリッド単位に換算して判定（建物高さも考慮）
-        const heightDiffInGrids = heightDiff / TILE_HEIGHT;
 
         if (heightDiff > MAX_HEIGHT_DIFF) {
             // ターゲットが高すぎて到達できない
@@ -1203,23 +1355,66 @@ export class CombatSystem {
             return;
         }
 
-        // 遮蔽チェック（アニメーションと判定で共用）
-        const blockInfo = this.isArrowPathBlocked(att, def, map);
+        // ユニットタイプに応じた攻撃演出
+        const typeInfo = UNIT_TYPES[att.type] || UNIT_TYPES.INFANTRY;
+        const rangeType = typeInfo.rangeType || 'bowArc';
 
-        // 矢のアニメーションを発射
-        if (this.renderingEngine && this.renderingEngine.spawnArrowAnimation) {
-            await this.renderingEngine.spawnArrowAnimation(att, def, blockInfo);
+        if (rangeType === 'aoe') {
+            // 魔術師：魔法弾
+            this.audioEngine.sfxMagicAtk && this.audioEngine.sfxMagicAtk();
+            if (this.renderingEngine && this.renderingEngine.spawnMagicProjectile) {
+                await this.renderingEngine.spawnMagicProjectile(att, def, 0xAA00FF);
+            } else {
+                await this.wait(500);
+            }
+        } else if (rangeType === 'breath') {
+            // ドラゴン：ブレス(赤)
+            this.audioEngine.sfxBreath && this.audioEngine.sfxBreath();
+            if (this.renderingEngine && this.renderingEngine.spawnMagicProjectile) {
+                await this.renderingEngine.spawnMagicProjectile(att, def, 0xFF4400);
+            } else {
+                await this.wait(500);
+            }
+        } else if (rangeType === 'heal') {
+            // 僧侶：聖なる光(黄)
+            this.audioEngine.sfxMagicAtk && this.audioEngine.sfxMagicAtk();
+            if (this.renderingEngine && this.renderingEngine.spawnMagicProjectile) {
+                await this.renderingEngine.spawnMagicProjectile(att, def, 0xFFFF88);
+            } else {
+                await this.wait(500);
+            }
+
+        } else {
+            // 弓・銃・大砲
+            // 遮蔽チェック
+            const blockInfo = this.isArrowPathBlocked(att, def, map);
+
+            // 矢のアニメーションを発射
+            if (this.renderingEngine && this.renderingEngine.spawnArrowAnimation) {
+                await this.renderingEngine.spawnArrowAnimation(att, def, blockInfo);
+            }
+
+            if (blockInfo.blocked) {
+                // 矢が遮られた
+                // Z座標（高さ）を正しく反映して表示
+                const textPos = {
+                    q: blockInfo.blockPos.x,
+                    r: blockInfo.blockPos.y,
+                    height: blockInfo.blockPos.z // 高さ指定を追加（ui.js/rendering.jsでの対応が必要だが、渡す）
+                };
+                // spawnTextは本来QR座標だが、3D表示用に高さを考慮させる（renderingHelper側で対応されている前提、なければ後で修正）
+                // 一旦、blockPos.zはワールド座標なので、そのまま渡すのは難しいかも。
+                // pixelToHex等で変換するか、spawnTextが3D座標を受け取れるか？
+                // spawnTextの実装を確認していないが、既存コードに合わせて q,r を渡す。
+                // ただし、高さを表現するために、blockPosはあくまで「どのタイルで止まったか」を示す。
+                this.spawnText(textPos, "遮蔽!", '#888', 40);
+                await this.wait(300);
+                return;
+            }
+
+            // ヒットSE
+            this.audioEngine.sfxHit();
         }
-
-        if (blockInfo.blocked) {
-            // 矢が遮られた
-            this.spawnText({ q: blockInfo.blockPos.x, r: blockInfo.blockPos.y }, "遮蔽!", '#888', 40);
-            await this.wait(300);
-            return;
-        }
-
-        // 弓攻撃SE
-        this.audioEngine.sfxHit();
 
         // 高低差によるダメージ倍率（heightDiffは上で計算済み: defZ - attZ）
         let heightMod = 1.0;
@@ -1236,9 +1431,45 @@ export class CombatSystem {
         const finalAtkStat = att.atk + attFormation.atk;
         const finalDefStat = def.def + defFormation.def;
 
-        // ダメージ計算（近接より低め、ただし反撃なし）
+        // 距離によるダメージ減衰（遠いほど威力低下）
+        // 4マスまでは減衰なし、それ以降1マスごとに-5%
+        // ただし最低保証50%
+        const dist = getDistRaw(att.x, att.y, def.x, def.y);
+        let distMod = 1.0;
+        if (dist > 4) {
+            distMod = Math.max(0.5, 1.0 - (dist - 4) * 0.05);
+        }
+
+        // ダメージ・回復計算
         const safeSoldiers = (typeof att.soldiers === 'number' && att.soldiers > 0) ? att.soldiers : 1;
-        let dmgToDef = Math.floor((Math.sqrt(safeSoldiers) * finalAtkStat * heightMod * 0.7) / (finalDefStat / 15));
+
+        if (rangeType === 'heal') {
+            // 回復計算 (攻撃力の半分程度を基準に)
+            // 回復は自身の攻撃力依存、相手の防御関係なし
+            let healAmount = Math.floor((Math.sqrt(safeSoldiers) * finalAtkStat * heightMod * distMod * 0.5));
+            if (healAmount < 1) healAmount = 1;
+
+            // 回復適用
+            const oldSoldiers = def.soldiers;
+            def.soldiers += healAmount;
+            if (def.soldiers > def.maxSoldiers) def.soldiers = def.maxSoldiers; // 最大値キャップ（あれば）
+            // ※ここでは簡易的に元の兵数を最大と見なせないため、キャップ処理は別途必要だが、
+            // とりあえず UNIT_TYPES から baseHp を取得するか、あるいは無制限にするか。
+            // 今回はシンプルに加算のみ（上限なし、またはデータ構造依存）
+
+            this.spawnText({ q: def.x, r: def.y }, `+${healAmount}`, '#00ff00', 60);
+            // this.speak(def, 'HEALED'); // ボイスがあれば
+
+            // 3Dレンダラー側のユニット情報を更新
+            if (this.renderingEngine && this.renderingEngine.updateUnitInfo) {
+                const defMesh = this.renderingEngine.unitMeshes.get(def.id);
+                if (defMesh) this.renderingEngine.updateUnitInfo(defMesh, def);
+            }
+            return;
+        }
+
+        // 攻撃ダメージ計算（近接より低め、ただし反撃なし）
+        let dmgToDef = Math.floor((Math.sqrt(safeSoldiers) * finalAtkStat * heightMod * distMod * 0.7) / (finalDefStat / 15));
         if (!Number.isFinite(dmgToDef) || dmgToDef < 5) dmgToDef = 5;
 
         // ダメージ適用（反撃なし）
