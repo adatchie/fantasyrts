@@ -403,10 +403,20 @@ export class Game {
             // 2. プレイヤーの配置済みユニットがいれば配置（複数ユニット生成）
             if (this.sceneManager) {
                 const placements = this.sceneManager.getGameData('unitPlacements') || [];
+                console.log(`[startGame] Found ${placements.length} placements.`);
+                
                 const deployedUnits = gameProgress.getDeployedUnits();
+                console.log(`[startGame] Deployed units count: ${deployedUnits.length}`);
+
                 placements.forEach(([unitId, pos], placementIndex) => {
-                    const unitData = deployedUnits.find(u => u.id === unitId);
+                    // unitIdの型変換（念のため）
+                    const targetId = typeof unitId === 'string' ? parseInt(unitId) : unitId;
+                    
+                    const unitData = deployedUnits.find(u => u.id === targetId);
+                    
                     if (unitData) {
+                        console.log(`[startGame] Spawning player unit: ${unitData.name} (ID: ${targetId}) at ${pos.x},${pos.y}`);
+                        
                         // 武将データ形式に変換（敵ユニットと同じ処理）
                         // unitCount (編成数) から兵士数を計算
                         const unitCount = unitData.unitCount || 1;
