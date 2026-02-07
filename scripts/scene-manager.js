@@ -605,12 +605,14 @@ class DeploymentScene {
         }
     }
     selectUnit(unitId) {
-        this.selectedUnitId = unitId;
+        // IDを数値に変換（Mapのキーと一致させるため）
+        this.selectedUnitId = parseInt(unitId);
 
         // UI更新：選択中のユニットをハイライト
         document.querySelectorAll('.deploy-unit-item').forEach(item => {
             item.classList.remove('selecting');
-            if (item.dataset.unitId === unitId) {
+            // dataset.unitIdは文字列なので比較時は注意、あるいは == を使う
+            if (parseInt(item.dataset.unitId) === this.selectedUnitId) {
                 item.classList.add('selecting');
             }
         });
@@ -625,82 +627,83 @@ class DeploymentScene {
         game.isDeploymentMode = true;
 
         const handlePointerDown = (event) => {
-            // UI要素（ボタンなど）へのクリックは無視
-            if (event.target !== canvas && event.target.id !== 'gameCanvas') {
-                return;
-            }
-
-            if (!this.selectedUnitId) return;
-
-            // イベントの伝播を停止してmain.jsのハンドラーを実行しないようにする
-            event.stopPropagation();
-            event.stopImmediatePropagation();
-
-            const rect = canvas.getBoundingClientRect();
-            const mouseX = event.clientX - rect.left;
-            const mouseY = event.clientY - rect.top;
-
-            // レイキャスティングでグリッド座標を取得（canvas要素も渡す）
-            const gridPos = game.renderingEngine.screenToGrid(mouseX, mouseY, rect.width, rect.height, canvas);
-            if (!gridPos) return;
-
-            const { x, y } = gridPos;
-
-            // 配置可能エリア内かチェック
-            const isValidZone = this.deploymentZones.some(z => z.x === x && z.y === y);
-            if (!isValidZone) {
-                return;
-            }
-
-            // 配置ロジック（上書き・入れ替え対応）
-            let occupiedUnitId = null;
-            for (const [uid, pos] of this.placedUnits) {
-                if (pos.x === x && pos.y === y) {
-                    occupiedUnitId = uid;
-                    break;
+            try {
+                // UI要素（ボタンなど）へのクリックは無視
+                if (event.target !== canvas && event.target.id !== 'gameCanvas') {
+                    return;
                 }
-            }
 
-            if (occupiedUnitId) {
-                // 同じユニットなら何もしない
-                if (occupiedUnitId === this.selectedUnitId) return;
+                if (!this.selectedUnitId) return;
 
-                // 選択中のユニットが既に別の場所に配置されていたら入れ替え（スワップ）
-                const prevPos = this.placedUnits.get(this.selectedUnitId);
-                
-                if (prevPos) {
-                    // スワップ：占有していたユニットを元の場所へ
-                    this.placedUnits.set(occupiedUnitId, prevPos);
-                    this.updateUnitStatus(occupiedUnitId, prevPos);
-                    game.renderingEngine.addDeploymentMarker(prevPos.x, prevPos.y); // マーカー更新
-                } else {
-                    // 上書き：占有していたユニットを未配置に
-                    this.placedUnits.delete(occupiedUnitId);
-                    this.updateUnitStatus(occupiedUnitId, null);
+                // イベントの伝播を停止してmain.jsのハンドラーを実行しないようにする
+                event.stopPropagation();
+                event.stopImmediatePropagation();
+
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = event.clientX - rect.left;
+                const mouseY = event.clientY - rect.top;
+
+                // レイキャスティングでグリッド座標を取得（canvas要素も渡す）
+                const gridPos = game.renderingEngine.screenToGrid(mouseX, mouseY, rect.width, rect.height, canvas);
+                if (!gridPos) return;
+
+                const { x, y } = gridPos;
+
+                // 配置可能エリア内かチェック
+                const isValidZone = this.deploymentZones.some(z => z.x === x && z.y === y);
+                if (!isValidZone) {
+                    return;
                 }
+
+                // 配置ロジック（上書き・入れ替え対応）
+                let occupiedUnitId = null;
+                for (const [uid, pos] of this.placedUnits) {
+                    if (pos.x === x && pos.y === y) {
+                        occupiedUnitId = uid;
+                        break;
+                    }
+                }
+
+                if (occupiedUnitId) {
+                    // 同じユニットなら何もしない
+                    if (occupiedUnitId === this.selectedUnitId) return;
+
+                    // 選択中のユニットが既に別の場所に配置されていたら入れ替え（スワップ）
+                    const prevPos = this.placedUnits.get(this.selectedUnitId);
+                    
+                    if (prevPos) {
+                        // スワップ：占有していたユニットを元の場所へ
+                        this.placedUnits.set(occupiedUnitId, prevPos);
+                        this.updateUnitStatus(occupiedUnitId, prevPos);
+                        game.renderingEngine.addDeploymentMarker(prevPos.x, prevPos.y); // マーカー更新
+                    } else {
+                        // 上書き：占有していたユニットを未配置に
+                        this.placedUnits.delete(occupiedUnitId);
+                        this.updateUnitStatus(occupiedUnitId, null);
+                    }
+                }
+
+                // 配置を実行
+                this.placedUnits.set(this.selectedUnitId, { x, y });
+                this.updateUnitStatus(this.selectedUnitId, { x, y });
+
+                // カウント更新
+                const countEl = document.getElementById('placed-count');
+                if (countEl) countEl.textContent = this.placedUnits.size.toString();
+
+                // 全員配置完了チェック
+                const deployedUnits = gameProgress.getDeployedUnits();
+                if (this.placedUnits.size === deployedUnits.length) {
+                    const btn = document.getElementById('btn-start-battle');
+                    if (btn) btn.disabled = false;
+                }
+
+                // 配置位置にマーカーを表示
+                game.renderingEngine.addDeploymentMarker(x, y);
+            } catch (e) {
+                console.error("Manual Placement Error:", e);
+                alert("配置処理中にエラーが発生しました: " + e.message);
             }
-
-            // 配置を実行
-            this.placedUnits.set(this.selectedUnitId, { x, y });
-            this.updateUnitStatus(this.selectedUnitId, { x, y });
-
-            // カウント更新
-            const countEl = document.getElementById('placed-count');
-            if (countEl) countEl.textContent = this.placedUnits.size.toString();
-
-            // 全員配置完了チェック
-            const deployedUnits = gameProgress.getDeployedUnits();
-            if (this.placedUnits.size === deployedUnits.length) {
-                const btn = document.getElementById('btn-start-battle');
-                if (btn) btn.disabled = false;
-            }
-
-            // 配置完了しても連続配置できるように選択解除しない（ユーザーの好みによるが、今回は維持）
-            // this.selectedUnitId = null; 
-            // document.querySelectorAll('.deploy-unit-item').forEach(item => { item.classList.remove('selecting'); });
-
-            // 配置位置にマーカーを表示
-            game.renderingEngine.addDeploymentMarker(x, y);
         };
 
         const handlePointerUp = (event) => {
