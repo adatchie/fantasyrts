@@ -259,8 +259,8 @@ class MapSelectScene {
 class OrganizationScene {
     constructor(manager) {
         this.manager = manager;
-        this.maxDeployment = 30; // 最大ユニット数
-        this.maxCost = 150;      // 最大コスト
+        this.maxSquadSize = 30; // 1部隊あたりの最大ユニット数
+        this.maxTotalCost = 150; // 全軍の総コスト上限
     }
 
     createUI() {
@@ -274,11 +274,10 @@ class OrganizationScene {
         org.innerHTML = `
             <div class="org-layout">
                 <div class="org-sidebar">
-                    <h2>部隊編成</h2>
+                    <h2>軍団編成</h2>
                     <p class="stage-name">📍 ${stageName}</p>
                     <div class="org-stats">
-                        <p>Cost: <span id="deployed-cost" class="highlight-val">0</span> / ${this.maxCost}</p>
-                        <p>Unit: <span id="deployed-count" class="highlight-val">0</span> / ${this.maxDeployment}</p>
+                        <p>Total Cost: <span id="total-cost" class="highlight-val">0</span> / ${this.maxTotalCost}</p>
                     </div>
                     <div class="org-buttons">
                         <button class="btn-secondary" id="btn-back-map">戻る</button>
@@ -286,137 +285,106 @@ class OrganizationScene {
                     </div>
                 </div>
                 <div class="org-main">
-                    <div class="org-columns">
-                        <div class="unit-pool">
-                            <h3>雇用可能兵種</h3>
-                            <div id="recruit-list" class="unit-grid"></div>
-                        </div>
-                        <div class="army-slots">
-                            <h3>現在の軍勢</h3>
-                            <div id="army-list" class="unit-list"></div>
-                        </div>
+                    <div class="squad-list-container">
+                        <h3>部隊一覧</h3>
+                        <div id="squad-list" class="squad-list"></div>
                     </div>
                 </div>
             </div>
         `;
 
         this.manager.uiContainer.appendChild(org);
-        this.renderRecruitList();
-        this.renderArmyList();
+        this.renderSquadList();
 
         document.getElementById('btn-back-map').addEventListener('click', () => {
             this.manager.transition(SCENES.MAP_SELECT);
         });
 
         document.getElementById('btn-to-deploy').addEventListener('click', () => {
-            if (gameProgress.playerUnits.length > 0) {
+            if (this.calculateTotalCost() <= this.maxTotalCost) {
                 this.manager.transition(SCENES.DEPLOYMENT);
             } else {
-                alert('ユニットを編成してください');
+                alert('コスト上限を超過しています');
             }
         });
     }
 
-    renderRecruitList() {
-        const list = document.getElementById('recruit-list');
-        if (!list) return;
-        list.innerHTML = '';
-
-        Object.keys(UNIT_TYPES).forEach(key => {
-            const info = UNIT_TYPES[key];
-            const el = document.createElement('div');
-            el.className = 'org-unit-card recruit-card';
-            el.innerHTML = `
-                <span class="unit-marker">${info.marker}</span>
-                <div class="unit-details">
-                    <strong>${info.name}</strong>
-                    <span class="unit-cost">Cost:${info.cost}</span>
-                </div>
-            `;
-            el.addEventListener('click', () => this.recruitUnit(key));
-            list.appendChild(el);
+    calculateTotalCost() {
+        let total = 0;
+        const army = gameProgress.getPlayerUnits();
+        army.forEach(u => {
+            const info = getUnitTypeInfo(u.type);
+            const cost = info?.cost || 0;
+            total += cost * (u.unitCount || 1);
         });
+        return total;
     }
 
-    renderArmyList() {
-        const list = document.getElementById('army-list');
-        const countSpan = document.getElementById('deployed-count');
-        const costSpan = document.getElementById('deployed-cost');
+    renderSquadList() {
+        const list = document.getElementById('squad-list');
+        const costSpan = document.getElementById('total-cost');
         if (!list) return;
 
         list.innerHTML = '';
         const army = gameProgress.getPlayerUnits();
+        const totalCost = this.calculateTotalCost();
 
-        // コスト計算
-        let currentCost = 0;
-        army.forEach(u => {
-            const info = getUnitTypeInfo(u.type);
-            currentCost += (info?.cost || 0);
-        });
-
-        countSpan.textContent = army.length;
         if (costSpan) {
-            costSpan.textContent = currentCost;
-            costSpan.style.color = currentCost > this.maxCost ? '#ff4444' : '#00ff88';
+            costSpan.textContent = totalCost;
+            costSpan.style.color = totalCost > this.maxTotalCost ? '#ff4444' : '#00ff88';
         }
 
         army.forEach(unit => {
             const info = getUnitTypeInfo(unit.type);
+            const unitCost = info?.cost || 0;
+            const count = unit.unitCount || 1;
+            const squadCost = unitCost * count;
+
             const el = document.createElement('div');
-            el.className = 'org-unit-card army-card';
+            el.className = 'org-squad-card';
             el.innerHTML = `
-                <span class="unit-marker">${info?.marker || '?'}</span>
-                <div class="unit-details">
-                    <strong>${unit.name || info?.name}</strong>
-                    <span class="unit-cost">Cost:${info?.cost || 0}</span>
+                <div class="squad-header">
+                    <span class="unit-marker">${info?.marker || '?'}</span>
+                    <span class="squad-name">${unit.name}</span>
+                    <span class="squad-type">(${info?.name})</span>
                 </div>
-                <button class="btn-remove">×</button>
+                <div class="squad-controls">
+                    <span class="unit-cost-info">Cost: ${unitCost}/体</span>
+                    <div class="counter-ui">
+                        <button class="btn-count btn-dec">-</button>
+                        <span class="count-val">${count}</span>
+                        <button class="btn-count btn-inc">+</button>
+                    </div>
+                    <span class="squad-total-cost">Total: ${squadCost}</span>
+                </div>
             `;
-            // 削除ボタン
-            el.querySelector('.btn-remove').addEventListener('click', (e) => {
-                e.stopPropagation();
-                this.removeUnit(unit.id);
+
+            // 減少ボタン
+            el.querySelector('.btn-dec').addEventListener('click', () => {
+                if (unit.unitCount > 0) {
+                    unit.unitCount--;
+                    this.renderSquadList();
+                }
             });
+
+            // 増加ボタン
+            el.querySelector('.btn-inc').addEventListener('click', () => {
+                // 総コストチェックはここでは厳密にせず、赤字表示で警告するスタイルにするか、
+                // あるいは上限で止めるか。ユーザビリティ的には上限で止めるのが親切。
+                if (this.calculateTotalCost() + unitCost > this.maxTotalCost) {
+                    // Cost limit logic (Optional: allow over but prevent start)
+                    // return; 
+                }
+                
+                if (unit.unitCount < this.maxSquadSize) {
+                    unit.unitCount++;
+                    this.renderSquadList();
+                }
+            });
+
             list.appendChild(el);
         });
     }
-
-    recruitUnit(type) {
-        const info = getUnitTypeInfo(type);
-        const cost = info?.cost || 0;
-
-        // コスト＆数チェック
-        const army = gameProgress.getPlayerUnits();
-        let currentCost = 0;
-        army.forEach(u => {
-            const i = getUnitTypeInfo(u.type);
-            currentCost += (i?.cost || 0);
-        });
-
-        if (army.length >= this.maxDeployment) {
-            alert('ユニット数上限です');
-            return;
-        }
-        if (currentCost + cost > this.maxCost) {
-            alert('コスト上限です');
-            return;
-        }
-
-        // 追加
-        const newUnit = gameProgress.addUnit(type);
-        // 名前をつける（ユニークにするため）
-        const typeCount = army.filter(u => u.type === type).length + 1;
-        newUnit.name = `${info.name}${typeCount}`;
-        
-        this.renderArmyList();
-    }
-
-    removeUnit(unitId) {
-        gameProgress.removeUnit(unitId);
-        this.renderArmyList();
-    }
-
-    // toggleDeploymentは廃止
 }
 
 class DeploymentScene {

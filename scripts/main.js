@@ -408,12 +408,16 @@ export class Game {
                     const unitData = deployedUnits.find(u => u.id === unitId);
                     if (unitData) {
                         // 武将データ形式に変換（敵ユニットと同じ処理）
+                        // unitCount (編成数) から兵士数を計算
+                        const unitCount = unitData.unitCount || 1;
+                        const soldiers = unitCount * SOLDIERS_PER_UNIT;
+
                         const warlordData = {
                             name: unitData.warlordName || unitData.name,
                             side: this.playerSide,
                             x: pos.x,
                             y: pos.y,
-                            soldiers: unitData.soldiers || 30000, // デフォルト30000（30ユニット分）でワラワラ表示
+                            soldiers: soldiers,
                             atk: unitData.atk || 50,
                             def: unitData.def || 50,
                             jin: unitData.jin || 50,

@@ -74,17 +74,14 @@ export const STAGES = {
 // プレイヤーユニットプール
 // ============================================
 
-// 初期所持ユニット（バランス型編成をデフォルトとする）
+// 初期所持ユニット（部隊リスト）
+// unitCount: 部隊内のユニット数（コスト管理対象）
 export const PLAYER_UNIT_POOL = [
-    { id: 1, type: 'INFANTRY', name: '歩兵1', level: 1, exp: 0 },
-    { id: 2, type: 'INFANTRY', name: '歩兵2', level: 1, exp: 0 },
-    { id: 3, type: 'INFANTRY', name: '歩兵3', level: 1, exp: 0 },
-    { id: 4, type: 'INFANTRY', name: '歩兵4', level: 1, exp: 0 },
-    { id: 5, type: 'ARCHER', name: '弓兵1', level: 1, exp: 0 },
-    { id: 6, type: 'ARCHER', name: '弓兵2', level: 1, exp: 0 },
-    { id: 7, type: 'MAGE', name: '魔術師1', level: 1, exp: 0 },
-    { id: 8, type: 'MAGE', name: '魔術師2', level: 1, exp: 0 },
-    { id: 9, type: 'PRIEST', name: '僧侶1', level: 1, exp: 0 }
+    { id: 1, type: 'INFANTRY', name: '歩兵隊', level: 1, exp: 0, unitCount: 10 },
+    { id: 2, type: 'ARCHER', name: '弓兵隊', level: 1, exp: 0, unitCount: 5 },
+    { id: 3, type: 'MAGE', name: '魔導師団', level: 1, exp: 0, unitCount: 3 },
+    { id: 4, type: 'PRIEST', name: '僧侶団', level: 1, exp: 0, unitCount: 2 },
+    { id: 5, type: 'KNIGHT', name: '騎士団', level: 1, exp: 0, unitCount: 2 }
 ];
 
 // ============================================
@@ -95,12 +92,23 @@ export class GameProgress {
     constructor() {
         this.completedStages = [];
         this.unlockedStages = ['tutorial'];
-        this.playerUnits = [...PLAYER_UNIT_POOL]; // デフォルト編成をコピー
+        this.playerUnits = [...PLAYER_UNIT_POOL]; // 部隊リストをコピー
         this.deployedUnits = this.playerUnits.map(u => u.id); // 全員出撃設定
         this.gold = 1000;
         this.currentStage = null;
-        this.nextUnitId = 10; // IDカウンター (初期ユニットが9までなので10から)
+        this.nextUnitId = 10;
     }
+
+    /**
+     * 指定されたIDの部隊を取得
+     */
+    getUnit(unitId) {
+        return this.playerUnits.find(u => u.id === unitId);
+    }
+
+    /**
+     * ステージクリア時の処理
+     */
 
     /**
      * 新しいユニットを雇用して追加
