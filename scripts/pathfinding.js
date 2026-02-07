@@ -239,20 +239,48 @@ function getNeighbors(x, y) {
 
 /**
  * 他のユニットが障害物となるかチェック（味方と敵を区別）
+ * @param {number} x
+ * @param {number} y
+ * @param {Array|Map} unitsOrMap - ユニット配列 または 位置マップ(Key="x,y", Value=Unit)
+ * @param {Object} movingUnit
  */
-function getBlockingInfo(x, y, units, movingUnit) {
-    for (const u of units) {
-        if (u.id === movingUnit.id || u.dead) continue;
+function getBlockingInfo(x, y, unitsOrMap, movingUnit) {
+    let unitAtPos = null;
 
-        const dist = getDistRaw(x, y, u.x, u.y);
-        if (dist < (movingUnit.radius + u.radius)) {
-            return {
+    // Mapが渡された場合（高速検索）
+    if (unitsOrMap instanceof Map) {
+        unitAtPos = unitsOrMap.get(`${x},${y}`);
+    } 
+    // 配列が渡された場合（従来互換）
+    else if (Array.isArray(unitsOrMap)) {
+        // 半径チェックを含む厳密な判定（従来通り）
+        for (const u of unitsOrMap) {
+            if (u.id === movingUnit.id || u.dead) continue;
+            const dist = getDistRaw(x, y, u.x, u.y);
+            if (dist < (movingUnit.radius + u.radius)) {
+                unitAtPos = u;
+                break;
+            }
+        }
+        if (unitAtPos) {
+             return {
                 blocked: true,
-                isFriendly: u.side === movingUnit.side,
-                unit: u
+                isFriendly: unitAtPos.side === movingUnit.side,
+                unit: unitAtPos
             };
         }
+        return { blocked: false, isFriendly: false, unit: null };
     }
+
+    // Map検索で見つかった場合
+    if (unitAtPos && unitAtPos.id !== movingUnit.id && !unitAtPos.dead) {
+        return {
+            blocked: true,
+            isFriendly: unitAtPos.side === movingUnit.side,
+            unit: unitAtPos
+        };
+    }
+    
     return { blocked: false, isFriendly: false, unit: null };
 }
 
@@ -260,6 +288,8 @@ function getBlockingInfo(x, y, units, movingUnit) {
  * 従来のisBlocked関数（敵ユニットのみブロック）
  */
 function isBlocked(x, y, units, movingUnitId, movingUnitRadius, movingUnitSide) {
+    // 高速化のため、findPath内でMapが利用可能な場合はそちらを使うべきだが、
+    // ここは既存API互換のため配列走査のままにする（呼び出し頻度が低いと想定）
     return units.some(u =>
         u.id !== movingUnitId &&
         !u.dead &&
@@ -273,6 +303,19 @@ function isBlocked(x, y, units, movingUnitId, movingUnitRadius, movingUnitSide) 
  * 他のユニットを避けるルートを探索
  */
 export function findPath(startX, startY, goalX, goalY, units, movingUnit, mapSystem) {
+    // ユニット位置の高速検索用Mapを作成
+    // key: "x,y", value: unit
+    // これにより getBlockingInfo を O(N) -> O(1) に高速化
+    const unitMap = new Map();
+    // 自分のIDは除外しないとMap構築時に上書きされる可能性があるが、
+    // そもそも自分がいる場所に他人はいない前提。
+    // ただし、移動シミュレーションなので「現在の全ユニット位置」をスナップショットとして使う。
+    for (const u of units) {
+        if (!u.dead) {
+            unitMap.set(`${u.x},${u.y}`, u);
+        }
+    }
+
     // 目標と同じ位置にいる場合
     if (startX === goalX && startY === goalY) {
         return [{ x: startX, y: startY }];
@@ -282,7 +325,9 @@ export function findPath(startX, startY, goalX, goalY, units, movingUnit, mapSys
     const straightPath = getLine(startX, startY, goalX, goalY);
     let blocked = false;
     for (let i = 1; i < straightPath.length; i++) {
-        const blockInfo = getBlockingInfo(straightPath[i].x, straightPath[i].y, units, movingUnit);
+        // unitMapを使用して高速チェック
+        const blockInfo = getBlockingInfo(straightPath[i].x, straightPath[i].y, unitMap, movingUnit);
+        
         // 敵ユニットのみブロック扱い
         if (blockInfo.blocked && !blockInfo.isFriendly) {
             blocked = true;
@@ -366,8 +411,8 @@ export function findPath(startX, startY, goalX, goalY, units, movingUnit, mapSys
 
             if (closedSet.has(neighborKey)) continue;
 
-            // ブロック情報を取得
-            const blockInfo = getBlockingInfo(neighbor.x, neighbor.y, units, movingUnit);
+            // ブロック情報を取得 (Mapを使用)
+            const blockInfo = getBlockingInfo(neighbor.x, neighbor.y, unitMap, movingUnit);
 
             // ゴールでない場合の障害物チェック
             if (!(neighbor.x === goalX && neighbor.y === goalY)) {

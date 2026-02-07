@@ -54,6 +54,7 @@ export const UNIT_TYPES = {
         baseHp: 1000,
         baseMoveRange: 9,
         mobility: 4,
+        cost: 5, // 歩兵30人 = 150
         marker: '⚔️',
         description: '攻撃力防御力平均的。近接攻撃のみ。軽装鎧に剣装備。',
         weapon: 'sword'
@@ -68,6 +69,7 @@ export const UNIT_TYPES = {
         baseHp: 1200,
         baseMoveRange: 6,
         mobility: 3,
+        cost: 10,
         marker: '🛡️',
         description: '防御力が高く壁役。近接攻撃のみ。重装鎧に盾を装備。',
         weapon: 'sword'
@@ -82,6 +84,7 @@ export const UNIT_TYPES = {
         baseHp: 800,
         baseMoveRange: 9,
         mobility: 5,
+        cost: 8,
         marker: '🏹',
         description: '攻撃力防御力弱いが射程長い。皮装備に弓を装備。',
         weapon: 'bow'
@@ -96,6 +99,7 @@ export const UNIT_TYPES = {
         baseHp: 1000,
         baseMoveRange: 9,
         mobility: 4,
+        cost: 8,
         marker: '🔱',
         description: '攻撃力防御力平均的。前方2マス攻撃可。軽装鎧に槍装備。',
         weapon: 'spear'
@@ -110,6 +114,7 @@ export const UNIT_TYPES = {
         baseHp: 700,
         baseMoveRange: 6,
         mobility: 2,
+        cost: 12,
         marker: '🔫',
         description: '攻撃力高いが防御低い。射程長い。皮装備に長銃装備。',
         weapon: 'gun'
@@ -124,6 +129,7 @@ export const UNIT_TYPES = {
         baseHp: 600,
         baseMoveRange: 6,
         mobility: 2,
+        cost: 15,
         marker: '✨',
         isAoe: true,  // 範囲攻撃フラグ（着弾点+周囲8マスにダメージ）
         description: '攻撃力高いが防御極度に低い。射程中。範囲攻撃。ローブに魔導書。',
@@ -139,6 +145,7 @@ export const UNIT_TYPES = {
         baseHp: 800,
         baseMoveRange: 6,
         mobility: 2,
+        cost: 10,
         isHealer: true,
         marker: '✝️',
         description: '攻撃力なし防御平均的。味方を回復。僧衣に杖。',
@@ -156,6 +163,7 @@ export const UNIT_TYPES = {
         baseHp: 1500,
         baseMoveRange: 12,
         mobility: 6,
+        cost: 20,
         canPushBack: true,  // 押し出し能力
         marker: '🐴',
         description: '攻撃力高防御高。移動力高。前方2マス攻撃可。敵を押し出す。'
@@ -172,6 +180,7 @@ export const UNIT_TYPES = {
         baseHp: 3000,
         baseMoveRange: 11,
         mobility: 6,
+        cost: 50, // ドラゴン3匹 = 150
         marker: '🐉',
         description: '強力な飛行ユニット。ブレス攻撃で前方扇状にダメージ。'
     },
@@ -185,6 +194,7 @@ export const UNIT_TYPES = {
         baseHp: 2500,
         baseMoveRange: 12,
         mobility: 6,
+        cost: 45,
         marker: '🦅',
         description: 'ドラゴンに騎乗した騎士。機動力と攻撃力を兼ね備える。'
     },
@@ -198,6 +208,7 @@ export const UNIT_TYPES = {
         baseHp: 1000,
         baseMoveRange: 3,
         mobility: 1,
+        cost: 30,
         marker: '💣',
         description: '圧倒的な攻撃力と超長射程。移動力は極端に低い。',
         weapon: 'cannon' // 武器種別

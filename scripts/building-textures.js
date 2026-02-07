@@ -4,6 +4,8 @@
  */
 
 import * as THREE from 'three';
+import { TextureGenerator } from './texture-generator.js'; // Import TextureGenerator
+import { BLOCK_TYPES } from './building.js'; // Import BLOCK_TYPES if needed (circular dependency risk, hardcode instead)
 
 // テクスチャキャッシュ
 const textureCache = {};
@@ -14,6 +16,41 @@ const textureCache = {};
 export class BuildingTextureGenerator {
     constructor() {
         this.textureSize = 128;
+    }
+
+    /**
+     * ブロックタイプIDからテクスチャを取得
+     * @param {number} typeId - ブロックタイプID
+     * @returns {THREE.Texture|null} テクスチャ
+     */
+    getTextureForBlockType(typeId) {
+        // BLOCK_TYPES.STONE_WALL = 1
+        if (typeId === 1) {
+            return this.createStoneWallTexture();
+        }
+        // BLOCK_TYPES.WOOD_WALL = 3
+        if (typeId === 3) {
+            return this.createWoodWallTexture();
+        }
+        // BLOCK_TYPES.ROOF_TILE = 5
+        if (typeId === 5) {
+            return this.createRoofTileTexture();
+        }
+        // 他のタイプも必要に応じて追加
+        // STONE_FLOOR = 2
+        if (typeId === 2) {
+            return this.createStoneFloorTexture();
+        }
+        // WOOD_FLOOR = 4
+        if (typeId === 4) {
+            return this.createWoodFloorTexture();
+        }
+        // WOOD_DOOR = 6
+        if (typeId === 6) {
+            return this.createDoorTexture();
+        }
+        
+        return null;
     }
 
     /**
@@ -32,58 +69,17 @@ export class BuildingTextureGenerator {
     createStoneWallTexture() {
         if (textureCache['stoneWall']) return textureCache['stoneWall'];
 
-        const canvas = this.createCanvas();
-        const ctx = canvas.getContext('2d');
-        const s = this.textureSize;
-
-        // ベース色
-        ctx.fillStyle = '#888888';
-        ctx.fillRect(0, 0, s, s);
-
-        // レンガ境界（暗い色）
-        ctx.strokeStyle = '#666666';
-        ctx.lineWidth = 1;
-
-        // 横方向の境界
-        for (let y = 0; y < s; y += 16) {
-            ctx.beginPath();
-            ctx.moveTo(0, y);
-            ctx.lineTo(s, y);
-            ctx.stroke();
-        }
-
-        // 縦方向の境界
-        for (let x = 0; x < s; x += 32) {
-            ctx.beginPath();
-            ctx.moveTo(x, 0);
-            ctx.lineTo(x, s);
-            ctx.stroke();
-        }
-
-        // レンガの立体感（少し明るい色でハイライト）
-        ctx.strokeStyle = '#999999';
-        ctx.lineWidth = 1;
-        for (let y = 0; y < s; y += 16) {
-            ctx.beginPath();
-            ctx.moveTo(0, y + 1);
-            ctx.lineTo(s, y + 1);
-            ctx.stroke();
-        }
-        for (let x = 0; x < s; x += 32) {
-            ctx.beginPath();
-            ctx.moveTo(x + 1, 0);
-            ctx.lineTo(x + 1, s);
-            ctx.stroke();
-        }
-
-        // ランダムなノイズで質感を追加
-        this.addNoise(ctx, s, 0.03);
+        // TextureGeneratorを使用して高品質なテクスチャを生成
+        const canvas = TextureGenerator.generateStoneWall(this.textureSize, this.textureSize);
 
         const texture = new THREE.CanvasTexture(canvas);
-        texture.magFilter = THREE.NearestFilter;
-        texture.minFilter = THREE.NearestFilter;
+        texture.magFilter = THREE.NearestFilter; // ドット絵感を残すならNearest, リアルならLinear
+        texture.minFilter = THREE.LinearMipMapLinearFilter; // 遠くで綺麗に見えるように
         texture.wrapS = THREE.RepeatWrapping;
         texture.wrapT = THREE.RepeatWrapping;
+        // 色空間をSRGBに設定（Three.js r152+）
+        texture.colorSpace = THREE.SRGBColorSpace; 
+        
         textureCache['stoneWall'] = texture;
         return texture;
     }

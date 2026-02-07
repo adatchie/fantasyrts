@@ -223,8 +223,67 @@ export class RenderingEngine3D {
         this.tileGroup = new THREE.Group();
         this.scene.add(this.tileGroup);
 
+        // アクティブユニットマーカー（▼）
+        this.createActiveMarker();
+
         // 繧ｰ繝ｪ繝・ラ邱壹が繝ｼ繝舌・繝ｬ繧､
         this.createIsometricGridOverlay();
+    }
+
+    createActiveMarker() {
+        // 逆ピラミッド型のマーカー
+        const geometry = new THREE.ConeGeometry(4, 12, 4); // 半径4, 高さ12, 4角錐
+        const material = new THREE.MeshBasicMaterial({ color: 0xFFFF00 }); // 黄色
+        this.activeMarker = new THREE.Mesh(geometry, material);
+        this.activeMarker.rotation.x = Math.PI; // 逆さまにする
+        this.activeMarker.visible = false;
+        this.scene.add(this.activeMarker);
+    }
+
+    showActiveMarker(unit) {
+        if (!unit || !this.activeMarker) return;
+        this.activeMarkerUnit = unit;
+        this.updateActiveMarkerPosition();
+        this.activeMarker.visible = true;
+    }
+
+    hideActiveMarker() {
+        if (this.activeMarker) {
+            this.activeMarker.visible = false;
+            this.activeMarkerUnit = null;
+        }
+    }
+
+    updateActiveMarkerPosition() {
+        if (!this.activeMarkerUnit || !this.activeMarker) return;
+        const unit = this.activeMarkerUnit;
+        
+        // unit.pos (pixel coords) if available, otherwise grid
+        // But rendering usually uses unit.x/y.
+        // If unit moves smoothly, unit.pos might be updated?
+        // In moveUnitStep, unit.pos is updated.
+        // However, gridToWorld3D uses unit.x/y grid coords.
+        // Ideally we should use interpolated position from unitMesh if available.
+        
+        let worldX, worldZ;
+        
+        // メッシュがあればその位置を使う（滑らかに移動している場合）
+        const mesh = this.unitMeshes.get(unit.id);
+        if (mesh) {
+            worldX = mesh.position.x;
+            worldZ = mesh.position.z;
+        } else {
+            const pos = this.gridToWorld3D(unit.x, unit.y);
+            worldX = pos.x;
+            worldZ = pos.z;
+        }
+
+        const h = this.getGroundHeight(unit.x, unit.y); // 高さもメッシュから取るべきだが、まあGround基準でOK
+        this.activeMarkerBaseY = h + 80;
+        
+        this.activeMarker.position.x = worldX;
+        this.activeMarker.position.z = worldZ;
+        // Y is handled in animate for bouncing
     }
 
     /**
@@ -2458,6 +2517,15 @@ export class RenderingEngine3D {
         // 謾ｻ謦・Λ繧､繝ｳ謠冗判・域ｵ√ｌ繧句・・・
         this.updateAttackLines();
 
+        // アクティブマーカーのアニメーション (上下バウンド + 追従)
+        if (this.activeMarker && this.activeMarker.visible) {
+            this.updateActiveMarkerPosition();
+            const time = performance.now() * 0.005; // 速度調整
+            const bounce = Math.sin(time) * 5; // ±5px
+            this.activeMarker.position.y = this.activeMarkerBaseY + bounce;
+            this.activeMarker.rotation.y += 0.05; // 回転
+        }
+
         // 繧ｳ繝ｳ繝医Ο繝ｼ繝ｫ繧呈峩譁ｰ
         this.controls.update();
 
@@ -2518,7 +2586,96 @@ export class RenderingEngine3D {
         } else if (type === 'UNIT_FLASH') {
             // arg1: {unitId, color, duration}
             this.triggerUnitFlash(arg1);
+        } else if (type === 'MAGIC_CAST') {
+            this.createMagicCast(arg1);
+        } else if (type === 'BREATH') {
+            this.createBreath(arg1, arg2);
         }
+    }
+
+    createMagicCast(unit) {
+        // 魔法陣エフェクト
+        const pos = this.gridToWorld3D(unit.x, unit.y);
+        // 地形高さを考慮
+        const h = this.getGroundHeight(unit.x, unit.y);
+        // 少し浮かせる
+        pos.y = h + 5;
+
+        // ジオメトリキャッシュ
+        if (!this.magicCastGeometry) {
+             this.magicCastGeometry = new THREE.RingGeometry(10, 25, 32);
+             this.magicCastMaterial = new THREE.MeshBasicMaterial({
+                color: 0x8800ff,
+                transparent: true,
+                opacity: 0.0,
+                side: THREE.DoubleSide,
+                blending: THREE.AdditiveBlending
+            });
+        }
+        
+        // 色をユニットタイプ等で変えたい場合はマテリアルをクローンするか、
+        // 汎用的な色(紫)にする。今回は紫固定。
+
+        const mesh = new THREE.Mesh(this.magicCastGeometry, this.magicCastMaterial.clone());
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.position.set(pos.x, pos.y, pos.z);
+        this.scene.add(mesh);
+
+        this.effects.push({
+            mesh: mesh,
+            type: 'MAGIC_CAST',
+            life: 40,
+            maxLife: 40,
+            scale: 0.1
+        });
+    }
+
+    createBreath(att, def) {
+        // ブレスエフェクト (円錐状の炎)
+        const startPos = this.gridToWorld3D(att.x, att.y);
+        const endPos = this.gridToWorld3D(def.x, def.y);
+        
+        // 高さを胸のあたりに
+        const h1 = this.getGroundHeight(att.x, att.y) + 30;
+        const h2 = this.getGroundHeight(def.x, def.y) + 15;
+        
+        startPos.y = h1;
+        endPos.y = h2;
+
+        // ジオメトリキャッシュ
+        if (!this.breathGeometry) {
+            // 円錐 (半径, 高さ, 分割)
+            // 横倒しにするので、高さを射程に合わせてスケーリングする
+            this.breathGeometry = new THREE.ConeGeometry(10, 1, 16, 1, true); // Open ended?
+            this.breathMaterial = new THREE.MeshBasicMaterial({
+                color: 0xff4400,
+                transparent: true,
+                opacity: 0.6,
+                blending: THREE.AdditiveBlending,
+                side: THREE.DoubleSide
+            });
+        }
+
+        const mesh = new THREE.Mesh(this.breathGeometry, this.breathMaterial.clone());
+        mesh.position.copy(startPos);
+        
+        // ターゲットの方を向く
+        mesh.lookAt(endPos);
+        // ConeGeometryはY軸向きなので、Z軸に向けるために回転
+        mesh.rotateX(Math.PI / 2);
+
+        this.scene.add(mesh);
+
+        // 距離
+        const dist = new THREE.Vector3(startPos.x, startPos.y, startPos.z).distanceTo(new THREE.Vector3(endPos.x, endPos.y, endPos.z));
+
+        this.effects.push({
+            mesh: mesh,
+            type: 'BREATH',
+            life: 30,
+            maxLife: 30,
+            targetScaleZ: dist
+        });
     }
 
     createBeam(data) {
@@ -3549,28 +3706,39 @@ export class RenderingEngine3D {
                 // 遏｢縺ｯ繝ｭ繝ｼ繧ｫ繝ｫ縺ｧ+Z譁ｹ蜷代ｒ縲悟燕縲阪→縺励※讒狗ｯ会ｼ・HREE.js縺ｮlookAt縺ｨ逶ｸ諤ｧ縺瑚憶縺・ｼ・
                 const arrowGroup = new THREE.Group();
 
+                // ジオメトリキャッシュの初期化
+                if (!this.arrowGeometries) {
+                    this.arrowGeometries = {
+                        shaft: new THREE.CylinderGeometry(0.5, 0.5, 20, 8),
+                        head: new THREE.ConeGeometry(1.6, 6, 8),
+                        fletch: new THREE.BoxGeometry(3, 0.1, 8),
+                        materials: {
+                            shaft: new THREE.MeshBasicMaterial({ color: 0x8B4513 }),
+                            head: new THREE.MeshBasicMaterial({ color: 0xDDDDDD }),
+                            fletch: new THREE.MeshBasicMaterial({ color: 0xFFFFFF })
+                        }
+                    };
+                    // 90度回転済みのジオメトリを作るのではなく、Mesh側で回転させるためそのまま保持
+                    // (ただし以前のコードではshaft.rotation.x = Math.PI/2していた)
+                }
+
+                const geom = this.arrowGeometries;
+                const mat = this.arrowGeometries.materials;
+
                 // 遏｢縺ｮ霆ｸ・医す繝ｪ繝ｳ繝€繝ｼ・・ 2蛟阪し繧､繧ｺ縲々霆ｸ譁ｹ蜷代↓讓ｪ縺溘ｏ繧・
-                const shaftGeometry = new THREE.CylinderGeometry(0.5, 0.5, 20, 8);
-                const shaftMaterial = new THREE.MeshBasicMaterial({ color: 0x8B4513 }); // 茶色
-                const shaft = new THREE.Mesh(shaftGeometry, shaftMaterial);
-                shaft.rotation.x = Math.PI / 2; // Z軸方向に寝かせる (Cylinder is Y-up default)
+                const shaft = new THREE.Mesh(geom.shaft, mat.shaft);
+                shaft.rotation.x = Math.PI / 2; // Z軸方向に寝かせる
                 arrowGroup.add(shaft);
 
                 // 遏｢蟆ｻ・医さ繝ｼ繝ｳ・・ 2蛟阪し繧､繧ｺ
-                const headGeometry = new THREE.ConeGeometry(1.6, 6, 8);
-                const headMaterial = new THREE.MeshBasicMaterial({ color: 0xDDDDDD }); // 銀色
-                const head = new THREE.Mesh(headGeometry, headMaterial);
+                const head = new THREE.Mesh(geom.head, mat.head);
                 head.rotation.x = Math.PI / 2; // 先端が+Z方向を向く
                 head.position.z = 13; // +Z方向に配置
                 arrowGroup.add(head);
 
                 // 鄒ｽ譬ｹ・亥ｰ上＆繧√€∫區/轣ｰ濶ｲ・・
-                // 羽根（フライト） - 3枚の板を配置
-                const fletchGeometry = new THREE.BoxGeometry(3, 0.1, 8); // 幅, 厚み, 長さ
-                const fletchMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFFFF });
-
                 for (let i = 0; i < 3; i++) {
-                    const fletch = new THREE.Mesh(fletchGeometry, fletchMaterial);
+                    const fletch = new THREE.Mesh(geom.fletch, mat.fletch);
                     fletch.position.z = -14; // シャフトの後端 (-Z方向)
                     fletch.rotation.z = (i * 120) * (Math.PI / 180); // 120度ずつ配置
                     arrowGroup.add(fletch);
@@ -3716,14 +3884,7 @@ export class RenderingEngine3D {
                     } else {
                         // アニメーション終了
                         this.scene.remove(arrowGroup);
-                        try {
-                            shaftGeometry.dispose();
-                            shaftMaterial.dispose();
-                            headGeometry.dispose();
-                            headMaterial.dispose();
-                            fletchGeometry.dispose();
-                            fletchMaterial.dispose();
-                        } catch (e) { }
+                        // Geometries/Materials are reused, so no dispose here
                         resolve();
                     }
                 };
@@ -3773,21 +3934,27 @@ export class RenderingEngine3D {
                 const effectGroup = new THREE.Group();
                 effectGroup.position.copy(startPos);
 
+                // キャッシュの初期化
+                if (!this.magicGeometries) {
+                    this.magicGeometries = {
+                        core: new THREE.SphereGeometry(6, 8, 8),
+                        glow: new THREE.SphereGeometry(12, 8, 8)
+                    };
+                }
+
                 // 本体（光る球）
-                const coreGeo = new THREE.SphereGeometry(6, 8, 8);
                 const coreMat = new THREE.MeshBasicMaterial({ color: color });
-                const core = new THREE.Mesh(coreGeo, coreMat);
+                const core = new THREE.Mesh(this.magicGeometries.core, coreMat);
                 effectGroup.add(core);
 
                 // 外側の光（半透明）
-                const glowGeo = new THREE.SphereGeometry(12, 8, 8);
                 const glowMat = new THREE.MeshBasicMaterial({
                     color: color,
                     transparent: true,
                     opacity: 0.5,
                     blending: THREE.AdditiveBlending
                 });
-                const glow = new THREE.Mesh(glowGeo, glowMat);
+                const glow = new THREE.Mesh(this.magicGeometries.glow, glowMat);
                 effectGroup.add(glow);
 
                 this.scene.add(effectGroup);
@@ -3819,9 +3986,8 @@ export class RenderingEngine3D {
                     } else {
                         // 完了
                         this.scene.remove(effectGroup);
-                        coreGeo.dispose();
+                        // Materials are specific to color, so we dispose them
                         coreMat.dispose();
-                        glowGeo.dispose();
                         glowMat.dispose();
                         resolve();
                     }
@@ -3917,48 +4083,63 @@ export class RenderingEngine3D {
     screenToGrid(screenX, screenY, canvasWidth, canvasHeight, canvas) {
         if (!this.camera) return null;
 
-        // Canvasの内部解像度を取得（CSSサイズではなく内部サイズを使用）
+        // Canvasの内部解像度を取得
         const internalWidth = canvas ? canvas.width : (this.renderer ? this.renderer.domElement.width : canvasWidth);
         const internalHeight = canvas ? canvas.height : (this.renderer ? this.renderer.domElement.height : canvasHeight);
 
-        // スケール係数を計算（CSSサイズと内部サイズの比率）
         const scaleX = internalWidth / canvasWidth;
         const scaleY = internalHeight / canvasHeight;
 
-        // 正規化デバイス座標（NDC）に変換（スケールを考慮）
         const ndcX = (screenX * scaleX / internalWidth) * 2 - 1;
         const ndcY = -(screenY * scaleY / internalHeight) * 2 + 1;
 
-        // レイを作成
         const raycaster = new THREE.Raycaster();
         raycaster.setFromCamera({ x: ndcX, y: ndcY }, this.camera);
 
-        // 地面との交点を計算（y=0平面）
+        // 1. まずタイル（地形）との交差を判定（正確な高さを考慮）
+        if (this.tileGroup && this.tileGroup.children.length > 0) {
+            const intersects = raycaster.intersectObjects(this.tileGroup.children, false);
+            if (intersects.length > 0) {
+                // 最も手前のタイルを取得
+                const hit = intersects[0];
+                // userDataに座標が入っていればそれを使う（createIsometricTilesで保存している場合）
+                if (hit.object.userData && hit.object.userData.x !== undefined) {
+                    return { x: hit.object.userData.x, y: hit.object.userData.y };
+                }
+                
+                // userDataがない場合はワールド座標から逆算 (高さ考慮済み)
+                // しかし、クリックした点のY座標を使って逆算すればより正確
+                // worldX = (x - y) * TILE_SIZE / 2
+                // worldZ = (x + y) * TILE_SIZE / 4
+                // x = (worldX * 2 / TILE_SIZE + worldZ * 4 / TILE_SIZE) / 2
+                // y = (worldZ * 4 / TILE_SIZE - worldX * 2 / TILE_SIZE) / 2
+                
+                const wX = hit.point.x;
+                const wZ = hit.point.z;
+                
+                let gX = (wX * 2 / TILE_SIZE + wZ * 4 / TILE_SIZE) / 2;
+                let gY = (wZ * 4 / TILE_SIZE - wX * 2 / TILE_SIZE) / 2;
+                
+                return { x: Math.round(gX), y: Math.round(gY) };
+            }
+        }
+
+        // 2. 地形ヒットがない場合（隙間や範囲外）はy=0平面との交点（フォールバック）
         const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
         const intersection = new THREE.Vector3();
-        raycaster.ray.intersectPlane(plane, intersection);
+        const hitPoint = raycaster.ray.intersectPlane(plane, intersection);
 
-        if (!intersection) return null;
-
-        // 3D座標をグリッド座標に変換（gridToWorld3Dの逆変換）
-        // worldX = (x - y) * TILE_SIZE / 2
-        // worldZ = (x + y) * TILE_SIZE / 4
-        // これを解くと：
-        // x = (worldX * 2 / TILE_SIZE + worldZ * 4 / TILE_SIZE) / 2
-        // y = (worldZ * 4 / TILE_SIZE - worldX * 2 / TILE_SIZE) / 2
+        if (!hitPoint) return null;
 
         const worldX = intersection.x;
         const worldZ = intersection.z;
 
-        // 小数点の誤差を考慮してクリッピングしてから丸める
         let gridX = (worldX * 2 / TILE_SIZE + worldZ * 4 / TILE_SIZE) / 2;
         let gridY = (worldZ * 4 / TILE_SIZE - worldX * 2 / TILE_SIZE) / 2;
 
-        // 負の値は0にクリップ、Math.roundで四捨五入
         gridX = Math.max(0, Math.round(gridX));
         gridY = Math.max(0, Math.round(gridY));
 
-        // カスタムマップサイズを取得（gridWorldSizeがあれば使用）
         const mapW = this.customMapWidth || MAP_W;
         const mapH = this.customMapHeight || MAP_H;
 

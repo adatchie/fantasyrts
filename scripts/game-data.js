@@ -74,18 +74,17 @@ export const STAGES = {
 // プレイヤーユニットプール
 // ============================================
 
+// 初期所持ユニット（バランス型編成をデフォルトとする）
 export const PLAYER_UNIT_POOL = [
-    // 初期所持ユニット
-    { id: 1, type: 'INFANTRY', name: '第一歩兵隊', level: 1, exp: 0 },
-    { id: 2, type: 'INFANTRY', name: '第二歩兵隊', level: 1, exp: 0 },
-    { id: 3, type: 'INFANTRY', name: '第三歩兵隊', level: 1, exp: 0 },
-    { id: 4, type: 'ARCHER', name: '弓兵隊', level: 1, exp: 0 },
-    { id: 5, type: 'ARCHER', name: '狙撃隊', level: 1, exp: 0 },
-    { id: 6, type: 'KNIGHT', name: '近衛騎士団', level: 2, exp: 0 },
-    { id: 7, type: 'SPEAR', name: '槍兵隊', level: 1, exp: 0 },
-    { id: 8, type: 'CAVALRY', name: '騎馬隊', level: 1, exp: 0 },
-    { id: 9, type: 'MAGE', name: '魔術師団', level: 1, exp: 0 },
-    { id: 10, type: 'PRIEST', name: '僧侶団', level: 1, exp: 0 }
+    { id: 1, type: 'INFANTRY', name: '歩兵1', level: 1, exp: 0 },
+    { id: 2, type: 'INFANTRY', name: '歩兵2', level: 1, exp: 0 },
+    { id: 3, type: 'INFANTRY', name: '歩兵3', level: 1, exp: 0 },
+    { id: 4, type: 'INFANTRY', name: '歩兵4', level: 1, exp: 0 },
+    { id: 5, type: 'ARCHER', name: '弓兵1', level: 1, exp: 0 },
+    { id: 6, type: 'ARCHER', name: '弓兵2', level: 1, exp: 0 },
+    { id: 7, type: 'MAGE', name: '魔術師1', level: 1, exp: 0 },
+    { id: 8, type: 'MAGE', name: '魔術師2', level: 1, exp: 0 },
+    { id: 9, type: 'PRIEST', name: '僧侶1', level: 1, exp: 0 }
 ];
 
 // ============================================
@@ -96,10 +95,39 @@ export class GameProgress {
     constructor() {
         this.completedStages = [];
         this.unlockedStages = ['tutorial'];
-        this.playerUnits = [...PLAYER_UNIT_POOL];
-        this.deployedUnits = [];
+        this.playerUnits = [...PLAYER_UNIT_POOL]; // デフォルト編成をコピー
+        this.deployedUnits = this.playerUnits.map(u => u.id); // 全員出撃設定
         this.gold = 1000;
         this.currentStage = null;
+        this.nextUnitId = 10; // IDカウンター (初期ユニットが9までなので10から)
+    }
+
+    /**
+     * 新しいユニットを雇用して追加
+     * @param {string} type - ユニットタイプ
+     */
+    addUnit(type) {
+        const info = getUnitTypeInfo(type); // constant.jsから取得する必要があるが、ここではimportできないので引数か、外でやるか
+        // 簡易的に名前だけ生成
+        // 名前生成ロジックは別途必要かも
+        const newUnit = {
+            id: this.nextUnitId++,
+            type: type,
+            name: `${type}_${this.nextUnitId}`, // 仮名
+            level: 1,
+            exp: 0
+        };
+        this.playerUnits.push(newUnit);
+        this.deployUnit(newUnit.id); // 自動で出撃枠に入れる
+        return newUnit;
+    }
+
+    /**
+     * ユニットを解雇（削除）
+     */
+    removeUnit(unitId) {
+        this.undeployUnit(unitId);
+        this.playerUnits = this.playerUnits.filter(u => u.id !== unitId);
     }
 
     /**

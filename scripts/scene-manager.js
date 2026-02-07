@@ -259,14 +259,13 @@ class MapSelectScene {
 class OrganizationScene {
     constructor(manager) {
         this.manager = manager;
-        this.maxDeployment = 8; // 最大出撃数
+        this.maxDeployment = 30; // 最大ユニット数
+        this.maxCost = 150;      // 最大コスト
     }
 
     createUI() {
         if (!this.manager.uiContainer) return;
 
-        const allUnits = gameProgress.getPlayerUnits();
-        const deployedIds = gameProgress.deployedUnitIds;
         const stageId = gameProgress.currentStage || 'tutorial';
         const stageName = STAGES[stageId]?.name || 'カスタムマップ';
 
@@ -277,6 +276,10 @@ class OrganizationScene {
                 <div class="org-sidebar">
                     <h2>部隊編成</h2>
                     <p class="stage-name">📍 ${stageName}</p>
+                    <div class="org-stats">
+                        <p>Cost: <span id="deployed-cost" class="highlight-val">0</span> / ${this.maxCost}</p>
+                        <p>Unit: <span id="deployed-count" class="highlight-val">0</span> / ${this.maxDeployment}</p>
+                    </div>
                     <div class="org-buttons">
                         <button class="btn-secondary" id="btn-back-map">戻る</button>
                         <button class="btn-primary" id="btn-to-deploy">出陣へ</button>
@@ -285,12 +288,12 @@ class OrganizationScene {
                 <div class="org-main">
                     <div class="org-columns">
                         <div class="unit-pool">
-                            <h3>待機ユニット</h3>
-                            <div id="pool-list" class="unit-grid"></div>
+                            <h3>雇用可能兵種</h3>
+                            <div id="recruit-list" class="unit-grid"></div>
                         </div>
                         <div class="army-slots">
-                            <h3>出撃部隊 (<span id="deployed-count">0</span>/${this.maxDeployment})</h3>
-                            <div id="deployed-list" class="unit-list"></div>
+                            <h3>現在の軍勢</h3>
+                            <div id="army-list" class="unit-list"></div>
                         </div>
                     </div>
                 </div>
@@ -298,79 +301,122 @@ class OrganizationScene {
         `;
 
         this.manager.uiContainer.appendChild(org);
-        this.renderLists();
+        this.renderRecruitList();
+        this.renderArmyList();
 
         document.getElementById('btn-back-map').addEventListener('click', () => {
             this.manager.transition(SCENES.MAP_SELECT);
         });
 
         document.getElementById('btn-to-deploy').addEventListener('click', () => {
-            if (gameProgress.deployedUnitIds.length > 0) {
+            if (gameProgress.playerUnits.length > 0) {
                 this.manager.transition(SCENES.DEPLOYMENT);
             } else {
-                alert('出撃ユニットを選択してください');
+                alert('ユニットを編成してください');
             }
         });
     }
 
-    renderLists() {
-        const poolList = document.getElementById('pool-list');
-        const deployedList = document.getElementById('deployed-list');
-        const countSpan = document.getElementById('deployed-count');
+    renderRecruitList() {
+        const list = document.getElementById('recruit-list');
+        if (!list) return;
+        list.innerHTML = '';
 
-        if (!poolList || !deployedList) return;
-
-        poolList.innerHTML = '';
-        deployedList.innerHTML = '';
-
-        const allUnits = gameProgress.getPlayerUnits();
-        const deployedIds = gameProgress.deployedUnitIds;
-
-        countSpan.textContent = deployedIds.length;
-
-        allUnits.forEach(unit => {
-            const isDeployed = deployedIds.includes(unit.id);
-            const info = getUnitTypeInfo(unit.type);
-
+        Object.keys(UNIT_TYPES).forEach(key => {
+            const info = UNIT_TYPES[key];
             const el = document.createElement('div');
-            el.className = 'org-unit-card';
-            if (isDeployed) el.classList.add('selected');
-
+            el.className = 'org-unit-card recruit-card';
             el.innerHTML = `
-                <span class="unit-marker">${info?.marker || '👤'}</span>
+                <span class="unit-marker">${info.marker}</span>
                 <div class="unit-details">
-                    <strong>${unit.name}</strong>
-                    <span class="unit-type">${info?.name || unit.type} Lv.${unit.level}</span>
+                    <strong>${info.name}</strong>
+                    <span class="unit-cost">Cost:${info.cost}</span>
                 </div>
             `;
-
-            el.addEventListener('click', () => {
-                this.toggleDeployment(unit.id);
-            });
-
-            if (isDeployed) {
-                deployedList.appendChild(el);
-            } else {
-                poolList.appendChild(el);
-            }
+            el.addEventListener('click', () => this.recruitUnit(key));
+            list.appendChild(el);
         });
     }
 
-    toggleDeployment(unitId) {
-        if (gameProgress.deployedUnitIds.includes(unitId)) {
-            // 外す
-            gameProgress.undeployUnit(unitId);
-        } else {
-            // 加える
-            if (gameProgress.deployedUnitIds.length < this.maxDeployment) {
-                gameProgress.deployUnit(unitId);
-            } else {
-                alert('最大出撃数に達しています');
-                return;
-            }
+    renderArmyList() {
+        const list = document.getElementById('army-list');
+        const countSpan = document.getElementById('deployed-count');
+        const costSpan = document.getElementById('deployed-cost');
+        if (!list) return;
+
+        list.innerHTML = '';
+        const army = gameProgress.getPlayerUnits();
+
+        // コスト計算
+        let currentCost = 0;
+        army.forEach(u => {
+            const info = getUnitTypeInfo(u.type);
+            currentCost += (info?.cost || 0);
+        });
+
+        countSpan.textContent = army.length;
+        if (costSpan) {
+            costSpan.textContent = currentCost;
+            costSpan.style.color = currentCost > this.maxCost ? '#ff4444' : '#00ff88';
         }
-        this.renderLists();
+
+        army.forEach(unit => {
+            const info = getUnitTypeInfo(unit.type);
+            const el = document.createElement('div');
+            el.className = 'org-unit-card army-card';
+            el.innerHTML = `
+                <span class="unit-marker">${info?.marker || '?'}</span>
+                <div class="unit-details">
+                    <strong>${unit.name || info?.name}</strong>
+                    <span class="unit-cost">Cost:${info?.cost || 0}</span>
+                </div>
+                <button class="btn-remove">×</button>
+            `;
+            // 削除ボタン
+            el.querySelector('.btn-remove').addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.removeUnit(unit.id);
+            });
+            list.appendChild(el);
+        });
     }
+
+    recruitUnit(type) {
+        const info = getUnitTypeInfo(type);
+        const cost = info?.cost || 0;
+
+        // コスト＆数チェック
+        const army = gameProgress.getPlayerUnits();
+        let currentCost = 0;
+        army.forEach(u => {
+            const i = getUnitTypeInfo(u.type);
+            currentCost += (i?.cost || 0);
+        });
+
+        if (army.length >= this.maxDeployment) {
+            alert('ユニット数上限です');
+            return;
+        }
+        if (currentCost + cost > this.maxCost) {
+            alert('コスト上限です');
+            return;
+        }
+
+        // 追加
+        const newUnit = gameProgress.addUnit(type);
+        // 名前をつける（ユニークにするため）
+        const typeCount = army.filter(u => u.type === type).length + 1;
+        newUnit.name = `${info.name}${typeCount}`;
+        
+        this.renderArmyList();
+    }
+
+    removeUnit(unitId) {
+        gameProgress.removeUnit(unitId);
+        this.renderArmyList();
+    }
+
+    // toggleDeploymentは廃止
 }
 
 class DeploymentScene {
@@ -638,24 +684,37 @@ class DeploymentScene {
                 return;
             }
 
-            // 既に配置されている場合は除外
+            // 配置ロジック（上書き・入れ替え対応）
+            let occupiedUnitId = null;
             for (const [uid, pos] of this.placedUnits) {
                 if (pos.x === x && pos.y === y) {
-                    return;
+                    occupiedUnitId = uid;
+                    break;
+                }
+            }
+
+            if (occupiedUnitId) {
+                // 同じユニットなら何もしない
+                if (occupiedUnitId === this.selectedUnitId) return;
+
+                // 選択中のユニットが既に別の場所に配置されていたら入れ替え（スワップ）
+                const prevPos = this.placedUnits.get(this.selectedUnitId);
+                
+                if (prevPos) {
+                    // スワップ：占有していたユニットを元の場所へ
+                    this.placedUnits.set(occupiedUnitId, prevPos);
+                    this.updateUnitStatus(occupiedUnitId, prevPos);
+                    game.renderingEngine.addDeploymentMarker(prevPos.x, prevPos.y); // マーカー更新
+                } else {
+                    // 上書き：占有していたユニットを未配置に
+                    this.placedUnits.delete(occupiedUnitId);
+                    this.updateUnitStatus(occupiedUnitId, null);
                 }
             }
 
             // 配置を実行
             this.placedUnits.set(this.selectedUnitId, { x, y });
-
-            // UI更新
-            const item = document.querySelector(`.deploy-unit-item[data-unit-id="${this.selectedUnitId}"]`);
-            if (item) {
-                item.classList.remove('selecting');
-                item.classList.add('placed');
-                const statusEl = item.querySelector('.place-status');
-                if (statusEl) statusEl.textContent = `(${x}, ${y})`;
-            }
+            this.updateUnitStatus(this.selectedUnitId, { x, y });
 
             // カウント更新
             const countEl = document.getElementById('placed-count');
@@ -668,11 +727,9 @@ class DeploymentScene {
                 if (btn) btn.disabled = false;
             }
 
-            // 配置完了したら選択解除
-            this.selectedUnitId = null;
-            document.querySelectorAll('.deploy-unit-item').forEach(item => {
-                item.classList.remove('selecting');
-            });
+            // 配置完了しても連続配置できるように選択解除しない（ユーザーの好みによるが、今回は維持）
+            // this.selectedUnitId = null; 
+            // document.querySelectorAll('.deploy-unit-item').forEach(item => { item.classList.remove('selecting'); });
 
             // 配置位置にマーカーを表示
             game.renderingEngine.addDeploymentMarker(x, y);
@@ -697,6 +754,20 @@ class DeploymentScene {
         // mousedownイベントを使用（captureフェーズでキャプチャして先に処理）
         canvas.addEventListener('mousedown', this._handlePointerDown, { capture: true });
         canvas.addEventListener('mouseup', this._handlePointerUp, { capture: true });
+    }
+
+    updateUnitStatus(unitId, pos) {
+        const item = document.querySelector(`.deploy-unit-item[data-unit-id="${unitId}"]`);
+        if (item) {
+            const statusEl = item.querySelector('.place-status');
+            if (pos) {
+                item.classList.add('placed');
+                if (statusEl) statusEl.textContent = `(${pos.x}, ${pos.y})`;
+            } else {
+                item.classList.remove('placed');
+                if (statusEl) statusEl.textContent = '未配置';
+            }
+        }
     }
 
     removeManualPlacementHandler(game) {

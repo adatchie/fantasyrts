@@ -52,25 +52,37 @@ export class CombatSystem {
     async processUnit(unit, allUnits, map, warlordPlotUsed = {}) {
         if (!unit.order) return;
 
-        // 本陣ユニットの場合、兵力による強制陣形変更をチェック
-        if (unit.unitType === UNIT_TYPE_HEADQUARTERS && this.unitManager) {
-            const forceChange = checkForcedFormationChange(unit.soldiers, unit.formation);
-            if (forceChange.needsChange) {
-                unit.formation = forceChange.newFormation;
-                const info = FORMATION_INFO[forceChange.newFormation];
-                this.showFormation(unit, info.nameShort);
-            }
+        // アクティブマーカーを表示
+        if (this.renderingEngine && this.renderingEngine.showActiveMarker) {
+            this.renderingEngine.showActiveMarker(unit);
         }
 
-        const target = allUnits.find(u => u.id === unit.order.targetId);
-        const reach = (unit.size + (target ? target.size : 1)) / 2.0 + 0.5;
+        try {
+            // 本陣ユニットの場合、兵力による強制陣形変更をチェック
+            if (unit.unitType === UNIT_TYPE_HEADQUARTERS && this.unitManager) {
+                const forceChange = checkForcedFormationChange(unit.soldiers, unit.formation);
+                if (forceChange.needsChange) {
+                    unit.formation = forceChange.newFormation;
+                    const info = FORMATION_INFO[forceChange.newFormation];
+                    this.showFormation(unit, info.nameShort);
+                }
+            }
 
-        if (unit.order.type === 'PLOT' && target && !target.dead) {
-            await this.processPlot(unit, target, allUnits, warlordPlotUsed, map);
-        } else if (unit.order.type === 'ATTACK' && target && !target.dead) {
-            await this.processAttack(unit, target, allUnits, map, reach);
-        } else if (unit.order.type === 'MOVE') {
-            await this.processMove(unit, allUnits, map);
+            const target = allUnits.find(u => u.id === unit.order.targetId);
+            const reach = (unit.size + (target ? target.size : 1)) / 2.0 + 0.5;
+
+            if (unit.order.type === 'PLOT' && target && !target.dead) {
+                await this.processPlot(unit, target, allUnits, warlordPlotUsed, map);
+            } else if (unit.order.type === 'ATTACK' && target && !target.dead) {
+                await this.processAttack(unit, target, allUnits, map, reach);
+            } else if (unit.order.type === 'MOVE') {
+                await this.processMove(unit, allUnits, map);
+            }
+        } finally {
+            // アクティブマーカーを非表示
+            if (this.renderingEngine && this.renderingEngine.hideActiveMarker) {
+                this.renderingEngine.hideActiveMarker();
+            }
         }
 
         // 行動完了フラグを設定（行動フェイズで行動済みとして静止させる）
@@ -543,6 +555,15 @@ export class CombatSystem {
         let moves = unit.movePower || 6;
         let actuallyMoved = false;
 
+        // ユニット位置の高速検索用Mapを作成 (移動中の衝突判定用)
+        // 他のユニットは動かない前提 (ターン制/順次処理)
+        const unitMap = new Map();
+        for (const u of allUnits) {
+            if (!u.dead && u.id !== unit.id) {
+                unitMap.set(`${u.x},${u.y}`, u);
+            }
+        }
+
         for (let i = 1; i < path.length && moves > 0; i++) {
             const next = path[i];
 
@@ -571,11 +592,13 @@ export class CombatSystem {
             if (moves < cost) break;
 
             // ブロッカーチェック（コストチェック後）
-            const blocker = allUnits.find(u =>
-                u.id !== unit.id &&
-                !u.dead &&
-                getDistRaw(next.x, next.y, u.x, u.y) < (unit.radius + u.radius)
-            );
+            // Mapを使用して高速化 (O(N) -> O(1))
+            const blocker = unitMap.get(`${next.x},${next.y}`);
+
+            // 半径チェックも考慮する場合、厳密には周囲も見る必要があるが、
+            // グリッドベース移動なので「同じタイルにいるか」で判定して問題ないはず。
+            // 以前のコードは getDistRaw < (r1+r2) で判定していたが、グリッド上では距離0（同座標）の判定とほぼ同義。
+            // ただし、大型ユニット(2x2)の場合は注意が必要だが、現状は1x1前提で最適化。
 
             unit.dir = getFacingAngle(unit.x, unit.y, next.x, next.y);
 
@@ -583,14 +606,24 @@ export class CombatSystem {
                 // 味方ユニットなら位置交換（Swap）を行う
                 if (blocker.side === unit.side) {
                     // blockerをunitの元いた位置に移動させる
+                    // Mapも更新する必要がある
+
+                    // 1. Mapからblockerを削除
+                    unitMap.delete(`${blocker.x},${blocker.y}`);
+
                     blocker.x = unit.x;
                     blocker.y = unit.y;
                     blocker.pos = hexToPixel(blocker.x, blocker.y);
+
+                    // 2. Mapにblockerの新しい位置を登録
+                    unitMap.set(`${blocker.x},${blocker.y}`, blocker);
 
                     // unitは予定通りnextへ進む
                     unit.x = next.x;
                     unit.y = next.y;
                     unit.pos = hexToPixel(unit.x, unit.y);
+                    
+                    // unitはMapに入っていないので更新不要（他ユニットとの衝突判定用なので）
 
                     actuallyMoved = true;
                     moves -= cost;
