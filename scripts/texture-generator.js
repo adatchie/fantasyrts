@@ -11,17 +11,17 @@ export class TextureGenerator {
         canvas.height = height;
         const ctx = canvas.getContext('2d');
 
-        // ベースカラー（暗めのグレー）
-        ctx.fillStyle = '#5a5a5a';
+        // ベースカラー（明るめのグレーに変更）
+        ctx.fillStyle = '#aaaaaa'; // #5a5a5a -> #aaaaaa
         ctx.fillRect(0, 0, width, height);
 
         // ノイズを加える（ざらつき）
         this.addNoise(ctx, width, height, 0.1);
 
         // 石積みパターンを描画
-        // レンガ状に配置
-        const rows = 8;
-        const cols = 4;
+        // レンガ状に配置（石を大きくするため行・列を減らす）
+        const rows = 4; // 8 -> 4 (高さ2倍)
+        const cols = 2; // 4 -> 2 (幅2倍)
         const brickH = height / rows;
         const brickW = width / cols;
 
@@ -34,35 +34,35 @@ export class TextureGenerator {
                 const y = r * brickH;
 
                 // 石の個体差（色、明るさ）
-                const brightness = 0.8 + Math.random() * 0.4; // 0.8 ~ 1.2
-                const hue = 0 + (Math.random() - 0.5) * 10;   // わずかな色相ずれ
-                const sat = 0 + Math.random() * 5;            // 低彩度
+                const brightness = 0.9 + Math.random() * 0.2; // 0.8~1.2 -> 0.9~1.1 (明るく均一に)
+                const hue = 0 + (Math.random() - 0.5) * 5;    // 色相ずれを減らす
+                const sat = 0 + Math.random() * 2;            // 低彩度
                 
-                // 石のベース
-                ctx.fillStyle = `hsl(${hue}, ${sat}%, ${40 * brightness}%)`;
+                // 石のベース (輝度を上げて明るく)
+                ctx.fillStyle = `hsl(${hue}, ${sat}%, ${70 * brightness}%)`; // 40 -> 70
                 
                 // 石の形を少し不規則にする（マージンをとる）
-                const gap = 2; // 目地
+                const gap = 4; // 目地も少し広く
                 const roughX = x + gap + (Math.random() - 0.5) * 4;
                 const roughY = y + gap + (Math.random() - 0.5) * 4;
                 const roughW = brickW - gap * 2 + (Math.random() - 0.5) * 4;
                 const roughH = brickH - gap * 2 + (Math.random() - 0.5) * 4;
 
                 // 角を丸めるためのパス
-                this.drawRoundedRect(ctx, roughX, roughY, roughW, roughH, 4);
+                this.drawRoundedRect(ctx, roughX, roughY, roughW, roughH, 8); // 角丸も大きく
                 ctx.fill();
 
                 // 石の表面のディテール（ハイライトとシャドウ）
                 // 上端にハイライト
-                ctx.fillStyle = `rgba(255, 255, 255, 0.1)`;
-                ctx.fillRect(roughX, roughY, roughW, 2);
+                ctx.fillStyle = `rgba(255, 255, 255, 0.2)`;
+                ctx.fillRect(roughX, roughY, roughW, 4);
                 // 下端にシャドウ
-                ctx.fillStyle = `rgba(0, 0, 0, 0.2)`;
-                ctx.fillRect(roughX, roughY + roughH - 2, roughW, 2);
+                ctx.fillStyle = `rgba(0, 0, 0, 0.15)`;
+                ctx.fillRect(roughX, roughY + roughH - 4, roughW, 4);
             }
         }
 
-        // 全体に汚れ（ウェザリング）を追加
+        // 全体に汚れ（ウェザリング）を追加 (少し控えめに)
         this.addWeathering(ctx, width, height);
 
         return canvas;
