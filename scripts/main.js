@@ -4,7 +4,7 @@
  */
 
 import { STAGES, gameProgress } from './game-data.js';
-import { UNIT_TYPE_HEADQUARTERS, WARLORDS, FORMATION_HOKO, FORMATION_KAKUYOKU, FORMATION_GYORIN, TILE_SIZE, TILE_HEIGHT, MAP_W, MAP_H, UNIT_TYPES } from './constants.js'; // Added TILE_SIZE, TILE_HEIGHT, MAP_W, MAP_H, UNIT_TYPES
+import { UNIT_TYPE_HEADQUARTERS, WARLORDS, FORMATION_HOKO, FORMATION_KAKUYOKU, FORMATION_GYORIN, TILE_SIZE, TILE_HEIGHT, MAP_W, MAP_H, UNIT_TYPES, SOLDIERS_PER_UNIT } from './constants.js'; // Added SOLDIERS_PER_UNIT
 import { TUTORIAL_PLAIN_DATA } from './data/maps/tutorial_plain.js';
 import * as THREE from 'three';
 import { AudioEngine } from './audio.js';
