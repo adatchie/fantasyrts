@@ -71,6 +71,10 @@ export class UnitManager {
 
         for (let i = 0; i < totalUnits; i++) {
             const isHeadquarters = (i === 0); // 最初のユニット（中央）が本陣
+            
+            // 安全策：positionsが足りない場合は本陣の位置を使う
+            const pos = positions[i] || hqPosition;
+            
             const unit = {
                 id: this.nextUnitId++,
                 warlordId: warlordId,
@@ -98,10 +102,10 @@ export class UnitManager {
                 maxSoldiers: soldierDistribution[i],
 
                 // 位置情報
-                x: positions[i].x,
-                y: positions[i].y,
-                q: positions[i].x, // 互換性
-                r: positions[i].y, // 互換性
+                x: pos.x,
+                y: pos.y,
+                q: pos.x, // 互換性
+                r: pos.y, // 互換性
 
                 dir: warlord.side === 'EAST' ? 3 : 0,
 

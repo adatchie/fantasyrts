@@ -454,6 +454,10 @@ export class Game {
                         });
 
                         this.units.push(...generatedUnits);
+                    } else {
+                        console.warn(`[startGame] Unit data NOT found for ID: ${targetId} (Original: ${unitId})`);
+                        // デバッグ用: deployedUnitsのIDリストを出力
+                        console.log(`[startGame] Available IDs: ${deployedUnits.map(u => u.id).join(',')}`);
                     }
 
                 });
