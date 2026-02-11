@@ -20,8 +20,8 @@ export class TextureGenerator {
 
         // 石積みパターンを描画
         // レンガ状に配置（石を大きくするため行・列を減らす）
-        const rows = 4; // 8 -> 4 (高さ2倍)
-        const cols = 2; // 4 -> 2 (幅2倍)
+        const rows = 2; // 4 -> 2 (さらに石を大きく)
+        const cols = 1; // 2 -> 1 (さらに石を大きく)
         const brickH = height / rows;
         const brickW = width / cols;
 
