@@ -570,7 +570,28 @@ export class BuildingSystem {
                     const material = this.materials[blockType];
                     if (!material) continue;
 
-                    const blockMesh = new THREE.Mesh(this.shearedBlockGeometry, material);
+                    // 石壁ブロックはUVオフセットで個体差を出す
+                    let geometry = this.shearedBlockGeometry;
+                    if (blockType === BLOCK_TYPES.STONE_WALL) {
+                        geometry = this.shearedBlockGeometry.clone();
+                        const uvAttr = geometry.getAttribute('uv');
+                        if (uvAttr) {
+                            // ブロック位置に基づくランダム風オフセット（シード的）
+                            const offsetU = ((x * 7 + y * 13 + z * 23) % 17) / 17;
+                            const offsetV = ((x * 11 + y * 19 + z * 29) % 13) / 13;
+                            // スケールも少しバリエーション（0.5〜1.5倍）
+                            const scaleUV = 0.5 + ((x * 3 + y * 7 + z * 11) % 10) / 10;
+                            for (let i = 0; i < uvAttr.count; i++) {
+                                uvAttr.setXY(
+                                    i,
+                                    uvAttr.getX(i) * scaleUV + offsetU,
+                                    uvAttr.getY(i) * scaleUV + offsetV
+                                );
+                            }
+                            uvAttr.needsUpdate = true;
+                        }
+                    }
+                    const blockMesh = new THREE.Mesh(geometry, material);
 
                     // 建物のローカル座標系でのグリッド位置
                     // 中心を原点(0,0)とするように調整

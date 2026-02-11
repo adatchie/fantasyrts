@@ -19,47 +19,55 @@ export class TextureGenerator {
         this.addNoise(ctx, width, height, 0.1);
 
         // 石積みパターンを描画
-        // レンガ状に配置（石を大きくするため行・列を減らす）
-        const rows = 2; // 4 -> 2 (さらに石を大きく)
-        const cols = 1; // 2 -> 1 (さらに石を大きく)
-        const brickH = height / rows;
-        const brickW = width / cols;
+        // 行ごとに高さを変え、各行内で石の幅もランダムにする
+        const gap = 4; // 目地幅
+        const minRowH = height / 6; // 最小行高さ
+        const maxRowH = height / 3; // 最大行高さ
 
-        for (let r = 0; r < rows; r++) {
-            // 行ごとにオフセットをずらす（レンガ積み）
-            const offset = (r % 2 === 0) ? 0 : brickW / 2;
-            
-            for (let c = -1; c < cols + 1; c++) {
-                const x = c * brickW + offset;
-                const y = r * brickH;
+        // シード的にランダムな行高さを決定
+        let y = 0;
+        while (y < height) {
+            const rowH = minRowH + Math.random() * (maxRowH - minRowH);
+            const actualRowH = Math.min(rowH, height - y);
+            if (actualRowH < minRowH * 0.5) break;
+
+            // この行の石を左から右へランダム幅で配置
+            const minStoneW = width / 5;
+            const maxStoneW = width / 1.5;
+            let x = (Math.random() < 0.5) ? -(Math.random() * maxStoneW * 0.4) : 0; // 行オフセット
+
+            while (x < width) {
+                const stoneW = minStoneW + Math.random() * (maxStoneW - minStoneW);
 
                 // 石の個体差（色、明るさ）
-                const brightness = 0.9 + Math.random() * 0.2; // 0.8~1.2 -> 0.9~1.1 (明るく均一に)
-                const hue = 0 + (Math.random() - 0.5) * 5;    // 色相ずれを減らす
-                const sat = 0 + Math.random() * 2;            // 低彩度
+                const brightness = 0.9 + Math.random() * 0.2;
+                const hue = 0 + (Math.random() - 0.5) * 5;
+                const sat = 0 + Math.random() * 2;
                 
-                // 石のベース (輝度を上げて明るく)
-                ctx.fillStyle = `hsl(${hue}, ${sat}%, ${70 * brightness}%)`; // 40 -> 70
+                ctx.fillStyle = `hsl(${hue}, ${sat}%, ${70 * brightness}%)`;
                 
-                // 石の形を少し不規則にする（マージンをとる）
-                const gap = 4; // 目地も少し広く
+                // 石の形を少し不規則にする
                 const roughX = x + gap + (Math.random() - 0.5) * 4;
                 const roughY = y + gap + (Math.random() - 0.5) * 4;
-                const roughW = brickW - gap * 2 + (Math.random() - 0.5) * 4;
-                const roughH = brickH - gap * 2 + (Math.random() - 0.5) * 4;
+                const roughW = stoneW - gap * 2 + (Math.random() - 0.5) * 4;
+                const roughH = actualRowH - gap * 2 + (Math.random() - 0.5) * 4;
 
-                // 角を丸めるためのパス
-                this.drawRoundedRect(ctx, roughX, roughY, roughW, roughH, 8); // 角丸も大きく
-                ctx.fill();
+                if (roughW > 0 && roughH > 0) {
+                    this.drawRoundedRect(ctx, roughX, roughY, roughW, roughH, 6 + Math.random() * 4);
+                    ctx.fill();
 
-                // 石の表面のディテール（ハイライトとシャドウ）
-                // 上端にハイライト
-                ctx.fillStyle = `rgba(255, 255, 255, 0.2)`;
-                ctx.fillRect(roughX, roughY, roughW, 4);
-                // 下端にシャドウ
-                ctx.fillStyle = `rgba(0, 0, 0, 0.15)`;
-                ctx.fillRect(roughX, roughY + roughH - 4, roughW, 4);
+                    // 上端にハイライト
+                    ctx.fillStyle = `rgba(255, 255, 255, 0.2)`;
+                    ctx.fillRect(roughX, roughY, roughW, 3);
+                    // 下端にシャドウ
+                    ctx.fillStyle = `rgba(0, 0, 0, 0.15)`;
+                    ctx.fillRect(roughX, roughY + roughH - 3, roughW, 3);
+                }
+
+                x += stoneW;
             }
+
+            y += actualRowH;
         }
 
         // 全体に汚れ（ウェザリング）を追加 (少し控えめに)
