@@ -576,35 +576,28 @@ export class BuildingSystem {
                         const baseMat = this.materials[blockType];
                         material = baseMat.clone();
 
-                        // --- UV書き換え: 1グリッド(4×4ブロック)で1枚のテクスチャ ---
+                        // --- UV書き換え: 頂点のワールド位置ベースでUVを計算 ---
+                        // 1グリッド(4×4ブロック)で1枚のテクスチャをシームレスに表示
                         const blocksPerGrid = Math.round(TILE_SIZE / (template.blockSize || this.blockSize));
                         if (baseMat.map) {
-                            // ジオメトリをクローンしてUVを書き換え
                             blockGeometry = this.shearedBlockGeometry.clone();
                             const uvAttr = blockGeometry.getAttribute('uv');
                             const posAttr = blockGeometry.getAttribute('position');
-                            const hw = this.blockSize / 2;  // shape半幅 = 4
-                            const hh = this.blockSize / 4;  // shape半高 = 2
-
-                            // ブロックのグリッド内位置（0〜3）
-                            const tileX = ((x % blocksPerGrid) + blocksPerGrid) % blocksPerGrid;
-                            const tileZ = ((z % blocksPerGrid) + blocksPerGrid) % blocksPerGrid;
+                            const bs = this.blockSize;  // 8
+                            const gridSize = blocksPerGrid * bs;  // 32
 
                             for (let i = 0; i < uvAttr.count; i++) {
-                                let u = uvAttr.getX(i);
-                                let v = uvAttr.getY(i);
-                                // ExtrudeGeometryのUV: 前面/背面はshape座標(x: -hw..hw, y: -hh..hh)
-                                // 側面はextrudeのdepthに基づく
-                                // 前面/背面のUVを正規化して、グリッド内位置に応じた範囲にマッピング
-                                // shape座標をx方向に、z(高さ)をdepth方向にマッピング
-                                
-                                // UVを0-1に正規化
-                                const nu = (u + hw) / (2 * hw);  // -4..4 → 0..1
-                                const nv = (v + hh) / (2 * hh);  // -2..2 → 0..1
+                                const vx = posAttr.getX(i);  // -4..4 (diamond X)
+                                const vz = posAttr.getZ(i);  // -4..4 (extrusion/height)
 
-                                // グリッド内の該当領域にマッピング
-                                const newU = (tileX + nu) / blocksPerGrid;
-                                const newV = (tileZ + nv) / blocksPerGrid;
+                                // ワールド位置ベースのUV: ブロック位置 + 頂点のローカル位置
+                                // U: 横方向(x) V: 高さ方向(z=建物の高さ)
+                                const worldU = x * bs + (vx + bs / 2);  // 0 .. size.x * bs
+                                const worldV = z * bs + (vz + bs / 2);  // 0 .. size.z * bs
+
+                                // gridSizeで割って0-1にタイリング
+                                const newU = worldU / gridSize;
+                                const newV = worldV / gridSize;
 
                                 uvAttr.setXY(i, newU, newV);
                             }
