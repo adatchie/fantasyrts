@@ -64,22 +64,19 @@ export class BuildingTextureGenerator {
     }
 
     /**
-     * 石壁テクスチャ（レンガ模様）
+     * 石壁テクスチャ（AI生成テクスチャ画像を使用）
      */
     createStoneWallTexture() {
         if (textureCache['stoneWall']) return textureCache['stoneWall'];
 
-        // TextureGeneratorを使用して高品質なテクスチャを生成
-        const canvas = TextureGenerator.generateStoneWall(this.textureSize, this.textureSize);
-
-        const texture = new THREE.CanvasTexture(canvas);
-        texture.magFilter = THREE.NearestFilter; // ドット絵感を残すならNearest, リアルならLinear
-        texture.minFilter = THREE.LinearMipMapLinearFilter; // 遠くで綺麗に見えるように
+        const loader = new THREE.TextureLoader();
+        const texture = loader.load('assets/textures/stone_wall.png');
         texture.wrapS = THREE.RepeatWrapping;
         texture.wrapT = THREE.RepeatWrapping;
-        // 色空間をSRGBに設定（Three.js r152+）
-        texture.colorSpace = THREE.SRGBColorSpace; 
-        
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.magFilter = THREE.LinearFilter;
+        texture.minFilter = THREE.LinearMipMapLinearFilter;
+
         textureCache['stoneWall'] = texture;
         return texture;
     }
