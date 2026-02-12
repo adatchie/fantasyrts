@@ -560,6 +560,37 @@ export class BuildingSystem {
             this.shearedBlockGeometry.translate(0, 0, -this.blockSize / 2);
         }
 
+        // --- キャッシュ: UV書き換え済みジオメトリ（tileX,tileZ の組み合わせ = 最大16パターン） ---
+        const blocksPerGrid = Math.round(TILE_SIZE / (template.blockSize || this.blockSize));
+        if (!this._uvGeometryCache) this._uvGeometryCache = {};
+        const baseMat = this.materials[BLOCK_TYPES.STONE_WALL];
+        const hasTexture = baseMat && baseMat.map;
+
+        if (hasTexture) {
+            const hw = this.blockSize / 2;
+            const hh = this.blockSize / 4;
+            for (let tx = 0; tx < blocksPerGrid; tx++) {
+                for (let tz = 0; tz < blocksPerGrid; tz++) {
+                    const key = `${tx}_${tz}`;
+                    if (this._uvGeometryCache[key]) continue;
+                    const geom = this.shearedBlockGeometry.clone();
+                    const uvAttr = geom.getAttribute('uv');
+                    for (let i = 0; i < uvAttr.count; i++) {
+                        const u = uvAttr.getX(i);
+                        const v = uvAttr.getY(i);
+                        const nu = (u + hw) / (2 * hw);
+                        const nv = (v + hh) / (2 * hh);
+                        uvAttr.setXY(i, (tx + nu) / blocksPerGrid, (tz + nv) / blocksPerGrid);
+                    }
+                    uvAttr.needsUpdate = true;
+                    this._uvGeometryCache[key] = geom;
+                }
+            }
+        }
+
+        // --- キャッシュ: 色バリエーション用マテリアル（グリッド座標のハッシュ） ---
+        if (!this._stoneMatCache) this._stoneMatCache = {};
+
         // 各ブロックをメッシュとして追加
         for (let z = 0; z < size.z; z++) { // 高さ
             for (let y = 0; y < size.y; y++) { // 奥行き
@@ -570,65 +601,40 @@ export class BuildingSystem {
                     let material = this.materials[blockType];
                     if (!material) continue;
 
-                    // 石壁ブロックは個体差を出すためブロックごとに色味を変える
+                    // 石壁ブロック: キャッシュ済みジオメトリ＆マテリアルを使用
                     let blockGeometry = this.shearedBlockGeometry;
                     if (blockType === BLOCK_TYPES.STONE_WALL) {
-                        const baseMat = this.materials[blockType];
-                        material = baseMat.clone();
-
-                        // --- UV書き換え: 1グリッド(4×4ブロック)で1枚のテクスチャ ---
-                        const blocksPerGrid = Math.round(TILE_SIZE / (template.blockSize || this.blockSize));
-                        if (baseMat.map) {
-                            // ジオメトリをクローンしてUVを書き換え
-                            blockGeometry = this.shearedBlockGeometry.clone();
-                            const uvAttr = blockGeometry.getAttribute('uv');
-                            const posAttr = blockGeometry.getAttribute('position');
-                            const hw = this.blockSize / 2;  // shape半幅 = 4
-                            const hh = this.blockSize / 4;  // shape半高 = 2
-
-                            // ブロックのグリッド内位置（0〜3）
+                        // UV書き換え済みジオメトリをキャッシュから取得
+                        if (hasTexture) {
                             const tileX = ((x % blocksPerGrid) + blocksPerGrid) % blocksPerGrid;
                             const tileZ = ((z % blocksPerGrid) + blocksPerGrid) % blocksPerGrid;
-
-                            for (let i = 0; i < uvAttr.count; i++) {
-                                let u = uvAttr.getX(i);
-                                let v = uvAttr.getY(i);
-                                // ExtrudeGeometryのUV: 前面/背面はshape座標(x: -hw..hw, y: -hh..hh)
-                                // 側面はextrudeのdepthに基づく
-                                // 前面/背面のUVを正規化して、グリッド内位置に応じた範囲にマッピング
-                                // shape座標をx方向に、z(高さ)をdepth方向にマッピング
-                                
-                                // UVを0-1に正規化
-                                const nu = (u + hw) / (2 * hw);  // -4..4 → 0..1
-                                const nv = (v + hh) / (2 * hh);  // -2..2 → 0..1
-
-                                // グリッド内の該当領域にマッピング
-                                const newU = (tileX + nu) / blocksPerGrid;
-                                const newV = (tileZ + nv) / blocksPerGrid;
-
-                                uvAttr.setXY(i, newU, newV);
-                            }
-                            uvAttr.needsUpdate = true;
+                            blockGeometry = this._uvGeometryCache[`${tileX}_${tileZ}`];
                         }
 
-                        // 色バリエーション（グリッド単位で変える）
+                        // 色バリエーション（グリッド単位）をキャッシュ
                         const gridX = Math.floor(x / blocksPerGrid);
                         const gridY = Math.floor(y / blocksPerGrid);
                         const gridZ = Math.floor(z / blocksPerGrid);
                         const hash = (gridX * 73856093 + gridY * 19349663 + gridZ * 83492791) & 0xFFFF;
-                        const brightness = 0.85 + (hash % 100) / 100 * 0.3; // 0.85〜1.15
-                        const hueShift = ((hash >> 4) % 20 - 10) / 360;
+                        const matKey = `stone_${hash}`;
                         
-                        const baseColor = new THREE.Color(baseMat.map ? 0xffffff : 0x888888);
-                        baseColor.multiplyScalar(brightness);
-                        const r = baseColor.r + hueShift * 0.5;
-                        const g = baseColor.g;
-                        const b = baseColor.b - hueShift * 0.5;
-                        material.color.setRGB(
-                            Math.max(0, Math.min(1, r)),
-                            Math.max(0, Math.min(1, g)),
-                            Math.max(0, Math.min(1, b))
-                        );
+                        if (!this._stoneMatCache[matKey]) {
+                            const brightness = 0.85 + (hash % 100) / 100 * 0.3;
+                            const hueShift = ((hash >> 4) % 20 - 10) / 360;
+                            const baseColor = new THREE.Color(hasTexture ? 0xffffff : 0x888888);
+                            baseColor.multiplyScalar(brightness);
+                            const r = baseColor.r + hueShift * 0.5;
+                            const g = baseColor.g;
+                            const b = baseColor.b - hueShift * 0.5;
+                            const mat = baseMat.clone();
+                            mat.color.setRGB(
+                                Math.max(0, Math.min(1, r)),
+                                Math.max(0, Math.min(1, g)),
+                                Math.max(0, Math.min(1, b))
+                            );
+                            this._stoneMatCache[matKey] = mat;
+                        }
+                        material = this._stoneMatCache[matKey];
                     }
                     const blockMesh = new THREE.Mesh(blockGeometry, material);
 
