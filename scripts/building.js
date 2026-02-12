@@ -572,18 +572,36 @@ export class BuildingSystem {
 
                     // 石壁ブロックは個体差を出すためブロックごとに色味を変える
                     if (blockType === BLOCK_TYPES.STONE_WALL) {
-                        // 位置ベースの擬似乱数で明るさと色味をばらつかせる
-                        const hash = (x * 73856093 + y * 19349663 + z * 83492791) & 0xFFFF;
-                        const brightness = 0.7 + (hash % 100) / 100 * 0.5; // 0.7〜1.2
-                        const hueShift = ((hash >> 4) % 20 - 10) / 360; // ±10度
-                        
                         const baseMat = this.materials[blockType];
                         material = baseMat.clone();
-                        // テクスチャ使用時は白ベース、なしの場合は灰色ベース
-                        const baseColor = new THREE.Color(baseMat.map ? 0xffffff : 0x888888);
-                        // 明るさバリエーション
+
+                        // --- UVオフセット: 1グリッド(4×4ブロック)で1枚のテクスチャ ---
+                        // blockSize=8, TILE_SIZE=32 → 1グリッド = 4ブロック幅
+                        const blocksPerGrid = Math.round(TILE_SIZE / (template.blockSize || this.blockSize));
+                        if (material.map) {
+                            material.map = material.map.clone();
+                            material.map.needsUpdate = true;
+                            // 各ブロックはテクスチャの1/blocksPerGrid分を表示
+                            // x方向: 壁の横方向, z方向: 壁の高さ方向
+                            material.map.repeat.set(1 / blocksPerGrid, 1 / blocksPerGrid);
+                            // ブロック位置に応じたオフセット（タイル内の位置）
+                            const tileX = ((x % blocksPerGrid) + blocksPerGrid) % blocksPerGrid;
+                            const tileZ = ((z % blocksPerGrid) + blocksPerGrid) % blocksPerGrid;
+                            material.map.offset.set(tileX / blocksPerGrid, tileZ / blocksPerGrid);
+                            material.map.wrapS = THREE.RepeatWrapping;
+                            material.map.wrapT = THREE.RepeatWrapping;
+                        }
+
+                        // 色バリエーション（グリッド単位で変える）
+                        const gridX = Math.floor(x / blocksPerGrid);
+                        const gridY = Math.floor(y / blocksPerGrid);
+                        const gridZ = Math.floor(z / blocksPerGrid);
+                        const hash = (gridX * 73856093 + gridY * 19349663 + gridZ * 83492791) & 0xFFFF;
+                        const brightness = 0.85 + (hash % 100) / 100 * 0.3; // 0.85〜1.15
+                        const hueShift = ((hash >> 4) % 20 - 10) / 360;
+                        
+                        const baseColor = new THREE.Color(material.map ? 0xffffff : 0x888888);
                         baseColor.multiplyScalar(brightness);
-                        // 微妙な暖色/寒色シフト
                         const r = baseColor.r + hueShift * 0.5;
                         const g = baseColor.g;
                         const b = baseColor.b - hueShift * 0.5;
