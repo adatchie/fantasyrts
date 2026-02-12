@@ -579,7 +579,8 @@ export class BuildingSystem {
                         
                         const baseMat = this.materials[blockType];
                         material = baseMat.clone();
-                        const baseColor = new THREE.Color(0x888888);
+                        // テクスチャ使用時は白ベース、なしの場合は灰色ベース
+                        const baseColor = new THREE.Color(baseMat.map ? 0xffffff : 0x888888);
                         // 明るさバリエーション
                         baseColor.multiplyScalar(brightness);
                         // 微妙な暖色/寒色シフト
