@@ -567,31 +567,32 @@ export class BuildingSystem {
                     const blockType = blocks[z][y][x];
                     if (blockType === BLOCK_TYPES.AIR) continue;
 
-                    const material = this.materials[blockType];
+                    let material = this.materials[blockType];
                     if (!material) continue;
 
-                    // 石壁ブロックはUVオフセットで個体差を出す
-                    let geometry = this.shearedBlockGeometry;
+                    // 石壁ブロックは個体差を出すためブロックごとに色味を変える
                     if (blockType === BLOCK_TYPES.STONE_WALL) {
-                        geometry = this.shearedBlockGeometry.clone();
-                        const uvAttr = geometry.getAttribute('uv');
-                        if (uvAttr) {
-                            // ブロック位置に基づくランダム風オフセット（シード的）
-                            const offsetU = ((x * 7 + y * 13 + z * 23) % 17) / 17;
-                            const offsetV = ((x * 11 + y * 19 + z * 29) % 13) / 13;
-                            // スケールも少しバリエーション（0.5〜1.5倍）
-                            const scaleUV = 0.5 + ((x * 3 + y * 7 + z * 11) % 10) / 10;
-                            for (let i = 0; i < uvAttr.count; i++) {
-                                uvAttr.setXY(
-                                    i,
-                                    uvAttr.getX(i) * scaleUV + offsetU,
-                                    uvAttr.getY(i) * scaleUV + offsetV
-                                );
-                            }
-                            uvAttr.needsUpdate = true;
-                        }
+                        // 位置ベースの擬似乱数で明るさと色味をばらつかせる
+                        const hash = (x * 73856093 + y * 19349663 + z * 83492791) & 0xFFFF;
+                        const brightness = 0.7 + (hash % 100) / 100 * 0.5; // 0.7〜1.2
+                        const hueShift = ((hash >> 4) % 20 - 10) / 360; // ±10度
+                        
+                        const baseMat = this.materials[blockType];
+                        material = baseMat.clone();
+                        const baseColor = new THREE.Color(0x888888);
+                        // 明るさバリエーション
+                        baseColor.multiplyScalar(brightness);
+                        // 微妙な暖色/寒色シフト
+                        const r = baseColor.r + hueShift * 0.5;
+                        const g = baseColor.g;
+                        const b = baseColor.b - hueShift * 0.5;
+                        material.color.setRGB(
+                            Math.max(0, Math.min(1, r)),
+                            Math.max(0, Math.min(1, g)),
+                            Math.max(0, Math.min(1, b))
+                        );
                     }
-                    const blockMesh = new THREE.Mesh(geometry, material);
+                    const blockMesh = new THREE.Mesh(this.shearedBlockGeometry, material);
 
                     // 建物のローカル座標系でのグリッド位置
                     // 中心を原点(0,0)とするように調整
