@@ -571,25 +571,44 @@ export class BuildingSystem {
                     if (!material) continue;
 
                     // 石壁ブロックは個体差を出すためブロックごとに色味を変える
+                    let blockGeometry = this.shearedBlockGeometry;
                     if (blockType === BLOCK_TYPES.STONE_WALL) {
                         const baseMat = this.materials[blockType];
                         material = baseMat.clone();
 
-                        // --- UVオフセット: 1グリッド(4×4ブロック)で1枚のテクスチャ ---
-                        // blockSize=8, TILE_SIZE=32 → 1グリッド = 4ブロック幅
+                        // --- UV書き換え: 1グリッド(4×4ブロック)で1枚のテクスチャ ---
                         const blocksPerGrid = Math.round(TILE_SIZE / (template.blockSize || this.blockSize));
-                        if (material.map) {
-                            material.map = material.map.clone();
-                            material.map.needsUpdate = true;
-                            // 各ブロックはテクスチャの1/blocksPerGrid分を表示
-                            // x方向: 壁の横方向, z方向: 壁の高さ方向
-                            material.map.repeat.set(1 / blocksPerGrid, 1 / blocksPerGrid);
-                            // ブロック位置に応じたオフセット（タイル内の位置）
+                        if (baseMat.map) {
+                            // ジオメトリをクローンしてUVを書き換え
+                            blockGeometry = this.shearedBlockGeometry.clone();
+                            const uvAttr = blockGeometry.getAttribute('uv');
+                            const posAttr = blockGeometry.getAttribute('position');
+                            const hw = this.blockSize / 2;  // shape半幅 = 4
+                            const hh = this.blockSize / 4;  // shape半高 = 2
+
+                            // ブロックのグリッド内位置（0〜3）
                             const tileX = ((x % blocksPerGrid) + blocksPerGrid) % blocksPerGrid;
                             const tileZ = ((z % blocksPerGrid) + blocksPerGrid) % blocksPerGrid;
-                            material.map.offset.set(tileX / blocksPerGrid, tileZ / blocksPerGrid);
-                            material.map.wrapS = THREE.RepeatWrapping;
-                            material.map.wrapT = THREE.RepeatWrapping;
+
+                            for (let i = 0; i < uvAttr.count; i++) {
+                                let u = uvAttr.getX(i);
+                                let v = uvAttr.getY(i);
+                                // ExtrudeGeometryのUV: 前面/背面はshape座標(x: -hw..hw, y: -hh..hh)
+                                // 側面はextrudeのdepthに基づく
+                                // 前面/背面のUVを正規化して、グリッド内位置に応じた範囲にマッピング
+                                // shape座標をx方向に、z(高さ)をdepth方向にマッピング
+                                
+                                // UVを0-1に正規化
+                                const nu = (u + hw) / (2 * hw);  // -4..4 → 0..1
+                                const nv = (v + hh) / (2 * hh);  // -2..2 → 0..1
+
+                                // グリッド内の該当領域にマッピング
+                                const newU = (tileX + nu) / blocksPerGrid;
+                                const newV = (tileZ + nv) / blocksPerGrid;
+
+                                uvAttr.setXY(i, newU, newV);
+                            }
+                            uvAttr.needsUpdate = true;
                         }
 
                         // 色バリエーション（グリッド単位で変える）
@@ -600,7 +619,7 @@ export class BuildingSystem {
                         const brightness = 0.85 + (hash % 100) / 100 * 0.3; // 0.85〜1.15
                         const hueShift = ((hash >> 4) % 20 - 10) / 360;
                         
-                        const baseColor = new THREE.Color(material.map ? 0xffffff : 0x888888);
+                        const baseColor = new THREE.Color(baseMat.map ? 0xffffff : 0x888888);
                         baseColor.multiplyScalar(brightness);
                         const r = baseColor.r + hueShift * 0.5;
                         const g = baseColor.g;
@@ -611,7 +630,7 @@ export class BuildingSystem {
                             Math.max(0, Math.min(1, b))
                         );
                     }
-                    const blockMesh = new THREE.Mesh(this.shearedBlockGeometry, material);
+                    const blockMesh = new THREE.Mesh(blockGeometry, material);
 
                     // 建物のローカル座標系でのグリッド位置
                     // 中心を原点(0,0)とするように調整
