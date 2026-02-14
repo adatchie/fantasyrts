@@ -618,11 +618,28 @@ export class BuildingSystem {
                         if (hasTexture && this._uvGeometryCache && Object.keys(this._uvGeometryCache).length > 0) {
                             const tileX = ((x % blocksPerGrid) + blocksPerGrid) % blocksPerGrid;
                             const tileZ = ((z % blocksPerGrid) + blocksPerGrid) % blocksPerGrid;
-                            const cachedGeom = this._uvGeometryCache[`${tileX}_${tileZ}`];
-                            if (cachedGeom) {
-                                blockGeometry = cachedGeom;
+
+                            // 上面または下面のUV補正
+                            // ダイヤモンド形状の上面では、グリッドのY位置もUVに影響する
+                            if (z === 0 || z === size.z - 1) {
+                                // 上面または下面の場合、グリッドの行（y）も考慮
+                                const tileY = Math.floor(y / blocksPerGrid);
+                                // ダイヤモンドのY軸回転を考慮したV座標計算
+                                const v = (tileY * 2 + tileZ) / (blocksPerGrid * 2);
+                                const cachedGeom = this._uvGeometryCache[`${tileX}_${v}`];
+                                if (cachedGeom) {
+                                    blockGeometry = cachedGeom;
+                                } else {
+                                    console.warn(`[BuildingSystem] UV geometry cache miss for key: ${tileX}_${v}`, { tileX, tileZ, tileY, blocksPerGrid, cacheKeys: Object.keys(this._uvGeometryCache) });
+                                }
                             } else {
-                                console.warn(`[BuildingSystem] UV geometry cache miss for key: ${tileX}_${tileZ}`, { tileX, tileZ, blocksPerGrid, cacheKeys: Object.keys(this._uvGeometryCache) });
+                                // 側面は通常のキャッシュを使用
+                                const cachedGeom = this._uvGeometryCache[`${tileX}_${tileZ}`];
+                                if (cachedGeom) {
+                                    blockGeometry = cachedGeom;
+                                } else {
+                                    console.warn(`[BuildingSystem] UV geometry cache miss for key: ${tileX}_${tileZ}`, { tileX, tileZ, blocksPerGrid, cacheKeys: Object.keys(this._uvGeometryCache) });
+                                }
                             }
                         }
 
