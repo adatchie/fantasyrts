@@ -8,6 +8,7 @@ import { TERRAIN_TYPES } from './map.js';
 import { hexToPixel } from './pathfinding.js';
 import { DIALOGUE, UNIT_TYPES, UNIT_TYPE_NORMAL, UNIT_TYPE_HEADQUARTERS, TILE_HEIGHT } from './constants.js';
 import { getFormationModifiers, checkForcedFormationChange, calculateFormationTargets } from './formation.js';
+import { ATTACK_PATTERNS, rotatePattern } from './attack-patterns.js';
 
 export class CombatSystem {
     constructor(audioEngine, unitManager = null) {
@@ -284,11 +285,11 @@ export class CombatSystem {
         } else if (canUseBow(dist)) {
             // 弓攻撃射程内（最小射程以上、最大射程まで）なら遠距離攻撃
             unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
-            await this.rangedCombat(unit, target, map);
+            await this.rangedCombat(unit, target, map, allUnits);
         } else if (canRangedAttack && dist <= extendedBowRange) {
             // 弓兵が拡張射程内にいる場合は移動せずに攻撃
             unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
-            await this.rangedCombat(unit, target, map);
+            await this.rangedCombat(unit, target, map, allUnits);
         } else if (canRangedAttack && this.mapSystem) {
             // 弓兵が高い位置にいる場合、移動を諦めてその場から攻撃
             const unitZ = this.mapSystem.getHeight(unit.x, unit.y);
@@ -297,7 +298,7 @@ export class CombatSystem {
             // 自分が3段差以上高い場合は移動せずに攻撃
             if (heightDiff >= 48) {
                 unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
-                await this.rangedCombat(unit, target, map);
+                await this.rangedCombat(unit, target, map, allUnits);
                 return;
             }
         }
@@ -307,7 +308,7 @@ export class CombatSystem {
             // 弓射程内なら先に弓を撃つ
             if (canUseBow(dist)) {
                 unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
-                await this.rangedCombat(unit, target, map);
+                await this.rangedCombat(unit, target, map, allUnits);
                 // 弓攻撃後、まだ距離があれば陣形で近づく
             }
 
@@ -336,7 +337,7 @@ export class CombatSystem {
             } else if (canUseBow(newDist)) {
                 // 弓射程内なら遠距離攻撃
                 unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
-                await this.rangedCombat(unit, target, map);
+                await this.rangedCombat(unit, target, map, allUnits);
             }
 
             // 命令を元に戻す（次ターンも攻撃を継続するため）
@@ -360,18 +361,19 @@ export class CombatSystem {
             } else if (canUseBow(newDist)) {
                 // 移動後に弓射程内なら遠距離攻撃
                 unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
-                await this.rangedCombat(unit, target, map);
+                await this.rangedCombat(unit, target, map, allUnits);
             }
         }
     }
 
     /**
-     * 遠距離攻撃を実行
+     * 遠距離攻撃を実行（旧版 — 後方定義により上書きされるデッドコード）
      * @param {Object} att - 攻撃者
      * @param {Object} def - 防御者
      * @param {Array} map - マップデータ
+     * @param {Array} allUnits - 全ユニット配列
      */
-    async rangedCombat(att, def, map) {
+    async rangedCombat(att, def, map, allUnits = []) {
         att.dir = getFacingAngle(att.x, att.y, def.x, def.y);
 
         // 攻撃アニメーションをトリガー (必須)
@@ -876,6 +878,59 @@ export class CombatSystem {
         }
         // 注: 攻撃側はダメージを受けないため、死亡判定は不要
 
+        // ---------------------------------------------------------
+        // 騎兵押し出し（CAVALRY: canPushBack === true）
+        // 攻撃方向に防御側を1マス押し戻す
+        // ---------------------------------------------------------
+        const attTypeInfo = UNIT_TYPES[att.type] || UNIT_TYPES.INFANTRY;
+        if (attTypeInfo.canPushBack && !def.dead) {
+            // 攻撃者から防御者への方向ベクトルを計算
+            const pushDx = Math.sign(def.x - att.x);
+            const pushDy = Math.sign(def.y - att.y);
+            // 方向が算出できない場合（同じマスに居る等）はスキップ
+            if (pushDx !== 0 || pushDy !== 0) {
+                const newX = def.x + pushDx;
+                const newY = def.y + pushDy;
+
+                // 押し出し先が有効かチェック
+                let canPush = true;
+
+                // マップ範囲チェック
+                if (newX < 0 || newY < 0 || !map[newY] || !map[newY][newX]) {
+                    canPush = false;
+                }
+
+                // 他のユニットが占有していないかチェック
+                if (canPush && allUnits) {
+                    const occupied = allUnits.find(u =>
+                        !u.dead && u.id !== def.id && u.x === newX && u.y === newY
+                    );
+                    if (occupied) canPush = false;
+                }
+
+                // 高低差チェック（段差2まで）
+                if (canPush && this.mapSystem) {
+                    const currentZ = this.mapSystem.getHeight(def.x, def.y);
+                    const targetZ = this.mapSystem.getHeight(newX, newY);
+                    if (Math.abs(targetZ - currentZ) > 48) { // 段差3以上は不可
+                        canPush = false;
+                    }
+                }
+
+                if (canPush) {
+                    def.x = newX;
+                    def.y = newY;
+                    def.pos = hexToPixel(def.x, def.y);
+                    this.spawnText({ q: def.x, r: def.y }, '押出!', '#ffaa00', 40);
+                    // 3Dレンダラー側の位置を更新
+                    if (this.renderingEngine && this.renderingEngine.updateUnitInfo) {
+                        const defMesh = this.renderingEngine.unitMeshes.get(def.id);
+                        if (defMesh) this.renderingEngine.updateUnitInfo(defMesh, def);
+                    }
+                }
+            }
+        }
+
         await this.wait(200);
         this.activeEffects = this.activeEffects.filter(e => e.type !== 'BEAM');
     }
@@ -1345,8 +1400,9 @@ export class CombatSystem {
      * @param {Object} att - 攻撃者
      * @param {Object} def - 防御者
      * @param {Array} map - マップデータ
+     * @param {Array} allUnits - 全ユニット配列（AoE/ブレス範囲ダメージ用）
      */
-    async rangedCombat(att, def, map) {
+    async rangedCombat(att, def, map, allUnits = []) {
         att.dir = getFacingAngle(att.x, att.y, def.x, def.y);
 
         // Debug Log
@@ -1529,6 +1585,85 @@ export class CombatSystem {
                 this.renderingEngine.triggerDeathAnimation(def.id);
             }
             await this.dramaticDeath(def, att.side);
+        }
+
+        // ---------------------------------------------------------
+        // AoEスプラッシュダメージ（魔術師: isAoe === true）
+        // 着弾点の周囲8マスにいる敵ユニットにも50%のダメージを与える
+        // ---------------------------------------------------------
+        if (typeInfo.isAoe && allUnits && allUnits.length > 0) {
+            const splashDmg = Math.max(3, Math.floor(dmgToDef * 0.5));
+            const surroundingOffsets = [
+                { dx: -1, dy: -1 }, { dx: 0, dy: -1 }, { dx: 1, dy: -1 },
+                { dx: -1, dy: 0 },                      { dx: 1, dy: 0 },
+                { dx: -1, dy: 1 },  { dx: 0, dy: 1 },  { dx: 1, dy: 1 }
+            ];
+            for (const offset of surroundingOffsets) {
+                const tx = def.x + offset.dx;
+                const ty = def.y + offset.dy;
+                const splashTarget = allUnits.find(u =>
+                    !u.dead && u.side !== att.side && u.x === tx && u.y === ty && u.id !== def.id
+                );
+                if (splashTarget) {
+                    splashTarget.soldiers -= splashDmg;
+                    this.spawnText({ q: tx, r: ty }, `-${splashDmg}`, '#cc66ff', 40);
+                    if (this.renderingEngine && this.renderingEngine.triggerDamageAnimation) {
+                        this.renderingEngine.triggerDamageAnimation(splashTarget.id);
+                    }
+                    if (this.renderingEngine && this.renderingEngine.updateUnitInfo) {
+                        const mesh = this.renderingEngine.unitMeshes.get(splashTarget.id);
+                        if (mesh) this.renderingEngine.updateUnitInfo(mesh, splashTarget);
+                    }
+                    if (splashTarget.soldiers <= 0) {
+                        splashTarget.soldiers = 0;
+                        splashTarget.dead = true;
+                        if (this.renderingEngine && this.renderingEngine.triggerDeathAnimation) {
+                            this.renderingEngine.triggerDeathAnimation(splashTarget.id);
+                        }
+                        await this.dramaticDeath(splashTarget, att.side);
+                    }
+                }
+            }
+        }
+
+        // ---------------------------------------------------------
+        // ブレス扇状ダメージ（ドラゴン/竜騎兵: rangeType === 'breath'）
+        // attack-patterns.jsのbreathパターンを回転させ、範囲内の全敵にダメージ
+        // ---------------------------------------------------------
+        if (rangeType === 'breath' && allUnits && allUnits.length > 0) {
+            const breathPattern = ATTACK_PATTERNS.breath;
+            if (breathPattern) {
+                const rotated = rotatePattern(breathPattern, att.dir || 0);
+                const breathDmg = Math.max(3, Math.floor(dmgToDef * 0.6));
+                for (const { dx, dy } of rotated) {
+                    const tx = att.x + dx;
+                    const ty = att.y + dy;
+                    // メインターゲットは既にダメージ済みなのでスキップ
+                    if (tx === def.x && ty === def.y) continue;
+                    const breathTarget = allUnits.find(u =>
+                        !u.dead && u.side !== att.side && u.x === tx && u.y === ty
+                    );
+                    if (breathTarget) {
+                        breathTarget.soldiers -= breathDmg;
+                        this.spawnText({ q: tx, r: ty }, `-${breathDmg}`, '#ff8800', 40);
+                        if (this.renderingEngine && this.renderingEngine.triggerDamageAnimation) {
+                            this.renderingEngine.triggerDamageAnimation(breathTarget.id);
+                        }
+                        if (this.renderingEngine && this.renderingEngine.updateUnitInfo) {
+                            const mesh = this.renderingEngine.unitMeshes.get(breathTarget.id);
+                            if (mesh) this.renderingEngine.updateUnitInfo(mesh, breathTarget);
+                        }
+                        if (breathTarget.soldiers <= 0) {
+                            breathTarget.soldiers = 0;
+                            breathTarget.dead = true;
+                            if (this.renderingEngine && this.renderingEngine.triggerDeathAnimation) {
+                                this.renderingEngine.triggerDeathAnimation(breathTarget.id);
+                            }
+                            await this.dramaticDeath(breathTarget, att.side);
+                        }
+                    }
+                }
+            }
         }
 
         await this.wait(200);
