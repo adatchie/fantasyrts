@@ -593,43 +593,68 @@ export class Game {
     }
 
     async commitTurn() {
-        if (this.gameState !== 'ORDER') return;
+        if (this.gameState !== 'ORDER') {
+            console.warn('[commitTurn] Not in ORDER state:', this.gameState);
+            return;
+        }
 
-        // CPU AIの陣形を決定（本陣ユニットのみ）
-        const cpuHeadquarters = this.units.filter(u =>
-            u.side !== this.playerSide &&
-            !u.dead &&
-            u.unitType === UNIT_TYPE_HEADQUARTERS
-        );
+        try {
+            console.log('[commitTurn] Starting turn commit...');
 
-        cpuHeadquarters.forEach(hq => {
-            const subordinates = this.unitManager.getUnitsByWarlordId(hq.warlordId)
-                .filter(u => !u.dead && u.unitType !== UNIT_TYPE_HEADQUARTERS);
+            // CPU AIの陣形を決定（本陣ユニットのみ）
+            const cpuHeadquarters = this.units.filter(u =>
+                u.side !== this.playerSide &&
+                !u.dead &&
+                u.unitType === UNIT_TYPE_HEADQUARTERS
+            );
 
-            const formation = this.aiSystem.decideFormation(hq, this.units, subordinates.length);
+            cpuHeadquarters.forEach(hq => {
+                const subordinates = this.unitManager.getUnitsByWarlordId(hq.warlordId)
+                    .filter(u => !u.dead && u.unitType !== UNIT_TYPE_HEADQUARTERS);
 
-            // 陣形が変わった場合のみ更新
-            if (hq.formation !== formation) {
-                hq.formation = formation;
-                console.log(`CPU陣形設定: ${hq.name} -> ${formation}`);
-            }
-        });
+                const formation = this.aiSystem.decideFormation(hq, this.units, subordinates.length);
 
-        // CPU AIの命令を設定
-        this.units.filter(u => u.side !== this.playerSide && !u.dead).forEach(cpu => {
-            const order = this.aiSystem.decideAction(cpu, this.units, this.mapSystem);
-            if (order) cpu.order = order;
-        });
+                // 陣形が変わった場合のみ更新
+                if (hq.formation !== formation) {
+                    hq.formation = formation;
+                    console.log(`CPU陣形設定: ${hq.name} -> ${formation}`);
+                }
+            });
 
-        this.gameState = 'ACTION';
-        document.getElementById('action-btn').style.display = 'none';
-        document.getElementById('phase-text').innerText = "行動フェイズ";
-        this.closeCtx();
+            // CPU AIの命令を設定
+            this.units.filter(u => u.side !== this.playerSide && !u.dead).forEach(cpu => {
+                const order = this.aiSystem.decideAction(cpu, this.units, this.mapSystem);
+                if (order) cpu.order = order;
+            });
 
-        // 速度制御UIを表示
-        this.showSpeedControl(true);
+            this.gameState = 'ACTION';
+            const actionBtn = document.getElementById('action-btn');
+            if (actionBtn) actionBtn.style.display = 'none';
+            const phaseText = document.getElementById('phase-text');
+            if (phaseText) phaseText.innerText = "行動フェイズ";
+            this.closeCtx();
 
-        await this.resolveTurn();
+            // 速度制御UIを表示
+            this.showSpeedControl(true);
+
+            console.log('[commitTurn] Calling resolveTurn...');
+            await this.resolveTurn();
+            console.log('[commitTurn] resolveTurn completed successfully');
+        } catch (err) {
+            console.error('[commitTurn] Error during turn commit:', err);
+            console.error('[commitTurn] Stack trace:', err.stack);
+            
+            // エラー状態をリセット
+            this.gameState = 'ORDER';
+            const actionBtn = document.getElementById('action-btn');
+            if (actionBtn) actionBtn.style.display = 'block';
+            const phaseText = document.getElementById('phase-text');
+            if (phaseText) phaseText.innerText = "目標設定フェイズ";
+            this.showSpeedControl(false);
+            
+            // ユーザーに通知
+            alert(`ターン処理エラー: ${err.message}\nコンソールを確認してください。`);
+        }
     }
 
     async resolveTurn() {

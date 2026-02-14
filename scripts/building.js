@@ -569,22 +569,32 @@ export class BuildingSystem {
         if (hasTexture) {
             const hw = this.blockSize / 2;
             const hh = this.blockSize / 4;
-            for (let tx = 0; tx < blocksPerGrid; tx++) {
-                for (let tz = 0; tz < blocksPerGrid; tz++) {
-                    const key = `${tx}_${tz}`;
-                    if (this._uvGeometryCache[key]) continue;
-                    const geom = this.shearedBlockGeometry.clone();
-                    const uvAttr = geom.getAttribute('uv');
-                    for (let i = 0; i < uvAttr.count; i++) {
-                        const u = uvAttr.getX(i);
-                        const v = uvAttr.getY(i);
-                        const nu = (u + hw) / (2 * hw);
-                        const nv = (v + hh) / (2 * hh);
-                        uvAttr.setXY(i, (tx + nu) / blocksPerGrid, (tz + nv) / blocksPerGrid);
+            try {
+                for (let tx = 0; tx < blocksPerGrid; tx++) {
+                    for (let tz = 0; tz < blocksPerGrid; tz++) {
+                        const key = `${tx}_${tz}`;
+                        if (this._uvGeometryCache[key]) continue;
+                        const geom = this.shearedBlockGeometry.clone();
+                        const uvAttr = geom.getAttribute('uv');
+                        if (!uvAttr) {
+                            console.warn('[BuildingSystem] UV attribute not found on shearedBlockGeometry');
+                            continue;
+                        }
+                        for (let i = 0; i < uvAttr.count; i++) {
+                            const u = uvAttr.getX(i);
+                            const v = uvAttr.getY(i);
+                            const nu = (u + hw) / (2 * hw);
+                            const nv = (v + hh) / (2 * hh);
+                            uvAttr.setXY(i, (tx + nu) / blocksPerGrid, (tz + nv) / blocksPerGrid);
+                        }
+                        uvAttr.needsUpdate = true;
+                        this._uvGeometryCache[key] = geom;
                     }
-                    uvAttr.needsUpdate = true;
-                    this._uvGeometryCache[key] = geom;
                 }
+            } catch (e) {
+                console.error('[BuildingSystem] UV geometry cache creation failed:', e);
+                // キャッシュ生成失敗時は無効化してフォールバック
+                this._uvGeometryCache = {};
             }
         }
 
@@ -605,10 +615,15 @@ export class BuildingSystem {
                     let blockGeometry = this.shearedBlockGeometry;
                     if (blockType === BLOCK_TYPES.STONE_WALL) {
                         // UV書き換え済みジオメトリをキャッシュから取得
-                        if (hasTexture) {
+                        if (hasTexture && this._uvGeometryCache && Object.keys(this._uvGeometryCache).length > 0) {
                             const tileX = ((x % blocksPerGrid) + blocksPerGrid) % blocksPerGrid;
                             const tileZ = ((z % blocksPerGrid) + blocksPerGrid) % blocksPerGrid;
-                            blockGeometry = this._uvGeometryCache[`${tileX}_${tileZ}`];
+                            const cachedGeom = this._uvGeometryCache[`${tileX}_${tileZ}`];
+                            if (cachedGeom) {
+                                blockGeometry = cachedGeom;
+                            } else {
+                                console.warn(`[BuildingSystem] UV geometry cache miss for key: ${tileX}_${tileZ}`, { tileX, tileZ, blocksPerGrid, cacheKeys: Object.keys(this._uvGeometryCache) });
+                            }
                         }
 
                         // 色バリエーション（グリッド単位）をキャッシュ
