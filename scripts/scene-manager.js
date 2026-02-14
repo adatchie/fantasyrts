@@ -1,7 +1,11 @@
 
 import { STAGES, gameProgress } from './game-data.js';
 import { getUnitTypeInfo, UNIT_TYPES } from './constants.js?v=11';
+import { SPRITE_PATHS, UNIT_TYPE_TO_SPRITE } from './sprite-config.js'; // スプライト設定読み込み
 import { mapRepository } from './map-repository.js?v=2'; // マップリポジトリ読み込み
+import { createInputHandler, setupInputListeners } from './managers/input-handler.js';
+import { createTurnManager } from './managers/turn-manager.js';
+import { validateMapData, validateUnitData, validatePlacements } from './game/validator.js';
 
 export const SCENES = {
     TITLE: 'TITLE',
@@ -23,9 +27,73 @@ class SceneManager {
         this.currentScene = null;
         this.sceneInstance = null;
         this.gameData = {}; // シーン間で共有するデータ
+
+        // Load scene styles dynamically if not present
+        if (!document.getElementById('scene-styles')) {
+            const link = document.createElement('link');
+            link.id = 'scene-styles';
+            link.rel = 'stylesheet';
+            link.href = 'styles/scene-styles.css';
+            document.head.appendChild(link);
+        }
+
+        // Initialize managers
+        this.inputHandler = null;
+        this.turnManager = null;
     }
 
-    transition(sceneName, params = {}) {
+    /**
+     * Initialize game managers (called when transitioning to battle scene)
+     */
+    initializeManagers() {
+        if (!this.inputHandler) {
+            this.inputHandler = createInputHandler({
+                game: this.game,
+                getUnits: () => this.game.units,
+                getGameState: () => this.game.gameState,
+                getPlayerSide: () => this.game.playerSide,
+                getSelectedUnits: () => this.game.selectedUnits,
+                setSelectedUnits: (units) => { this.game.selectedUnits = units; },
+                getCamera: () => this.game.camera,
+                onMouseDown: this.game.handleMouseDownInternal?.bind(this.game),
+                onMouseMove: this.game.handleMouseMoveInternal?.bind(this.game),
+                onMouseUp: this.game.handleMouseUpInternal?.bind(this.game),
+                onKeyDown: this.game.handleKeyDownInternal?.bind(this.game),
+                onTouchStart: (e) => this.game.onTouchStart?.(e),
+                onTouchMove: (e) => this.game.onTouchMove?.(e),
+                onTouchEnd: (e) => this.game.onTouchEnd?.(e)
+            });
+        }
+
+        if (!this.turnManager) {
+            // Create turn manager with custom onGameEnd callback for scene transitions
+            const playerSide = this.game.playerSide;
+
+            this.turnManager = createTurnManager(this.game);
+
+            // Override onGameEnd to transition to result scene
+            const originalTriggerEndGame = this.turnManager.triggerEndGame.bind(this.turnManager);
+            this.turnManager.triggerEndGame = (winnerSide, loserName) => {
+                const isPlayerWin = (winnerSide === playerSide);
+                const result = isPlayerWin ? 'VICTORY' : 'DEFEAT';
+
+                // Transition to result scene
+                this.transition('RESULT', { result });
+            };
+        }
+    }
+
+    /**
+     * Setup input listeners for the current canvas
+     * @param {HTMLElement} canvas - The game canvas element
+     */
+    setupInput(canvas) {
+        if (this.inputHandler && canvas) {
+            setupInputListeners(this.inputHandler, canvas);
+        }
+    }
+
+    async transition(sceneName, params = {}) {
         try {
             // 前のシーンのクリーンアップ
             if (this.uiContainer) {
@@ -58,11 +126,12 @@ class SceneManager {
                     this.sceneInstance = new ResultScene(this, params.result);
                     break;
                 default:
-                    // Unknown scene
+                // Unknown scene
             }
 
             if (this.sceneInstance) {
-                this.sceneInstance.createUI();
+                // BattleScene.createUI is async (calls game.startGame which is async)
+                await this.sceneInstance.createUI();
             }
         } catch (e) {
             // 画面にエラーを表示
@@ -138,7 +207,6 @@ class MapSelectScene {
             }
         }
         const customMaps = mapRepository ? mapRepository.list() : [];
-        console.log(`[MapSelectScene] Available custom maps: ${customMaps.length}`, customMaps.map(m => `${m.name} (${m.id})`));
 
         const mapSelect = document.createElement('div');
         mapSelect.className = 'scene-ui map-select-screen';
@@ -154,21 +222,39 @@ class MapSelectScene {
                     <button class="tab-btn" data-tab="custom">カスタムマップ</button>
                 </div>
                 <div class="map-list content-active" id="list-story">
-                    ${stages.map((s, i) => `
-                        <div class="map-item" data-id="${i}">
-                            <h3>${s.name}</h3>
-                            <p>${s.description}</p>
-                        </div>
-                    `).join('')}
+                    ${stages.map((s, i) => {
+            const mapDiv = document.createElement('div');
+            mapDiv.className = 'map-item';
+            mapDiv.dataset.id = i;
+
+            const nameHeader = document.createElement('h3');
+            nameHeader.textContent = s.name; // Safe: prevents XSS
+            mapDiv.appendChild(nameHeader);
+
+            const descPara = document.createElement('p');
+            descPara.textContent = s.description; // Safe: prevents XSS
+            mapDiv.appendChild(descPara);
+
+            return mapDiv.outerHTML;
+        }).join('')}
                 </div>
                 <div class="map-list" id="list-custom" style="display:none;">
                     ${customMaps.length === 0 ? '<p>作成されたマップがありません</p>' :
-                customMaps.map(m => `
-                            <div class="map-item custom-map" data-id="${m.id}">
-                                <h3>${m.name}</h3>
-                                <p>サイズ: ${m.terrain?.width || 30}x${m.terrain?.height || 30}</p>
-                            </div>
-                        `).join('')}
+                customMaps.map(m => {
+                    const mapDiv = document.createElement('div');
+                    mapDiv.className = 'map-item custom-map';
+                    mapDiv.dataset.id = m.id;
+
+                    const nameHeader = document.createElement('h3');
+                    nameHeader.textContent = m.name; // Safe: prevents XSS
+                    mapDiv.appendChild(nameHeader);
+
+                    const sizePara = document.createElement('p');
+                    sizePara.textContent = `サイズ: ${m.terrain?.width || 30}x${m.terrain?.height || 30}`;
+                    mapDiv.appendChild(sizePara);
+
+                    return mapDiv.outerHTML;
+                }).join('')}
                 </div>
                 <div class="button-row">
                     <button class="btn-secondary" id="btn-back-title">戻る</button>
@@ -178,8 +264,6 @@ class MapSelectScene {
         `;
 
         this.manager.uiContainer.appendChild(mapSelect);
-
-
 
         // タブ制御
         const tabBtns = mapSelect.querySelectorAll('.tab-btn');
@@ -235,6 +319,13 @@ class MapSelectScene {
                         const matchingMap = allMaps.find(m => m.name === selectedStage.customMapName);
                         if (matchingMap) {
                             const fullMapData = mapRepository.get(matchingMap.id);
+                            // Validate custom map data
+                            const validation = validateMapData(fullMapData);
+                            if (!validation.valid) {
+                                console.error('[MapSelectScene] Custom map validation failed:', validation.errors);
+                                alert(`カスタムマップデータにエラーがあります:\n${validation.errors.join('\n')}`);
+                                return;
+                            }
                             this.manager.setGameData('customMapData', fullMapData);
                         } else {
                             this.manager.setGameData('customMapData', null);
@@ -246,6 +337,13 @@ class MapSelectScene {
                 } else {
                     // カスタムマップIDを設定
                     const mapData = mapRepository.get(this.selectedId);
+                    // Validate custom map data
+                    const validation = validateMapData(mapData);
+                    if (!validation.valid) {
+                        console.error('[MapSelectScene] Custom map validation failed:', validation.errors);
+                        alert(`カスタムマップデータにエラーがあります:\n${validation.errors.join('\n')}`);
+                        return;
+                    }
                     this.manager.setGameData('customMapData', mapData);
                     // ステージIDはダミーまたは専用ID
                     gameProgress.currentStage = 'custom';
@@ -259,130 +357,325 @@ class MapSelectScene {
 class OrganizationScene {
     constructor(manager) {
         this.manager = manager;
-        this.maxSquadSize = 30; // 1部隊あたりの最大ユニット数
-        this.maxTotalCost = 150; // 全軍の総コスト上限
+        this.maxSquadSize = 30;
+        this.maxTotalCost = 300;
+        this.selectedUnitId = null; // 左リストでの選択
+        this.selectedDeployedUnitId = null; // 右リストでの選択
     }
 
     createUI() {
         if (!this.manager.uiContainer) return;
 
-        const stageId = gameProgress.currentStage || 'tutorial';
-        const stageName = STAGES[stageId]?.name || 'カスタムマップ';
+        this.deployedIds = [...gameProgress.deployedUnitIds];
+        this.allUnits = gameProgress.getPlayerUnits();
+
+        // 【デバッグ用】ダミーデータの投入
+        if (this.allUnits.length < 10) {
+            const dummyTypes = ['soldier', 'archer', 'knight', 'mage', 'lancer', 'fighter'];
+            for (let i = 0; i < 20; i++) {
+                const type = dummyTypes[i % dummyTypes.length];
+                const dummyId = `dummy_${Date.now()}_${i}`;
+                this.allUnits.push({
+                    id: dummyId,
+                    type: type,
+                    name: `予備部隊 ${String.fromCharCode(65 + (i % 26))}${i > 25 ? i : ''}`,
+                    level: Math.floor(Math.random() * 10) + 1,
+                    unitCount: Math.floor(Math.random() * 20) + 1,
+                    exp: 0,
+                    nextExp: 100
+                });
+            }
+        }
 
         const org = document.createElement('div');
         org.className = 'scene-ui organization-screen';
+
+        // v6: 3カラムレイアウト
         org.innerHTML = `
-            <div class="org-layout">
-                <div class="org-sidebar">
-                    <h2>軍団編成</h2>
-                    <p class="stage-name">📍 ${stageName}</p>
-                    <div class="org-stats">
-                        <p>Total Cost: <span id="total-cost" class="highlight-val">0</span> / ${this.maxTotalCost}</p>
+            <div class="org-container-v6">
+                
+                <!-- 左カラム：所持リスト -->
+                <div class="org-col-left">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <i class="fas fa-th-list"></i> 所有部隊
+                        </div>
                     </div>
-                    <div class="org-buttons">
+                    <div class="org-unit-list card-view" id="org-unit-list"></div>
+                </div>
+
+                <!-- 中央カラム：操作ボタン -->
+                <div class="org-col-center">
+                   <button class="btn-remove-deploy" id="btn-remove-deploy" disabled>
+                        <i class="fas fa-arrow-left"></i>
+                        <br>
+                        解除
+                   </button>
+                </div>
+
+                <!-- 右カラム：出撃詳細・エディタ -->
+                <div class="org-col-right">
+                    
+                    <!-- ヘッダーエリア：コスト＆ボタン -->
+                    <div class="org-right-header">
+                        <div class="cost-area">
+                            <label>TOTAL COST</label>
+                            <span id="header-cost-val">0 / 300</span>
+                        </div>
+                        <div class="header-actions">
+                            <button class="btn-sub-action" id="btn-skill" disabled>
+                                <i class="fas fa-book"></i> スキル
+                            </button>
+                            <button class="btn-sub-action" id="btn-equip" disabled>
+                                <i class="fas fa-shield-alt"></i> 装備
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- メイン：出撃部隊詳細リスト -->
+                    <div class="deployed-detail-list" id="deployed-detail-list">
+                        <!-- JSで生成 -->
+                    </div>
+
+                    <!-- フッターアクション: 戻る・出撃 -->
+                    <div class="org-right-footer">
                         <button class="btn-secondary" id="btn-back-map">戻る</button>
-                        <button class="btn-primary" id="btn-to-deploy">出陣へ</button>
+                        <button class="btn-primary btn-xl" id="btn-to-deploy">出撃へ</button>
                     </div>
+
                 </div>
-                <div class="org-main">
-                    <div class="squad-list-container">
-                        <h3>部隊一覧</h3>
-                        <div id="squad-list" class="squad-list"></div>
-                    </div>
-                </div>
+
             </div>
         `;
 
         this.manager.uiContainer.appendChild(org);
-        this.renderSquadList();
 
+        this.renderLists();
+        this.renderDeployedDetailList();
+        this.renderCenterControls();
+        this.updateHeaderInfo();
+
+        // イベント
         document.getElementById('btn-back-map').addEventListener('click', () => {
             this.manager.transition(SCENES.MAP_SELECT);
         });
 
         document.getElementById('btn-to-deploy').addEventListener('click', () => {
-            if (this.calculateTotalCost() <= this.maxTotalCost) {
+            const currentCost = this.calculateTotalCost();
+            if (currentCost <= this.maxTotalCost) {
+                gameProgress.deployedUnits = this.deployedIds.filter(id => typeof id === 'string' ? !id.startsWith('dummy_') : true);
                 this.manager.transition(SCENES.DEPLOYMENT);
             } else {
-                alert('コスト上限を超過しています');
+                alert(`コスト上限(${this.maxTotalCost})を超えています。\n現在のコスト: ${currentCost}`);
             }
         });
+
+        document.getElementById('btn-remove-deploy').addEventListener('click', () => {
+            if (this.selectedDeployedUnitId) {
+                this.deployedIds = this.deployedIds.filter(id => id !== this.selectedDeployedUnitId);
+                this.selectedDeployedUnitId = null;
+                this.renderLists();
+                this.renderDeployedDetailList();
+                this.renderCenterControls();
+                this.updateHeaderInfo();
+            }
+        });
+
+        document.getElementById('btn-skill').addEventListener('click', () => alert('スキル画面へ（未実装）'));
+        document.getElementById('btn-equip').addEventListener('click', () => alert('装備画面へ（未実装）'));
+
     }
 
     calculateTotalCost() {
         let total = 0;
-        const army = gameProgress.getPlayerUnits();
-        army.forEach(u => {
-            const info = getUnitTypeInfo(u.type);
-            const cost = info?.cost || 0;
-            total += cost * (u.unitCount || 1);
+        this.deployedIds.forEach(id => {
+            const unit = this.allUnits.find(u => u.id === id);
+            if (unit) {
+                const info = getUnitTypeInfo(unit.type);
+                const cost = info?.cost || 0;
+                total += cost * (unit.unitCount || 1);
+            }
         });
         return total;
     }
 
-    renderSquadList() {
-        const list = document.getElementById('squad-list');
-        const costSpan = document.getElementById('total-cost');
-        if (!list) return;
-
-        list.innerHTML = '';
-        const army = gameProgress.getPlayerUnits();
-        const totalCost = this.calculateTotalCost();
-
-        if (costSpan) {
-            costSpan.textContent = totalCost;
-            costSpan.style.color = totalCost > this.maxTotalCost ? '#ff4444' : '#00ff88';
+    updateHeaderInfo() {
+        // コスト更新
+        const currentCost = this.calculateTotalCost();
+        const costText = document.getElementById('header-cost-val');
+        if (costText) {
+            costText.innerHTML = `<span style="color:${currentCost > this.maxTotalCost ? '#f55' : '#fff'}">${currentCost}</span> / ${this.maxTotalCost}`;
         }
 
-        army.forEach(unit => {
-            const info = getUnitTypeInfo(unit.type);
-            const unitCost = info?.cost || 0;
-            const count = unit.unitCount || 1;
-            const squadCost = unitCost * count;
+        // ボタン活性化制御
+        const skillBtn = document.getElementById('btn-skill');
+        const equipBtn = document.getElementById('btn-equip');
 
-            const el = document.createElement('div');
-            el.className = 'org-squad-card';
-            el.innerHTML = `
-                <div class="squad-header">
-                    <span class="unit-marker">${info?.marker || '?'}</span>
-                    <span class="squad-name">${unit.name}</span>
-                    <span class="squad-type">(${info?.name})</span>
-                </div>
-                <div class="squad-controls">
-                    <span class="unit-cost-info">Cost: ${unitCost}/体</span>
-                    <div class="counter-ui">
-                        <button class="btn-count btn-dec">-</button>
-                        <span class="count-val">${count}</span>
-                        <button class="btn-count btn-inc">+</button>
+        // どちらかで選択されていれば活性化（優先は右リスト）
+        const activeId = this.selectedDeployedUnitId || this.selectedUnitId;
+        const isDisabled = !activeId;
+
+        if (skillBtn) skillBtn.disabled = isDisabled;
+        if (equipBtn) equipBtn.disabled = isDisabled;
+    }
+
+    renderCenterControls() {
+        const btn = document.getElementById('btn-remove-deploy');
+        if (btn) {
+            btn.disabled = !this.selectedDeployedUnitId;
+        }
+    }
+
+    // 左パネル：カード型リスト
+    renderLists() {
+        const container = document.getElementById('org-unit-list');
+        if (!container) return;
+        container.innerHTML = '';
+
+        this.allUnits.forEach(unit => {
+            const isDeployed = this.deployedIds.includes(unit.id);
+            // 左側での選択状態
+            const isSelected = (unit.id === this.selectedUnitId);
+            const info = getUnitTypeInfo(unit.type);
+
+            const card = document.createElement('div');
+            card.className = `org-unit-card ${isSelected ? 'selected' : ''} ${isDeployed ? 'deployed' : ''}`;
+
+            card.innerHTML = `
+                <div class="card-content">
+                    <div class="card-header">
+                        <span class="badg-type type-${unit.type}">${info?.name || unit.type}</span>
+                        ${isDeployed ? '<span class="badg-status">DEPL</span>' : ''}
                     </div>
-                    <span class="squad-total-cost">Total: ${squadCost}</span>
+                    <div class="card-name">${unit.name}</div>
+                    <div class="card-meta">
+                        Lv.${unit.level} / ${unit.unitCount}体
+                    </div>
                 </div>
             `;
 
-            // 減少ボタン
-            el.querySelector('.btn-dec').addEventListener('click', () => {
-                if (unit.unitCount > 0) {
-                    unit.unitCount--;
-                    this.renderSquadList();
+            card.addEventListener('click', () => {
+                // 左クリック時:
+                // 1. 未出撃なら出撃リストに追加
+                // 2. 既に出撃中なら選択状態にする（右リストも連動してスクロール等したいがまずは選択のみ）
+                this.selectedUnitId = unit.id;
+                this.selectedDeployedUnitId = null; // 右の選択は解除
+
+                if (!isDeployed) {
+                    this.deployedIds.push(unit.id);
+                } else {
+                    // 既に出撃済みの場合、右側でも選択状態にする
+                    this.selectedDeployedUnitId = unit.id;
                 }
+
+                this.renderLists();
+                this.renderDeployedDetailList();
+                this.renderCenterControls();
+                this.updateHeaderInfo();
             });
 
-            // 増加ボタン
-            el.querySelector('.btn-inc').addEventListener('click', () => {
-                // 総コストチェックはここでは厳密にせず、赤字表示で警告するスタイルにするか、
-                // あるいは上限で止めるか。ユーザビリティ的には上限で止めるのが親切。
-                if (this.calculateTotalCost() + unitCost > this.maxTotalCost) {
-                    // Cost limit logic (Optional: allow over but prevent start)
-                    // return; 
+            container.appendChild(card);
+        });
+    }
+
+    // 右パネル：出撃詳細リスト (v6 縦並び・スプライト列)
+    renderDeployedDetailList() {
+        const container = document.getElementById('deployed-detail-list');
+        if (!container) return;
+        container.innerHTML = '';
+
+        if (this.deployedIds.length === 0) {
+            container.innerHTML = '<div class="empty-state">出撃部隊がいません。<br>左のリストから選択して追加してください。</div>';
+            return;
+        }
+
+        this.deployedIds.forEach(id => {
+            const unit = this.allUnits.find(u => u.id === id);
+            if (!unit) return;
+
+            const isSelected = (id === this.selectedDeployedUnitId);
+            const info = getUnitTypeInfo(unit.type);
+
+            const row = document.createElement('div');
+            row.className = `deployed-row ${isSelected ? 'selected' : ''}`;
+
+            // シンボル部 + スプライト列
+            row.innerHTML = `
+                <div class="d-row-left">
+                    <div class="d-symbol">${info?.marker || '?'}</div>
+                    <div class="d-name">${unit.name}</div>
+                    <div class="d-lv">Lv.${unit.level}</div>
+                    
+                    <!-- 簡易兵数操作 (hover時等に表示、または常時) -->
+                    <div class="d-count-ctrl">
+                        <button class="btn-mini dec">-</button>
+                        <span class="val">${unit.unitCount}</span>
+                        <button class="btn-mini inc">+</button>
+                    </div>
+                </div>
+                <div class="d-row-right">
+                    <div class="unit-sprite-line">
+                        <!-- JSで埋める -->
+                    </div>
+                </div>
+            `;
+
+            // スプライト生成
+            const line = row.querySelector('.unit-sprite-line');
+
+            // ユニットタイプに基づきスプライトパスを決定
+            const typeKey = (unit.type || 'INFANTRY').toUpperCase();
+            // マッピングからキーを取得 (例: 'ARCHER' -> 'ARCHER', 'INFANTRY' -> 'DEFAULT')
+            const spriteKey = UNIT_TYPE_TO_SPRITE[typeKey] || 'DEFAULT';
+
+            // パスを取得 (sprite-config.js の定義を使用)
+            // SPRITE_PATHS は 'sprites/archer/archer.png' 等を返し、これはルートからの相対パスとして機能する
+            const spritePath = SPRITE_PATHS[spriteKey] || SPRITE_PATHS['DEFAULT'];
+            const spriteSrc = `url('${spritePath}')`;
+
+            for (let i = 0; i < unit.unitCount; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'unit-sprite-cell-small';
+                cell.style.backgroundImage = spriteSrc;
+                // アニメーションのランダム開始
+                cell.style.animationDelay = `${Math.random() * -1.0}s`;
+                line.appendChild(cell);
+            }
+
+            // 行クリックで選択
+            row.addEventListener('click', (e) => {
+                // ボタン類クリック時は伝播させない
+                if (e.target.tagName === 'BUTTON') return;
+
+                this.selectedDeployedUnitId = id;
+                this.selectedUnitId = null; // 左選択解除
+                this.renderLists();
+                this.renderDeployedDetailList();
+                this.renderCenterControls();
+                this.updateHeaderInfo();
+            });
+
+            // 兵数操作イベント
+            row.querySelector('.dec').addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (unit.unitCount > 1) {
+                    unit.unitCount--;
+                    this.renderLists(); // Cardの兵数更新
+                    this.renderDeployedDetailList();
+                    this.updateHeaderInfo(); // コスト更新
                 }
-                
+            });
+            row.querySelector('.inc').addEventListener('click', (e) => {
+                e.stopPropagation();
                 if (unit.unitCount < this.maxSquadSize) {
                     unit.unitCount++;
-                    this.renderSquadList();
+                    this.renderLists();
+                    this.renderDeployedDetailList();
+                    this.updateHeaderInfo();
                 }
             });
 
-            list.appendChild(el);
+            container.appendChild(row);
         });
     }
 }
@@ -404,15 +697,12 @@ class DeploymentScene {
         const deployedUnits = gameProgress.getDeployedUnits();
 
         // 配置可能座標を取得
-        // 修正: playerDeploymentZones (配列) を優先
         this.deploymentZones = [];
 
-        // 1. playerDeploymentZones (配列形式) を優先 - マップエディタで設定した座標
         if (customMap && customMap.playerDeploymentZones && customMap.playerDeploymentZones.length > 0) {
             this.deploymentZones = customMap.playerDeploymentZones;
         }
-        // 2. zones.playerDeployment (矩形) へのフォールバック
-        else if (customMap && customMap.zones && customMap.zones.playerDeployment) {
+        else if (customMap && customMap.zones && customMap.zones.playerDeployment && customMap.terrain) {
             const rect = customMap.zones.playerDeployment;
             for (let y = rect.y; y < rect.y + rect.height; y++) {
                 for (let x = rect.x; x < rect.x + rect.width; x++) {
@@ -423,12 +713,9 @@ class DeploymentScene {
             }
         }
 
-        // 先にマップと建物を表示（3Dレンダリング更新して高さデータを確定させる）
         if (customMap && this.manager.game.renderingEngine) {
             this.manager.game.renderingEngine.buildTerrainFromMapData(customMap);
-            // 敵ユニットのプレビュー表示
             this.spawnPreviewUnits(customMap);
-            // 配置可能エリアをハイライト表示
             this.manager.game.renderingEngine.setDeploymentHighlight(this.deploymentZones);
         }
 
@@ -474,7 +761,6 @@ class DeploymentScene {
         });
 
         document.getElementById('btn-back-org')?.addEventListener('click', () => {
-            // ハイライト解除
             if (this.manager.game.renderingEngine?.clearDeploymentHighlight) {
                 this.manager.game.renderingEngine.clearDeploymentHighlight();
             }
@@ -482,21 +768,41 @@ class DeploymentScene {
         });
 
         document.getElementById('btn-start-battle')?.addEventListener('click', () => {
-            // 確認ダイアログ
             if (confirm('戦闘を開始しますか？')) {
                 if (this.placedUnits.size === deployedUnits.length) {
-                    // ハイライト解除
+                    // Validate unit placements before starting battle
+                    const placements = Array.from(this.placedUnits.entries()).map(([unitId, pos]) => ({
+                        unitId: parseInt(unitId),
+                        x: pos.x,
+                        y: pos.y
+                    }));
+                    const validation = validatePlacements(placements);
+                    if (!validation.valid) {
+                        console.error('[DeploymentScene] Placement validation failed:', validation.errors);
+                        alert(`ユニット配置にエラーがあります:\n${validation.errors.join('\n')}`);
+                        return;
+                    }
+
+                    // Validate individual unit data
+                    const deployedUnitsData = gameProgress.getDeployedUnits();
+                    for (const unit of deployedUnitsData) {
+                        const unitValidation = validateUnitData(unit);
+                        if (!unitValidation.valid) {
+                            console.error(`[DeploymentScene] Unit validation failed for ${unit.id}:`, unitValidation.errors);
+                            alert(`ユニットデータにエラーがあります (${unit.name}):\n${unitValidation.errors.join('\n')}`);
+                            return;
+                        }
+                    }
+
                     if (this.manager.game.renderingEngine?.clearDeploymentHighlight) {
                         this.manager.game.renderingEngine.clearDeploymentHighlight();
                     }
-                    // ゲームデータに配置情報を保存
                     this.manager.setGameData('unitPlacements', Array.from(this.placedUnits.entries()));
                     this.manager.transition(SCENES.BATTLE);
                 }
             }
         });
 
-        // ユニット選択イベント
         document.querySelectorAll('.deploy-unit-item').forEach(item => {
             item.addEventListener('click', () => {
                 const unitId = item.dataset.unitId;
@@ -504,30 +810,23 @@ class DeploymentScene {
             });
         });
 
-        // 手動配置用のポインターハンドラーをセットアップ
         this.setupManualPlacement(this.manager.game);
     }
 
-
-
     autoPlaceUnits(units, stage, customMap) {
         try {
-            // 配置マーカーをクリア
             if (this.manager.game.renderingEngine?.clearDeploymentMarkers) {
                 this.manager.game.renderingEngine.clearDeploymentMarkers();
             }
 
-            // 既存の配置をクリア
             this.placedUnits.clear();
 
-            // 配置座標がある場合はそこに配置
             if (this.deploymentZones.length > 0) {
                 units.forEach((unit, idx) => {
                     if (idx < this.deploymentZones.length) {
                         const zone = this.deploymentZones[idx];
                         this.placedUnits.set(unit.id, { x: zone.x, y: zone.y });
 
-                        // UI更新
                         const item = document.querySelector(`.deploy-unit-item[data-unit-id="${unit.id}"]`);
                         if (item) {
                             item.classList.remove('selecting');
@@ -536,12 +835,10 @@ class DeploymentScene {
                             if (statusEl) statusEl.textContent = `(${zone.x}, ${zone.y})`;
                         }
 
-                        // マーカーを表示
                         this.manager.game.renderingEngine.addDeploymentMarker(zone.x, zone.y);
                     }
                 });
             } else {
-                // フォールバック: デフォルトゾーンを使用
                 let zone = { x: 0, y: 20, width: 10, height: 10 };
 
                 if (customMap && customMap.zones && customMap.zones.playerDeployment) {
@@ -550,8 +847,8 @@ class DeploymentScene {
                     zone = stage.deploymentZone;
                 }
 
-                const mapW = customMap ? customMap.terrain.width : (stage ? stage.mapSize?.width : 30) || 30;
-                const mapH = customMap ? customMap.terrain.height : (stage ? stage.mapSize?.height : 30) || 30;
+                const mapW = (customMap && customMap.terrain) ? customMap.terrain.width : (stage ? stage.mapSize?.width : 30) || 30;
+                const mapH = (customMap && customMap.terrain) ? customMap.terrain.height : (stage ? stage.mapSize?.height : 30) || 30;
 
                 let idx = 0;
                 units.forEach(unit => {
@@ -578,24 +875,20 @@ class DeploymentScene {
                         if (statusEl) statusEl.textContent = `(${x}, ${y})`;
                     }
 
-                    // マーカーを表示
                     this.manager.game.renderingEngine.addDeploymentMarker(x, y);
 
                     idx++;
                 });
             }
 
-            // カウント更新
             const countEl = document.getElementById('placed-count');
             if (countEl) countEl.textContent = this.placedUnits.size.toString();
 
-            // バトル開始ボタン有効化
             if (this.placedUnits.size === units.length) {
                 const btn = document.getElementById('btn-start-battle');
                 if (btn) btn.disabled = false;
             }
 
-            // 選択解除
             this.selectedUnitId = null;
             document.querySelectorAll('.deploy-unit-item').forEach(item => {
                 item.classList.remove('selecting');
@@ -605,37 +898,30 @@ class DeploymentScene {
         }
     }
     selectUnit(unitId) {
-        // IDを数値に変換（Mapのキーと一致させるため）
         this.selectedUnitId = parseInt(unitId);
 
-        // UI更新：選択中のユニットをハイライト
         document.querySelectorAll('.deploy-unit-item').forEach(item => {
             item.classList.remove('selecting');
-            // dataset.unitIdは文字列なので比較時は注意、あるいは == を使う
             if (parseInt(item.dataset.unitId) === this.selectedUnitId) {
                 item.classList.add('selecting');
             }
         });
     }
 
-    // 手動配置：マップクリック時の処理
     setupManualPlacement(game) {
         const canvas = game.renderingEngine?.canvas;
         if (!canvas) return;
 
-        // デプロイメントシーン中であることを示すフラグを設定
         game.isDeploymentMode = true;
 
         const handlePointerDown = (event) => {
             try {
-                // UI要素（ボタンなど）へのクリックは無視
                 if (event.target !== canvas && event.target.id !== 'gameCanvas') {
                     return;
                 }
 
                 if (!this.selectedUnitId) return;
 
-                // イベントの伝播を停止してmain.jsのハンドラーを実行しないようにする
                 event.stopPropagation();
                 event.stopImmediatePropagation();
 
@@ -643,19 +929,16 @@ class DeploymentScene {
                 const mouseX = event.clientX - rect.left;
                 const mouseY = event.clientY - rect.top;
 
-                // レイキャスティングでグリッド座標を取得（canvas要素も渡す）
                 const gridPos = game.renderingEngine.screenToGrid(mouseX, mouseY, rect.width, rect.height, canvas);
                 if (!gridPos) return;
 
                 const { x, y } = gridPos;
 
-                // 配置可能エリア内かチェック
                 const isValidZone = this.deploymentZones.some(z => z.x === x && z.y === y);
                 if (!isValidZone) {
                     return;
                 }
 
-                // 配置ロジック（上書き・入れ替え対応）
                 let occupiedUnitId = null;
                 for (const [uid, pos] of this.placedUnits) {
                     if (pos.x === x && pos.y === y) {
@@ -665,40 +948,32 @@ class DeploymentScene {
                 }
 
                 if (occupiedUnitId) {
-                    // 同じユニットなら何もしない
                     if (occupiedUnitId === this.selectedUnitId) return;
 
-                    // 選択中のユニットが既に別の場所に配置されていたら入れ替え（スワップ）
                     const prevPos = this.placedUnits.get(this.selectedUnitId);
-                    
+
                     if (prevPos) {
-                        // スワップ：占有していたユニットを元の場所へ
                         this.placedUnits.set(occupiedUnitId, prevPos);
                         this.updateUnitStatus(occupiedUnitId, prevPos);
-                        game.renderingEngine.addDeploymentMarker(prevPos.x, prevPos.y); // マーカー更新
+                        game.renderingEngine.addDeploymentMarker(prevPos.x, prevPos.y);
                     } else {
-                        // 上書き：占有していたユニットを未配置に
                         this.placedUnits.delete(occupiedUnitId);
                         this.updateUnitStatus(occupiedUnitId, null);
                     }
                 }
 
-                // 配置を実行
                 this.placedUnits.set(this.selectedUnitId, { x, y });
                 this.updateUnitStatus(this.selectedUnitId, { x, y });
 
-                // カウント更新
                 const countEl = document.getElementById('placed-count');
                 if (countEl) countEl.textContent = this.placedUnits.size.toString();
 
-                // 全員配置完了チェック
                 const deployedUnits = gameProgress.getDeployedUnits();
                 if (this.placedUnits.size === deployedUnits.length) {
                     const btn = document.getElementById('btn-start-battle');
                     if (btn) btn.disabled = false;
                 }
 
-                // 配置位置にマーカーを表示
                 game.renderingEngine.addDeploymentMarker(x, y);
             } catch (e) {
                 console.error("Manual Placement Error:", e);
@@ -715,14 +990,12 @@ class DeploymentScene {
             }
         };
 
-        // イベントリスナーを登録（重複回避のため一度解除）
         if (this._handlePointerDown) canvas.removeEventListener('mousedown', this._handlePointerDown);
         if (this._handlePointerUp) canvas.removeEventListener('mouseup', this._handlePointerUp);
 
         this._handlePointerDown = handlePointerDown;
         this._handlePointerUp = handlePointerUp;
 
-        // mousedownイベントを使用（captureフェーズでキャプチャして先に処理）
         canvas.addEventListener('mousedown', this._handlePointerDown, { capture: true });
         canvas.addEventListener('mouseup', this._handlePointerUp, { capture: true });
     }
@@ -753,7 +1026,6 @@ class DeploymentScene {
                 this._handlePointerUp = null;
             }
         }
-        // デプロイメントモードフラグをリセット
         if (game) game.isDeploymentMode = false;
     }
 
@@ -762,19 +1034,59 @@ class DeploymentScene {
         const game = this.manager.game;
         if (!game || !game.unitManager) return;
 
-        // 既存ユニットをクリア
         game.units = [];
 
-        // 敵ユニットデータの読み込み
+        // Security: Validate customMap structure and prevent prototype pollution/DoS
+        if (!customMap || typeof customMap !== 'object') {
+            console.error('[DeploymentScene] Invalid customMap structure');
+            return;
+        }
+
+        if (!Array.isArray(customMap.units) || !Array.isArray(customMap.unitDefinitions)) {
+            console.error('[DeploymentScene] units/unitDefinitions must be arrays');
+            return;
+        }
+
+        if (customMap.units.length > 1000) {
+            console.error('[DeploymentScene] Too many units (max 1000)');
+            return;
+        }
+
         if (customMap && customMap.units && customMap.unitDefinitions) {
-            // プレイヤーサイドの反対を敵とする
-            // 注意: DeploymentSceneではplayerSideが未確定かもしれないが、デフォルトはEASTとする
             const playerSide = 'EAST';
             const enemySide = 'WEST';
 
+            // Security: Validate arrays immediately before entering loop (CWE-20)
+            if (!Array.isArray(customMap.units) || !Array.isArray(customMap.unitDefinitions)) {
+                console.error('[DeploymentScene] units/unitDefinitions must be arrays');
+                return;
+            }
+
             customMap.units.forEach((placedUnit, idx) => {
+                // Security: Re-validate on each iteration to prevent TOCTOU/time-of-check attacks
+                if (!Array.isArray(customMap.units) || !Array.isArray(customMap.unitDefinitions)) {
+                    console.error('[DeploymentScene] Array modified during iteration');
+                    return;
+                }
                 const def = customMap.unitDefinitions.find(d => d.id === placedUnit.defId);
                 if (!def) return;
+
+                // Security: Validate unit data before using it to prevent malicious map exploits
+                const unitValidation = validateUnitData({
+                    id: def.id,
+                    name: def.name,
+                    type: def.type,
+                    count: def.count,
+                    atk: def.atk,
+                    def: def.def,
+                    x: placedUnit.x,
+                    y: placedUnit.y
+                });
+
+                if (!unitValidation.valid) {
+                    console.error(`[DeploymentScene] Invalid unit definition:`, unitValidation.errors);
+                    return; // Skip this unit
+                }
 
                 const warlordData = {
                     name: def.name,
@@ -805,15 +1117,12 @@ class DeploymentScene {
                     if (def.role === 'commander' && i === 0) {
                         unit.unitType = 'HEADQUARTERS';
                     }
-                    // プレビュー用に動かないようにする設定などは不要（GameStateが動かなければ動かない）
                 });
 
                 game.units.push(...generatedUnits);
             });
 
-            // 描画更新
             if (game.renderingEngine && game.renderingEngine.drawUnits) {
-                // window.gameStateを更新してレンダラーに認識させる
                 window.gameState = { units: game.units };
                 game.renderingEngine.drawUnits();
             }
@@ -821,15 +1130,12 @@ class DeploymentScene {
     }
 
     cleanup() {
-        // シーン離脱時にハイライト解除
         if (this.manager.game.renderingEngine?.clearDeploymentHighlight) {
             this.manager.game.renderingEngine.clearDeploymentHighlight();
         }
-        // 配置マーカーもクリア
         if (this.manager.game.renderingEngine?.clearDeploymentMarkers) {
             this.manager.game.renderingEngine.clearDeploymentMarkers();
         }
-        // 手動配置ハンドラーを削除
         this.removeManualPlacementHandler(this.manager.game);
     }
 }
@@ -839,10 +1145,48 @@ class BattleScene {
         this.manager = manager;
     }
 
-    createUI() {
+    async createUI() {
         if (!this.manager.uiContainer) return;
 
-        // バトル画面UIの再構築
+        // Initialize managers
+        this.manager.initializeManagers();
+
+        // Validate custom map data before starting game
+        const customMapData = this.manager.getGameData('customMapData');
+        if (customMapData) {
+            const mapValidation = validateMapData(customMapData);
+            if (!mapValidation.valid) {
+                console.error('[BattleScene] Map validation failed:', mapValidation.errors);
+                alert(`マップデータにエラーがあります:\n${mapValidation.errors.join('\n')}`);
+                this.manager.transition(SCENES.MAP_SELECT);
+                return;
+            }
+
+            // Validate unit definitions if present
+            if (customMapData.unitDefinitions) {
+                for (const unitDef of customMapData.unitDefinitions) {
+                    const unitValidation = validateUnitData(unitDef);
+                    if (!unitValidation.valid) {
+                        console.error(`[BattleScene] Unit definition validation failed for ${unitDef.id}:`, unitValidation.errors);
+                        alert(`ユニット定義にエラーがあります (${unitDef.name || unitDef.id}):\n${unitValidation.errors.join('\n')}`);
+                        this.manager.transition(SCENES.MAP_SELECT);
+                        return;
+                    }
+                }
+            }
+
+            // Validate unit placements if present
+            if (customMapData.units) {
+                const placementsValidation = validatePlacements(customMapData.units);
+                if (!placementsValidation.valid) {
+                    console.error('[BattleScene] Placements validation failed:', placementsValidation.errors);
+                    alert(`ユニット配置データにエラーがあります:\n${placementsValidation.errors.join('\n')}`);
+                    this.manager.transition(SCENES.MAP_SELECT);
+                    return;
+                }
+            }
+        }
+
         this.manager.uiContainer.innerHTML = `
             <div id="top-bar" class="hud-panel">
                 <span id="phase-text" style="color:#ffd700">関ヶ原の戦い</span>
@@ -853,9 +1197,9 @@ class BattleScene {
                 [左ドラッグ] 範囲選択 | [右ドラッグ] マップ移動 | [左クリック] 指示/確認
             </div>
             <div id="context-menu" style="display:none; pointer-events:auto;">
-                <button class="ctx-btn" style="color:darkred" onclick="issueCommand('ATTACK')">突撃</button>
-                <button class="ctx-btn" style="color:darkgreen" onclick="issueCommand('PLOT')">調略</button>
-                <button class="ctx-btn" onclick="closeCtx()">取消</button>
+                <button class="ctx-btn" style="color:darkred" onclick="window.issueCommand('ATTACK')">突撃</button>
+                <button class="ctx-btn" style="color:darkgreen" onclick="window.issueCommand('PLOT')">調略</button>
+                <button class="ctx-btn" onclick="window.closeCtx()">取消</button>
             </div>
             <div id="formation-panel" class="hud-panel" style="display:none;">
                 <div class="formation-title">陣形選択</div>
@@ -863,64 +1207,101 @@ class BattleScene {
                 <div id="formation-tooltip"></div>
             </div>
             <div id="speed-control">
-                <button class="speed-btn" data-speed="1.0" onclick="setActionSpeed(1.0)">▶</button>
-                <button class="speed-btn" data-speed="1.5" onclick="setActionSpeed(1.5)">▶▶</button>
-                <button class="speed-btn" data-speed="2.0" onclick="setActionSpeed(2.0)">▶▶▶</button>
+                <button class="speed-btn" data-speed="1.0" onclick="window.setActionSpeed(1.0)">▶</button>
+                <button class="speed-btn" data-speed="1.5" onclick="window.setActionSpeed(1.5)">▶▶</button>
+                <button class="speed-btn" data-speed="2.0" onclick="window.setActionSpeed(2.0)">▶▶▶</button>
             </div>
         `;
 
-        // Gameクラスの開始メソッドを呼ぶ
         const game = this.manager.game;
-        // カスタムマップデータがあれば渡す
         game.customMapData = this.manager.getGameData('customMapData');
+        // startGame is now async (delegates to game/starter.js)
+        await game.startGame('EAST');
 
-        // プレイヤーサイドは仮でEAST
-        game.startGame('EAST');
+        // Setup input listeners
+        const canvas = document.getElementById('gameCanvas');
+        this.manager.setupInput(canvas);
 
-        // グローバル関数を定義（UIのonclickから呼べるように）
+        // Expose game instance and manager methods to window
         window.game = game;
+        window.sceneManager = this.manager;
+
+        // Use turn manager for commit turn
         window.commitTurn = () => {
             try {
-                game.commitTurn();
+                if (this.manager.turnManager) {
+                    this.manager.turnManager.commitTurn();
+                } else {
+                    game.commitTurn();
+                }
             } catch (e) {
-                // commitTurn failed
+                console.error('commitTurn error:', e);
             }
         };
+
+        // Issue command still uses game method
         window.issueCommand = (type) => {
             try {
                 game.issueCommand(type);
             } catch (e) {
-                // issueCommand failed
-            }
-        };
-        window.closeCtx = () => {
-            try {
-                const ctxMenu = document.getElementById('context-menu');
-                if (ctxMenu) ctxMenu.style.display = 'none';
-            } catch (e) {
-                // closeCtx failed
+                console.error('issueCommand error:', e);
             }
         };
 
-        // アクションボタンを表示してイベントリスナー設定
+        // Close context menu
+        window.closeCtx = () => {
+            try {
+                document.getElementById('context-menu').style.display = 'none';
+            } catch (e) {
+                console.error('closeCtx error:', e);
+            }
+        };
+
+        // Store handler references for cleanup
+        this._actionBtnHandler = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            try {
+                if (this.manager.turnManager) {
+                    this.manager.turnManager.commitTurn();
+                } else {
+                    game.commitTurn();
+                }
+            } catch (err) {
+                console.error('Action button error:', err);
+            }
+        };
+
+        // Action button click handler
         const actionBtn = document.getElementById('action-btn');
         if (actionBtn) {
             actionBtn.style.display = 'block';
-            actionBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                try {
-                    game.commitTurn();
-                } catch (err) {
-                    // commitTurn error
-                }
-            });
+            actionBtn.addEventListener('click', this._actionBtnHandler);
         }
 
+        // Store speed button handler reference
+        this._speedBtnHandler = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const speed = parseFloat(e.currentTarget.dataset.speed);
+            try {
+                game.actionSpeed = speed;
+                document.querySelectorAll('.speed-btn').forEach(b => {
+                    if (b === e.currentTarget) {
+                        b.classList.add('active');
+                    } else {
+                        b.classList.remove('active');
+                    }
+                });
+            } catch (err) {
+                console.error('Speed button error:', err);
+            }
+        };
+
+        // Action speed control
         window.setActionSpeed = (speed) => {
             try {
                 game.actionSpeed = speed;
-                // ボタンのアクティブ状態を更新
                 document.querySelectorAll('.speed-btn').forEach(btn => {
                     const btnSpeed = parseFloat(btn.getAttribute('data-speed'));
                     if (btnSpeed === speed) {
@@ -930,36 +1311,62 @@ class BattleScene {
                     }
                 });
             } catch (e) {
-                // setActionSpeed failed
+                console.error('setActionSpeed error:', e);
             }
         };
 
-        // スピードボタンのイベントも設定
+        // Speed button click handlers
+        this._speedButtons = [];
         document.querySelectorAll('.speed-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const speed = parseFloat(btn.dataset.speed);
-                try {
-                    game.actionSpeed = speed;
-                    // ボタンのアクティブ状態を更新
-                    document.querySelectorAll('.speed-btn').forEach(b => {
-                        if (b === btn) {
-                            b.classList.add('active');
-                        } else {
-                            b.classList.remove('active');
-                        }
-                    });
-                } catch (err) {
-                    // setActionSpeed error
-                }
-            });
+            btn.addEventListener('click', this._speedBtnHandler);
+            this._speedButtons.push(btn);
         });
 
-        // 初期状態: 1.0ボタンをアクティブに
+        // Set default active speed button
         const defaultSpeedBtn = document.querySelector('.speed-btn[data-speed="1.0"]');
         if (defaultSpeedBtn) {
             defaultSpeedBtn.classList.add('active');
+        }
+    }
+
+    /**
+     * Cleanup event listeners and global properties to prevent memory leaks
+     */
+    cleanup() {
+        // Remove action button event listener
+        const actionBtn = document.getElementById('action-btn');
+        if (actionBtn && this._actionBtnHandler) {
+            actionBtn.removeEventListener('click', this._actionBtnHandler);
+            this._actionBtnHandler = null;
+        }
+
+        // Remove speed button event listeners
+        if (this._speedButtons && this._speedBtnHandler) {
+            this._speedButtons.forEach(btn => {
+                btn.removeEventListener('click', this._speedBtnHandler);
+            });
+            this._speedButtons = [];
+            this._speedBtnHandler = null;
+        }
+
+        // Clean up global window properties
+        if (window.game) {
+            window.game = null;
+        }
+        if (window.sceneManager) {
+            window.sceneManager = null;
+        }
+        if (window.commitTurn) {
+            window.commitTurn = null;
+        }
+        if (window.issueCommand) {
+            window.issueCommand = null;
+        }
+        if (window.closeCtx) {
+            window.closeCtx = null;
+        }
+        if (window.setActionSpeed) {
+            window.setActionSpeed = null;
         }
     }
 }
@@ -973,7 +1380,7 @@ class ResultScene {
     createUI() {
         if (!this.manager.uiContainer) return;
 
-        this.manager.uiContainer.style.pointerEvents = 'auto'; // クリック有効化
+        this.manager.uiContainer.style.pointerEvents = 'auto';
 
         const resultDiv = document.createElement('div');
         resultDiv.className = 'scene-ui result-screen';
@@ -989,7 +1396,6 @@ class ResultScene {
         this.manager.uiContainer.appendChild(resultDiv);
 
         document.getElementById('btn-return').addEventListener('click', () => {
-            // リロードして初期状態に戻すのが一番安全
             location.reload();
         });
     }
