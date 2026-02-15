@@ -246,7 +246,7 @@ export class CombatSystem {
             const unitZ = this.mapSystem.getHeight(unit.x, unit.y);
             const targetZ = this.mapSystem.getHeight(target.x, target.y);
             const heightDiff = unitZ - targetZ;
-            // 自分が相手より高い場合、1段差ごとに射程+1（最大3まで）
+            // 自分が相手より高い場合、1段差ごとに射程+1（最大+4まで）
             if (heightDiff > 0) {
                 const heightInGrids = Math.floor(heightDiff / TILE_HEIGHT);
                 extendedBowRange = Math.min(bowBaseRange + heightInGrids, bowBaseRange + 4);
@@ -263,17 +263,17 @@ export class CombatSystem {
         }
 
         // 高さ制限チェック（近接攻撃時）
-        // 歩行ユニットは段差2まで移動可能なので、近接攻撃も段差2まで可能にする
+        // 城壁上の敵には近接攻撃不可。段差2（32 world units）までは近接攻撃可能
         let canMeleeAttack = true;
         if (dist <= reach && this.mapSystem) {
             const unitZ = this.mapSystem.getHeight(unit.x, unit.y);
             const targetZ = this.mapSystem.getHeight(target.x, target.y);
             const heightDiff = Math.abs(targetZ - unitZ);
-            // 段差3以上（48 world units以上）なら近接攻撃不可
-            const MAX_MELEE_HEIGHT_DIFF = 48; // 3グリッド分
+            // 段差2以上（32 world units = 2 * TILE_HEIGHT）なら近接攻撃不可
+            // これにより城壁（通常40+world units）上の敵に地上から直接攻撃できなくなる
+            const MAX_MELEE_HEIGHT_DIFF = 2 * TILE_HEIGHT; // 32 world units
             if (heightDiff > MAX_MELEE_HEIGHT_DIFF) {
                 canMeleeAttack = false;
-                // 高すぎる敵には近づく必要がある
             }
         }
 
@@ -295,8 +295,8 @@ export class CombatSystem {
             const unitZ = this.mapSystem.getHeight(unit.x, unit.y);
             const targetZ = this.mapSystem.getHeight(target.x, target.y);
             const heightDiff = unitZ - targetZ;
-            // 自分が3段差以上高い場合は移動せずに攻撃
-            if (heightDiff >= 48) {
+            // 自分が2段差超高い場合は移動せずに攻撃（城壁対応）
+            if (heightDiff > 2 * TILE_HEIGHT) {
                 unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
                 await this.rangedCombat(unit, target, map, allUnits);
                 return;
@@ -385,7 +385,7 @@ export class CombatSystem {
         await this.wait(300);
 
         // ... targetZ calc ...
-        // const TILE_HEIGHT = 16; // Use imported constant
+
         let attZ = (map[att.y]?.[att.x]?.z || 0) * TILE_HEIGHT;
         let defZ = (map[def.y]?.[def.x]?.z || 0) * TILE_HEIGHT;
         if (this.mapSystem) {
@@ -393,11 +393,9 @@ export class CombatSystem {
             defZ = Math.max(defZ, this.mapSystem.getHeight(def.x, def.y));
         }
 
-        // ... height check ...
+        // 高さ差チェック: 段差2（32 world units）を超える場合は攻撃不可
         const heightDiff = defZ - attZ;
-        const TILE_HEIGHT_CHECK = TILE_HEIGHT;
-        const MAX_HEIGHT_GRIDS = 3;
-        const MAX_HEIGHT_DIFF = MAX_HEIGHT_GRIDS * TILE_HEIGHT_CHECK;
+        const MAX_HEIGHT_DIFF = 2 * TILE_HEIGHT; // 32 world units
 
         if (heightDiff > MAX_HEIGHT_DIFF) {
             this.spawnText({ q: att.x, r: att.y }, "届かない!", '#888', 40);
@@ -702,8 +700,8 @@ export class CombatSystem {
             [-1, 0], [-1, +1], [0, +1]
         ];
 
-        // 移動可能な最大高低差（歩行ユニットは段差3まで = 48 world units）
-        const MAX_WALKABLE_HEIGHT_DIFF = 48;
+        // 移動可能な最大高低差（段差2まで = 32 world units）
+        const MAX_WALKABLE_HEIGHT_DIFF = 2 * TILE_HEIGHT;
 
         // 目標の周囲6方向をチェック（スクエアグリッドでは4方向）
         const surroundPositions = [];
@@ -800,7 +798,7 @@ export class CombatSystem {
 
         // 地形ボーナス（建物の高さを考慮）
         // 単位を世界単位（world units）で統一
-        // const TILE_HEIGHT = 16; // Use imported constant // 1グリッドあたりの世界単位
+
         let hAtt = (map[att.y]?.[att.x]?.z || 0) * TILE_HEIGHT; // グリッド単位→世界単位
         let hDef = (map[def.y]?.[def.x]?.z || 0) * TILE_HEIGHT; // グリッド単位→世界単位
 
@@ -908,11 +906,11 @@ export class CombatSystem {
                     if (occupied) canPush = false;
                 }
 
-                // 高低差チェック（段差2まで）
+                // 高低差チェック（段差2まで = 32 world units）
                 if (canPush && this.mapSystem) {
                     const currentZ = this.mapSystem.getHeight(def.x, def.y);
                     const targetZ = this.mapSystem.getHeight(newX, newY);
-                    if (Math.abs(targetZ - currentZ) > 48) { // 段差3以上は不可
+                    if (Math.abs(targetZ - currentZ) > 2 * TILE_HEIGHT) {
                         canPush = false;
                     }
                 }
@@ -1316,7 +1314,7 @@ export class CombatSystem {
         const dist = getDistRaw(from.x, from.y, to.x, to.y);
 
         // 高さは世界単位で統一（TILE_HEIGHT = 16）
-        // const TILE_HEIGHT = 16; // Use imported constant
+
         let fromZ = (map[from.y]?.[from.x]?.z || 0) * TILE_HEIGHT;
         let toZ = (map[to.y]?.[to.x]?.z || 0) * TILE_HEIGHT;
 
@@ -1417,7 +1415,7 @@ export class CombatSystem {
         await this.wait(300);
 
         // 単位を世界単位（world units）で統一
-        // const TILE_HEIGHT = 16; // Use imported constant // 1グリッドあたりの世界単位
+
         let attZ = (map[att.y]?.[att.x]?.z || 0) * TILE_HEIGHT; // グリッド単位→世界単位
         let defZ = (map[def.y]?.[def.x]?.z || 0) * TILE_HEIGHT; // グリッド単位→世界単位
 
@@ -1429,15 +1427,13 @@ export class CombatSystem {
         }
 
         // 高さ差による射程制限：ターゲットが攻撃者より高すぎる場合は攻撃不可
-        // mapSystem.getHeight()はワールドユニットで返す（256単位の建物高さ）
-        // 3グリッド分の高さ差を制限とする
-        const MAX_HEIGHT_GRIDS = 3; // 最大3グリッドまで届く
-        const MAX_HEIGHT_DIFF = MAX_HEIGHT_GRIDS * TILE_HEIGHT; // 48ワールドユニット
+        // 段差2（32 world units）を超える場合は遠距離攻撃不可（城壁対応）
+        const MAX_RANGED_HEIGHT_DIFF = 2 * TILE_HEIGHT; // 32 world units
 
         // ワールドユニットでの高さ差を計算
         const heightDiff = defZ - attZ;
 
-        if (heightDiff > MAX_HEIGHT_DIFF) {
+        if (heightDiff > MAX_RANGED_HEIGHT_DIFF) {
             // ターゲットが高すぎて到達できない
             this.spawnText({ q: att.x, r: att.y }, "届かない!", '#888', 40);
             await this.wait(300);
