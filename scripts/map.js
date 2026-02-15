@@ -301,8 +301,8 @@ export class MapSystem {
         const fromZ = this.getHeight(from.x, from.y);
         const toZ = this.getHeight(to.x, to.y);
 
-        // 崖判定：高さ差が2以上あれば移動不可
-        if (Math.abs(toZ - fromZ) >= 2) return false;
+        // 崖判定：高さ差が段差2超（32 world units超）なら移動不可
+        if (Math.abs(toZ - fromZ) > 2 * TILE_HEIGHT) return false;
 
         return true;
     }
@@ -339,9 +339,9 @@ export class MapSystem {
 
         // 高低差コスト（飛行ユニットは無視）
         if (!canFly) {
-            // 歩行ユニットは段差2まで移動可能（3段差以上は移動不可）
-            // TILE_HEIGHT = 16なので、3グリッド = 48 world units
-            const MAX_WALKABLE_HEIGHT_DIFF = 48; // 3グリッド分 = 段差2まで可能
+            // 歩行ユニットは段差2まで移動可能（段差2超は移動不可）
+            // TILE_HEIGHT = 16なので、2グリッド = 32 world units
+            const MAX_WALKABLE_HEIGHT_DIFF = 2 * TILE_HEIGHT;
             if (Math.abs(dz) > MAX_WALKABLE_HEIGHT_DIFF) {
                 return Infinity;
             }

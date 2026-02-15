@@ -2270,10 +2270,21 @@ export class RenderingEngine3D {
      * 謖・ｮ壹げ繝ｪ繝・ラ縺ｮ蝨ｰ髱｢縺ｮ鬮倥＆繧貞叙蠕・
      */
     getGroundHeight(x, y) {
+        let height = 0;
         if (this.hexHeights && this.hexHeights[y] && this.hexHeights[y][x] !== undefined) {
-            return this.hexHeights[y][x];
+            height = this.hexHeights[y][x];
         }
-        return 0;
+
+        // 建物の高さも考慮（城壁上のユニット等に正しい高さを返す）
+        if (window.game && window.game.buildingSystem) {
+            const rawPos = this.gridToWorld3D(x, y);
+            const bInfo = window.game.buildingSystem.getBuildingHeightAtWorldPos(rawPos.x, rawPos.z);
+            if (bInfo && bInfo.isBuilding) {
+                height = Math.max(height, bInfo.height);
+            }
+        }
+
+        return height;
     }
 
     /**
@@ -3147,43 +3158,44 @@ export class RenderingEngine3D {
             const depthTest = isSelected ? false : true;
             const renderOrder = isSelected ? 999 : 0;
 
-            const startPos = this.hexToWorld3D(unit.x, unit.y);
-            startPos.y = 30;
+            // 開始位置: メッシュがあればその位置を使う（建物上のユニットにも正確）
+            let startPos;
+            const unitMesh = this.unitMeshes.get(unit.id);
+            if (unitMesh) {
+                startPos = unitMesh.position.clone();
+                startPos.y += 15; // ユニットの胸あたり
+            } else {
+                startPos = this.hexToWorld3D(unit.x, unit.y);
+                const startH = this.getGroundHeight(unit.x, unit.y);
+                startPos.y = startH + 30;
+            }
 
             let endPos = null;
             let color = 0xffffff;
 
             if (unit.order.type === 'MOVE' && unit.order.targetHex) {
                 endPos = this.hexToWorld3D(unit.order.targetHex.x, unit.order.targetHex.y);
+                const h = this.getGroundHeight(unit.order.targetHex.x, unit.order.targetHex.y);
+                endPos.y = h + 30;
                 color = 0x00ff00;
             } else if ((unit.order.type === 'ATTACK' || unit.order.type === 'PLOT') && unit.order.targetId) {
                 const target = window.gameState.units.find(u => u.id === unit.order.targetId);
                 if (target) {
-                    endPos = this.hexToWorld3D(target.x, target.y);
+                    // ターゲットのメッシュがあればその位置を使う
+                    const targetMesh = this.unitMeshes.get(target.id);
+                    if (targetMesh) {
+                        endPos = targetMesh.position.clone();
+                        endPos.y += 15;
+                    } else {
+                        endPos = this.hexToWorld3D(target.x, target.y);
+                        const h = this.getGroundHeight(target.x, target.y);
+                        endPos.y = h + 30;
+                    }
                     color = unit.order.type === 'ATTACK' ? 0xff0000 : 0x00ffff;
                 }
             }
 
             if (endPos) {
-                let targetX, targetY;
-                if (unit.order.type === 'MOVE' && unit.order.targetHex) {
-                    targetX = unit.order.targetHex.x;
-                    targetY = unit.order.targetHex.y;
-                }
-                else if (unit.order.targetId) {
-                    const t = window.gameState.units.find(u => u.id === unit.order.targetId);
-                    if (t) { targetX = t.x; targetY = t.y; }
-                }
-
-                if (targetX !== undefined) {
-                    const h = this.getGroundHeight(targetX, targetY);
-                    endPos.y = h + 30;
-                } else {
-                    endPos.y = 30;
-                }
-
-                const startH = this.getGroundHeight(unit.x, unit.y);
-                startPos.y = startH + 30;
 
                 // 遏｢蜊ｰ縺ｮ霆ｸ
                 const points = [new THREE.Vector3(startPos.x, startPos.y, startPos.z), new THREE.Vector3(endPos.x, endPos.y, endPos.z)];
@@ -3549,14 +3561,25 @@ export class RenderingEngine3D {
     getUnitScreenPosition(unit) {
         if (unit.x === undefined || unit.y === undefined) return null;
 
-        // 3D菴咲ｽｮ繧貞叙蠕・
+        // メッシュがあればその位置を使う（最も正確）
+        const mesh = this.unitMeshes.get(unit.id);
+        if (mesh) {
+            const vector = new THREE.Vector3().copy(mesh.position);
+            vector.project(this.camera);
+            const widthHalf = this.canvas.clientWidth / 2;
+            const heightHalf = this.canvas.clientHeight / 2;
+            if (vector.z > 1) return null;
+            return {
+                x: (vector.x * widthHalf) + widthHalf,
+                y: -(vector.y * heightHalf) + heightHalf
+            };
+        }
+
+        // フォールバック: グリッド座標から計算（地形＋建物の高さを考慮）
         const pos = this.hexToWorld3D(unit.x, unit.y);
+        const groundH = this.getGroundHeight(unit.x, unit.y);
+        const y = groundH + 30;
 
-        // 繝ｦ繝九ャ繝医・鬮倥＆・域ｦらｮ暦ｼ・
-        // 繝ｦ繝九ャ繝医・雜ｳ蜈・0)縲應ｸｭ蠢・30)縺ゅ◆繧翫ｒ蝓ｺ貅悶↓縺吶ｋ
-        const y = 30;
-
-        // 繝吶け繝医Ν繧剃ｽ懈・
         const vector = new THREE.Vector3(pos.x, y, pos.z);
 
         // 繧ｫ繝｡繝ｩ遨ｺ髢薙↓謚募ｽｱ
@@ -3670,7 +3693,17 @@ export class RenderingEngine3D {
 
         this.raycaster.setFromCamera({ x, y }, this.camera);
 
-        // 1. 蝨ｰ蠖｢繧ｿ繧､繝ｫ縺ｨ縺ｮ莠､蟾ｮ
+        // 1. 建物との交差判定（城壁など高い構造物を優先）
+        if (this.buildingSystem && this.buildingSystem.buildingGroup) {
+            const buildingIntersects = this.raycaster.intersectObjects(
+                this.buildingSystem.buildingGroup.children, true
+            );
+            if (buildingIntersects.length > 0) {
+                return buildingIntersects[0];
+            }
+        }
+
+        // 2. 地形タイルとの交差（高さのあるタイルも正確に判定）
         if (this.tileGroup && this.tileGroup.children.length > 0) {
             const intersects = this.raycaster.intersectObjects(this.tileGroup.children);
             if (intersects.length > 0) {
@@ -3678,7 +3711,7 @@ export class RenderingEngine3D {
             }
         }
 
-        // 2. 蟷ｳ髱｢縺ｨ縺ｮ莠､蟾ｮ・医ヵ繧ｩ繝ｼ繝ｫ繝舌ャ繧ｯ・・
+        // 3. フォールバック: y=0平面との交差
         const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
         const target = new THREE.Vector3();
         if (this.raycaster.ray.intersectPlane(plane, target)) {
@@ -4096,7 +4129,18 @@ export class RenderingEngine3D {
         const raycaster = new THREE.Raycaster();
         raycaster.setFromCamera({ x: ndcX, y: ndcY }, this.camera);
 
-        // 1. まずタイル（地形）との交差を判定（正確な高さを考慮）
+        // 0. 建物との交差判定（城壁など高い構造物を優先）
+        if (this.buildingSystem && this.buildingSystem.buildingGroup) {
+            const buildingIntersects = raycaster.intersectObjects(
+                this.buildingSystem.buildingGroup.children, true
+            );
+            if (buildingIntersects.length > 0) {
+                const hit = buildingIntersects[0];
+                return this.world3DToGrid(hit.point.x, hit.point.z);
+            }
+        }
+
+        // 1. タイル（地形）との交差を判定（正確な高さを考慮）
         if (this.tileGroup && this.tileGroup.children.length > 0) {
             const intersects = raycaster.intersectObjects(this.tileGroup.children, false);
             if (intersects.length > 0) {
