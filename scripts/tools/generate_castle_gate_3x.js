@@ -5,6 +5,7 @@ const path = require('path');
 const AIR = 0;
 const STONE_WALL = 1;
 const STONE_FLOOR = 2;
+const ROOF_TILE = 5;
 const WOOD_DOOR = 6;
 const WINDOW = 7;
 
@@ -120,7 +121,7 @@ function createCrenellations(x1, y1, x2, y2, z) {
             // 外周のみ
             if (x === x1 || x === x2 || y === y1 || y === y2) {
                 if ((x + y) % 2 === 0) {
-                    setBlock(x, y, z, STONE_WALL);
+                    setBlock(x, y, z, ROOF_TILE);
                 }
             } else {
                 // 床を敷く
@@ -149,8 +150,8 @@ fillBlocks(16, 2, 10, baseWidth - 1, 3, 10, STONE_FLOOR); // 右壁上
 for (let x = 0; x < baseWidth; x++) {
     // 塔以外の場所
     if ((x < 6 || x > 8) && (x < 13 || x > 15)) {
-        if (x % 2 === 0) setBlock(x, 2, 10, STONE_WALL); // 前
-        if (x % 2 === 0) setBlock(x, 3, 10, STONE_WALL); // 後
+        if (x % 2 === 0) setBlock(x, 2, 10, ROOF_TILE); // 前
+        if (x % 2 === 0) setBlock(x, 3, 10, ROOF_TILE); // 後
     }
 }
 
