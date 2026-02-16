@@ -134,9 +134,6 @@ export class BuildingTextureGenerator {
         return texture;
     }
 
-    /**
-     * 石床テクスチャ（石畳）
-     */
     createStoneFloorTexture() {
         if (textureCache['stoneFloor']) return textureCache['stoneFloor'];
 
@@ -165,6 +162,11 @@ export class BuildingTextureGenerator {
             (tex) => {
                 // ロード成功時、テクスチャ画像を差し替える
                 texture.image = tex.image;
+                // リピート設定はマテリアル単位ではなく、UV座標側で制御するため 1,1 に戻す
+                // (もしくは広い範囲でループさせる)
+                texture.wrapS = THREE.RepeatWrapping;
+                texture.wrapT = THREE.RepeatWrapping;
+                texture.repeat.set(1, 1); 
                 texture.needsUpdate = true;
                 console.log('Successfully replaced with AI stone floor texture');
             },
