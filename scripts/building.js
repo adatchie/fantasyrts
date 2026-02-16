@@ -567,19 +567,31 @@ export class BuildingSystem {
 
             const geom = this.shearedBlockGeometry.clone();
             const uvAttr = geom.getAttribute('uv');
+            const posAttr = geom.getAttribute('position');
             const hw = this.blockSize / 2;
             const hh = this.blockSize / 4;
 
             for (let i = 0; i < uvAttr.count; i++) {
                 const u = uvAttr.getX(i);
                 const v = uvAttr.getY(i);
+                const z = posAttr.getZ(i);
                 
-                // 元の形状(hw, hh)を0-1に正規化
-                const nu = (u + hw) / (2 * hw);
-                const nv = (v + hh) / (2 * hh);
+                let nu, nv;
                 
-                // アトラステクスチャのように、タイルインデックスに基づいてUVをずらす
-                // (RepeatWrappingが設定されている前提で、0-1の範囲外に出てもOK)
+                // 上下面（キャップ）と側面を判定
+                // ExtrudeGeometry ではキャップのローカルZは ±depth/2 (translate後)
+                if (Math.abs(Math.abs(z) - this.blockSize / 2) < 0.001) {
+                    // キャップ面: 菱形の辺に合わせたUV座標変換
+                    // 頂点 (0, -hh), (hw, 0), (0, hh), (-hw, 0) を (0,0), (1,0), (1,1), (0,1) にマップ
+                    nu = u / (2 * hw) + v / (2 * hh) + 0.5;
+                    nv = -u / (2 * hw) + v / (2 * hh) + 0.5;
+                } else {
+                    // 側面: Three.jsのデフォルトUV（正規化済み 0-1）をそのまま使用
+                    nu = u;
+                    nv = v;
+                }
+                
+                // タイルインデックスに基づいてUVをずらす（シームレスなラッピング用）
                 uvAttr.setXY(i, (tx + nu) / blocksPerGrid, (ty + nv) / blocksPerGrid);
             }
             uvAttr.needsUpdate = true;
