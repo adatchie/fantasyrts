@@ -568,26 +568,29 @@ export class BuildingSystem {
             const geom = this.shearedBlockGeometry.clone();
             const uvAttr = geom.getAttribute('uv');
             const posAttr = geom.getAttribute('position');
+            const normAttr = geom.getAttribute('normal');
             const hw = this.blockSize / 2;
             const hh = this.blockSize / 4;
 
             for (let i = 0; i < uvAttr.count; i++) {
                 const u = uvAttr.getX(i);
                 const v = uvAttr.getY(i);
-                const z = posAttr.getZ(i);
+                const nz = normAttr.getZ(i);
                 
                 let nu, nv;
                 
                 // 上下面（キャップ）と側面を判定
-                // ExtrudeGeometry ではキャップのローカルZは ±depth/2 (translate後)
-                if (Math.abs(Math.abs(z) - this.blockSize / 2) < 0.001) {
-                    // キャップ面: 菱形の辺に合わせたUV座標変換
+                // 法線の Z 成分が ±1 なら上下面（水平面）、0 なら側面（垂直面）
+                if (Math.abs(nz) > 0.5) {
+                    // キャップ面（床・屋根など）: 菱形の辺に合わせたUV座標変換
                     // 頂点 (0, -hh), (hw, 0), (0, hh), (-hw, 0) を (0,0), (1,0), (1,1), (0,1) にマップ
                     nu = u / (2 * hw) + v / (2 * hh) + 0.5;
                     nv = -u / (2 * hw) + v / (2 * hh) + 0.5;
                 } else {
-                    // 側面: Three.jsのデフォルトUV（正規化済み 0-1）をそのまま使用
-                    nu = u;
+                    // 側面（壁面）: Three.jsのデフォルトUV（外周 0-1）を使用
+                    // 外周全体で 0-1 なので、4倍して各面のローカル 0-1 に補正
+                    // これにより各壁面にテクスチャが正しく向きを合わせて表示される
+                    nu = (u * 4) % 1.0;
                     nv = v;
                 }
                 
