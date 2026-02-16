@@ -140,34 +140,27 @@ export class BuildingTextureGenerator {
     createStoneFloorTexture() {
         if (textureCache['stoneFloor']) return textureCache['stoneFloor'];
 
-        const canvas = this.createCanvas();
-        const ctx = canvas.getContext('2d');
-        const s = this.textureSize;
-
-        // ベース色
-        ctx.fillStyle = '#666666';
-        ctx.fillRect(0, 0, s, s);
-
-        // 石畳境界
-        ctx.strokeStyle = '#555555';
-        ctx.lineWidth = 1;
-
-        // 不規則な石畳パターン
-        const tileSize = 16;
-        const offsetX = [0, 8, 4, 12];
-        for (let y = 0; y < s; y += tileSize) {
-            const rowOffset = (Math.floor(y / tileSize) % 2) * 8;
-            for (let x = 0; x < s; x += tileSize) {
-                const ox = (Math.floor(x / tileSize) % 2) * 8 + rowOffset;
-                ctx.strokeRect(x + ox, y, tileSize - 2, tileSize - 2);
+        // AI生成の新しい石床テクスチャを優先的に使用
+        const loader = new THREE.TextureLoader();
+        const texture = loader.load('assets/textures/stone_floor_new.png', 
+            // 成功時のコールバック（オプション）
+            (tex) => {
+                console.log('Loaded AI stone floor texture');
+            },
+            // プログレス
+            undefined,
+            // 失敗時のフォールバック
+            (err) => {
+                console.warn('Failed to load stone_floor_new.png, falling back to procedural');
             }
-        }
+        );
 
-        this.addNoise(ctx, s, 0.03);
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.magFilter = THREE.LinearFilter;
+        texture.minFilter = THREE.LinearMipMapLinearFilter;
 
-        const texture = new THREE.CanvasTexture(canvas);
-        texture.magFilter = THREE.NearestFilter;
-        texture.minFilter = THREE.NearestFilter;
         textureCache['stoneFloor'] = texture;
         return texture;
     }
