@@ -627,6 +627,7 @@ export class BuildingSystem {
                         const tileX = ((x % blocksPerGrid) + blocksPerGrid) % blocksPerGrid;
                         
                         // 床や屋根の場合は X, Y 座標を使用。壁の場合は X, Z 座標を使用。
+                        // 注: 床テクスチャは 2D（X, Y）で正方形のため、X, Y で繰り返す
                         const isHorizontal = (
                             blockType === BLOCK_TYPES.STONE_FLOOR || 
                             blockType === BLOCK_TYPES.WOOD_FLOOR || 
@@ -634,11 +635,12 @@ export class BuildingSystem {
                             z === 0 // 1階の床
                         );
 
-                        const tileYOrZ = isHorizontal ? 
+                        // X 座標と、水平面の場合は Y 座標、垂直面の場合は Z 座標を使用
+                        const tileAxis2 = isHorizontal ? 
                             ((y % blocksPerGrid) + blocksPerGrid) % blocksPerGrid : 
                             ((z % blocksPerGrid) + blocksPerGrid) % blocksPerGrid;
 
-                        blockGeometry = getCachedGeometry(tileX, tileYOrZ, isHorizontal);
+                        blockGeometry = getCachedGeometry(tileX, tileAxis2, isHorizontal);
                     }
 
                     // 色バリエーション（グリッド単位）
