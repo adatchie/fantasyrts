@@ -587,10 +587,10 @@ export class BuildingSystem {
                     nu = u / (2 * hw) + v / (2 * hh) + 0.5;
                     nv = -u / (2 * hw) + v / (2 * hh) + 0.5;
                 } else {
-                    // 側面（壁面）: Three.jsのデフォルトUV（外周 0-1）を使用
-                    // 外周全体で 0-1 なので、4倍して各面のローカル 0-1 に補正
-                    // これにより各壁面にテクスチャが正しく向きを合わせて表示される
-                    nu = (u * 4) % 1.0;
+                    // 側面（壁面）: 石のサイズを床（1タイル=32ユニット）に合わせる
+                    // 1面あたりのUV幅を、床の石のサイズと物理的に一致するようにスケール
+                    const sideLen = Math.sqrt(hw * hw + hh * hh);
+                    nu = (u * 4 % 1.0) * (sideLen / this.blockSize);
                     nv = v;
                 }
                 
