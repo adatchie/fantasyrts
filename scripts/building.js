@@ -824,32 +824,39 @@ export class BuildingSystem {
         // 地面タイルの隠蔽処理
         if (this.renderingEngine && this.renderingEngine.tileGroup) {
             const blockSize = rotatedData.blockSize || this.blockSize;
-            const footprintX = Math.ceil(size.x * blockSize / TILE_SIZE);
-            const footprintY = Math.ceil(size.y * blockSize / TILE_SIZE);
+            const blocksPerTile = TILE_SIZE / blockSize;
 
-            // ブロックの回転やスケールを考慮して、各グリッドタイルにブロックがあるか判定
-            const gridToBlockScaleX = size.x / footprintX;
-            const gridToBlockScaleY = size.y / footprintY;
+            // 建物がカバーするタイル範囲を計算（ブロック単位の座標をタイル単位に変換）
+            const startTileX = Math.floor(gridX / blocksPerTile);
+            const startTileY = Math.floor(gridY / blocksPerTile);
+            const endTileX = Math.ceil((gridX + size.x) / blocksPerTile);
+            const endTileY = Math.ceil((gridY + size.y) / blocksPerTile);
 
             this.renderingEngine.tileGroup.children.forEach(tileMesh => {
                 const tx = tileMesh.userData.x;
                 const ty = tileMesh.userData.y;
-                
-                if (tx >= gridX && tx < gridX + footprintX && 
-                    ty >= gridY && ty < gridY + footprintY) {
+
+                // タイルが建物のフットプリント（タイル単位）の範囲内にあるか
+                if (tx >= startTileX && tx < endTileX && 
+                    ty >= startTileY && ty < endTileY) {
                     
-                    // そのグリッドタイルの直下（z=0）に実体ブロックがあるかチェック
-                    const localGridX = tx - gridX;
-                    const localGridY = ty - gridY;
-                    const blockX = Math.floor(localGridX * gridToBlockScaleX);
-                    const blockY = Math.floor(localGridY * gridToBlockScaleY);
+                    // このタイルがカバーするブロックのローカル座標（建物内インデックス）を計算
+                    // タイルの中心点付近をチェックするのが最も安全
+                    const localBlockX = Math.floor((tx + 0.5) * blocksPerTile - gridX);
+                    const localBlockY = Math.floor((ty + 0.5) * blocksPerTile - gridY);
 
                     // 1層目(z=0)にブロックがあれば地面を隠す
-                    const hasBaseBlock = (
-                        blocks[0] && 
-                        blocks[0][blockY] && 
-                        blocks[0][blockY][blockX] !== BLOCK_TYPES.AIR
-                    );
+                    // 範囲チェックを厳密に行う
+                    let hasBaseBlock = false;
+                    if (localBlockX >= 0 && localBlockX < size.x &&
+                        localBlockY >= 0 && localBlockY < size.y) {
+                        
+                        if (blocks[0] && 
+                            blocks[0][localBlockY] && 
+                            blocks[0][localBlockY][localBlockX] !== BLOCK_TYPES.AIR) {
+                            hasBaseBlock = true;
+                        }
+                    }
 
                     if (hasBaseBlock) {
                         tileMesh.visible = false;
