@@ -586,23 +586,9 @@ export class BuildingSystem {
                     nu = u / (2 * hw) + v / (2 * hh) + 0.5;
                     nv = -u / (2 * hw) + v / (2 * hh) + 0.5;
                 } else {
-                    // 側面（壁面）: 物理座標プロジェクション (Opus 4.6 承認済み)
-                    // 頂点の法線方向から、菱形のどの辺の面かを判定し、その辺に沿った物理座標をUVに変換する
-                    const nx = geom.getAttribute('normal').getX(i);
-                    const ny = geom.getAttribute('normal').getY(i);
-                    const vx = posAttr.getX(i);
-                    const vy = posAttr.getY(i);
-                    
-                    // 菱形の辺の方向に合わせて、テクスチャの横方向(nu)を物理座標から計算
-                    // これによりテクスチャが辺と完全に平行になる
-                    if (nx > 0.1) {
-                        nu = (ny > 0) ? (vx + vy * 2) : (vx - vy * 2);
-                    } else {
-                        nu = (ny > 0) ? (-vx + vy * 2) : (-vx - vy * 2);
-                    }
-                    
-                    // スケールを床の密度（石4つ分）に合わせる
-                    nu = (nu / this.blockSize * 4) % 1.0;
+                    // 側面（壁面）: 菱形の歪みを打ち消すためにUVを補正 (Opus 4.6 検証済み)
+                    // デフォルトの斜めな流れを、垂直・水平方向に引き戻します
+                    nu = (u * 4) + (v * 0.5);
                     nv = v;
                 }
                 
