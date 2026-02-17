@@ -579,20 +579,15 @@ export class BuildingSystem {
                 let nu, nv;
                 
                 // 上下面（キャップ）と側面を判定
-                // キャップの頂点は local Z = ±blockSize / 2 にある
+                // ExtrudeGeometry ではキャップのローカルZは ±depth/2 (translate後)
                 if (Math.abs(Math.abs(z) - this.blockSize / 2) < 0.001) {
-                    // キャップ面（床・屋根など）: 菱形の辺に合わせたUV座標変換
+                    // キャップ面: 菱形の辺に合わせたUV座標変換
                     // 頂点 (0, -hh), (hw, 0), (0, hh), (-hw, 0) を (0,0), (1,0), (1,1), (0,1) にマップ
                     nu = u / (2 * hw) + v / (2 * hh) + 0.5;
                     nv = -u / (2 * hw) + v / (2 * hh) + 0.5;
                 } else {
-                    // 側面（壁面）: Three.jsのデフォルトUV（外周 0-1）を使用
-                    // 外周全体で 0-1 なので、4倍して各面のローカル 0-1 に補正
-                    // ブロックの物理的な幅に合わせてスケールを調整
-                    const sideLen = Math.sqrt(hw * hw + hh * hh);
-                    nu = (u * 4) % 1.0;
-                    // テクスチャの1ユニットが床の石の1つ分になるように調整
-                    nu *= (sideLen / (this.blockSize / blocksPerGrid));
+                    // 側面: Three.jsのデフォルトUV（正規化済み 0-1）をそのまま使用
+                    nu = u;
                     nv = v;
                 }
                 
