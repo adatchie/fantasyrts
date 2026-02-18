@@ -134,24 +134,45 @@ export class BuildingTextureGenerator {
         return texture;
     }
 
-    /**
-     * 石床テクスチャ（石畳）
-     */
     createStoneFloorTexture() {
         if (textureCache['stoneFloor']) return textureCache['stoneFloor'];
 
-        // AI生成の新しい石床テクスチャを優先的に使用
+        // まず手続き型のテクスチャを作成（ロード失敗時のフォールバック用）
+        const canvas = this.createCanvas();
+        const ctx = canvas.getContext('2d');
+        const s = this.textureSize;
+        ctx.fillStyle = '#666666';
+        ctx.fillRect(0, 0, s, s);
+        ctx.strokeStyle = '#555555';
+        ctx.lineWidth = 1;
+        const tileSize = 16;
+        for (let y = 0; y < s; y += tileSize) {
+            const rowOffset = (Math.floor(y / tileSize) % 2) * 8;
+            for (let x = 0; x < s; x += tileSize) {
+                const ox = (Math.floor(x / tileSize) % 2) * 8 + rowOffset;
+                ctx.strokeRect(x + ox, y, tileSize - 2, tileSize - 2);
+            }
+        }
+        this.addNoise(ctx, s, 0.03);
+        const texture = new THREE.CanvasTexture(canvas);
+
+        // AI生成の新しい石床テクスチャのロードを試みる
         const loader = new THREE.TextureLoader();
-        const texture = loader.load('assets/textures/stone_floor_new.png', 
-            // 成功時のコールバック（オプション）
+        loader.load('assets/textures/stone_floor_new.png', 
             (tex) => {
-                console.log('Loaded AI stone floor texture');
+                // ロード成功時、テクスチャ画像を差し替える
+                texture.image = tex.image;
+                // リピート設定はマテリアル単位ではなく、UV座標側で制御するため 1,1 に戻す
+                // (もしくは広い範囲でループさせる)
+                texture.wrapS = THREE.RepeatWrapping;
+                texture.wrapT = THREE.RepeatWrapping;
+                texture.repeat.set(1, 1); 
+                texture.needsUpdate = true;
+                console.log('Successfully replaced with AI stone floor texture');
             },
-            // プログレス
             undefined,
-            // 失敗時のフォールバック
             (err) => {
-                console.warn('Failed to load stone_floor_new.png, falling back to procedural');
+                console.warn('Using procedural fallback for stone floor');
             }
         );
 

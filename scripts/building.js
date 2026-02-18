@@ -537,13 +537,11 @@ export class BuildingSystem {
         const { blocks, size } = template;
 
         // 歪んだブロックジオメトリを作成（グリッドの菱形に合わせる）
-        // rendering3d.gridToWorld3Dと同じ比率で変形
         if (!this.shearedBlockGeometry) {
             const shape = new THREE.Shape();
-            const hw = this.blockSize / 2;     // 半幅
-            const hh = this.blockSize / 4;     // 半高（奥行き）
+            const hw = this.blockSize / 2;
+            const hh = this.blockSize / 4;
 
-            // 菱形（中心基準）- アイソメトリックグリッドの1マス形状
             shape.moveTo(0, -hh);
             shape.lineTo(hw, 0);
             shape.lineTo(0, hh);
@@ -551,65 +549,89 @@ export class BuildingSystem {
             shape.closePath();
 
             const extrudeSettings = {
-                depth: this.blockSize, // 高さ（Y方向へ向かうZ）
+                depth: this.blockSize,
                 bevelEnabled: false
             };
             this.shearedBlockGeometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-
-            // 重心を中心に合わせるためのオフセット（高さ方向）
             this.shearedBlockGeometry.translate(0, 0, -this.blockSize / 2);
         }
 
-        // --- キャッシュ: UV書き換え済みジオメトリ（tileX,tileZ の組み合わせ = 最大16パターン） ---
+        // --- キャッシュ: UV書き換え済みジオメトリ（タイル座標の組み合わせ） ---
         const blocksPerGrid = Math.round(TILE_SIZE / (template.blockSize || this.blockSize));
-        if (!this._uvGeometryCache) this._uvGeometryCache = {};
-        const baseMat = this.materials[BLOCK_TYPES.STONE_WALL];
-        const hasTexture = baseMat && baseMat.map;
+        // キャッシュをクリア（開発中は毎回再計算）
+        this._uvGeometryCache = {};
 
-        if (hasTexture) {
+        // UV書き換えヘルパー: ジオメトリのUVを指定されたタイルのインデックスに基づいてオフセットする
+        // 修正: 側面（壁面）のUVをposition座標から直接計算するように変更
+        const getCachedGeometry = (tx, ty, isHorizontal = false) => {
+            const key = `${tx}_${ty}_${isHorizontal ? 'h' : 'v'}`;
+            if (this._uvGeometryCache[key]) return this._uvGeometryCache[key];
+
+            const geom = this.shearedBlockGeometry.clone();
+            const uvAttr = geom.getAttribute('uv');
+            const posAttr = geom.getAttribute('position');
+            const normalAttr = geom.getAttribute('normal');
             const hw = this.blockSize / 2;
             const hh = this.blockSize / 4;
-            try {
-                for (let tx = 0; tx < blocksPerGrid; tx++) {
-                    for (let tz = 0; tz < blocksPerGrid; tz++) {
-                        const key = `${tx}_${tz}`;
-                        if (this._uvGeometryCache[key]) continue;
-                        const geom = this.shearedBlockGeometry.clone();
-                        const uvAttr = geom.getAttribute('uv');
-                        if (!uvAttr) {
-                            console.warn('[BuildingSystem] UV attribute not found on shearedBlockGeometry');
-                            continue;
-                        }
-                        for (let i = 0; i < uvAttr.count; i++) {
-                            const u = uvAttr.getX(i);
-                            const v = uvAttr.getY(i);
-                            const nu = (u + hw) / (2 * hw);
-                            const nv = (v + hh) / (2 * hh);
-                            uvAttr.setXY(i, (tx + nu) / blocksPerGrid, (tz + nv) / blocksPerGrid);
-                        }
-                        uvAttr.needsUpdate = true;
-                        this._uvGeometryCache[key] = geom;
-                    }
-                }
-            } catch (e) {
-                console.error('[BuildingSystem] UV geometry cache creation failed:', e);
-                // キャッシュ生成失敗時は無効化してフォールバック
-                this._uvGeometryCache = {};
-            }
-        }
+            const halfDepth = this.blockSize / 2;
 
-        // --- キャッシュ: 色バリエーション用マテリアル（グリッド座標のハッシュ） ---
-        if (!this._stoneMatCache) this._stoneMatCache = {};
+            for (let i = 0; i < uvAttr.count; i++) {
+                const x = posAttr.getX(i);
+                const y = posAttr.getY(i);
+                const z = posAttr.getZ(i);
+                const nz = normalAttr.getZ(i);
+
+                let nu, nv;
+
+                // 法線のZ成分でキャップ面 vs 側面を判定
+                // キャップ面: 法線が (0,0,1) or (0,0,-1)
+                // 側面: 法線のZが0に近い
+                if (Math.abs(nz) > 0.5) {
+                    // キャップ面: 菱形→正方形マッピング（既存ロジック、正常動作）
+                    nu = x / (2 * hw) + y / (2 * hh) + 0.5;
+                    nv = -x / (2 * hw) + y / (2 * hh) + 0.5;
+                } else {
+                    // 側面（壁面）: 法線のXY成分で4面を区別し、各面内でUV計算
+                    const nx = normalAttr.getX(i);
+                    const ny = normalAttr.getY(i);
+                    const edgeLen = Math.sqrt(hw * hw + hh * hh);
+
+                    // 法線のXY成分からどの壁面かを判定
+                    // 菱形の4辺: 右下(0,-hh→hw,0), 右上(hw,0→0,hh), 左上(0,hh→-hw,0), 左下(-hw,0→0,-hh)
+                    if (nx > 0.3 && ny < -0.3) {
+                        // 右下の壁
+                        nu = Math.sqrt(x * x + (y + hh) * (y + hh)) / edgeLen;
+                    } else if (nx > 0.3 && ny > 0.3) {
+                        // 右上の壁
+                        nu = Math.sqrt((hw - x) * (hw - x) + y * y) / edgeLen;
+                    } else if (nx < -0.3 && ny > 0.3) {
+                        // 左上の壁
+                        nu = Math.sqrt(x * x + (hh - y) * (hh - y)) / edgeLen;
+                    } else {
+                        // 左下の壁
+                        nu = Math.sqrt((hw + x) * (hw + x) + y * y) / edgeLen;
+                    }
+
+                    // 垂直方向: z座標を0〜1に正規化
+                    nv = (z + halfDepth) / this.blockSize;
+                }
+
+                // タイルインデックスに基づいてUVをずらす（シームレスなラッピング用）
+                uvAttr.setXY(i, (tx + nu) / blocksPerGrid, (ty + nv) / blocksPerGrid);
+            }
+            uvAttr.needsUpdate = true;
+            this._uvGeometryCache[key] = geom;
+            return geom;
+        };
 
         // 各ブロックをメッシュとして追加
-        for (let z = 0; z < size.z; z++) { // 高さ
-            for (let y = 0; y < size.y; y++) { // 奥行き
-                for (let x = 0; x < size.x; x++) { // 幅
+        for (let z = 0; z < size.z; z++) {
+            for (let y = 0; y < size.y; y++) {
+                for (let x = 0; x < size.x; x++) {
                     const blockType = blocks[z][y][x];
                     if (blockType === BLOCK_TYPES.AIR) continue;
 
                     // 周囲をチェック（間引きロジック）
-                    // 上下左右前後がすべてAIR以外なら、このブロックは見えないので描画しない
                     const isHidden = (
                         x > 0 && x < size.x - 1 &&
                         y > 0 && y < size.y - 1 &&
@@ -627,98 +649,75 @@ export class BuildingSystem {
                     let material = this.materials[blockType];
                     if (!material) continue;
 
-                    // 石壁ブロック: キャッシュ済みジオメトリ＆マテリアルを使用
+                    // テクスチャの連続性を保つためにジオメトリを選択
                     let blockGeometry = this.shearedBlockGeometry;
-                    if (blockType === BLOCK_TYPES.STONE_WALL) {
-                        // UV書き換え済みジオメトリをキャッシュから取得
-                        if (hasTexture && this._uvGeometryCache && Object.keys(this._uvGeometryCache).length > 0) {
-                            const tileX = ((x % blocksPerGrid) + blocksPerGrid) % blocksPerGrid;
-                            const tileZ = ((z % blocksPerGrid) + blocksPerGrid) % blocksPerGrid;
+                    
+                    // 石壁、石床、木床、屋根などは連続テクスチャを適用
+                    const isContinuousType = (
+                        blockType === BLOCK_TYPES.STONE_WALL ||
+                        blockType === BLOCK_TYPES.STONE_FLOOR ||
+                        blockType === BLOCK_TYPES.WOOD_FLOOR ||
+                        blockType === BLOCK_TYPES.ROOF_TILE
+                    );
 
-                            // 上面または下面のUV補正
-                            // ダイヤモンド形状の上面では、グリッドのY位置もUVに影響する
-                            if (z === 0 || z === size.z - 1) {
-                                // 上面または下面の場合、グリッドの行（y）も考慮
-                                const tileY = Math.floor(y / blocksPerGrid);
-                                // ダイヤモンドのY軸回転を考慮したV座標計算
-                                const v = (tileY * 2 + tileZ) / (blocksPerGrid * 2);
-                                const cachedGeom = this._uvGeometryCache[`${tileX}_${v}`];
-                                if (cachedGeom) {
-                                    blockGeometry = cachedGeom;
-                                } else {
-                                    console.warn(`[BuildingSystem] UV geometry cache miss for key: ${tileX}_${v}`, { tileX, tileZ, tileY, blocksPerGrid, cacheKeys: Object.keys(this._uvGeometryCache) });
-                                }
-                            } else {
-                                // 側面は通常のキャッシュを使用
-                                const cachedGeom = this._uvGeometryCache[`${tileX}_${tileZ}`];
-                                if (cachedGeom) {
-                                    blockGeometry = cachedGeom;
-                                } else {
-                                    console.warn(`[BuildingSystem] UV geometry cache miss for key: ${tileX}_${tileZ}`, { tileX, tileZ, blocksPerGrid, cacheKeys: Object.keys(this._uvGeometryCache) });
-                                }
-                            }
-                        }
+                    if (isContinuousType && material.map) {
+                        const tileX = ((x % blocksPerGrid) + blocksPerGrid) % blocksPerGrid;
+                        
+                        // 床や屋根の場合は X, Y 座標を使用。壁の場合は X, Z 座標を使用。
+                        // 注: 床テクスチャは 2D（X, Y）で正方形のため、X, Y で繰り返す
+                        const isHorizontal = (
+                            blockType === BLOCK_TYPES.STONE_FLOOR || 
+                            blockType === BLOCK_TYPES.WOOD_FLOOR || 
+                            blockType === BLOCK_TYPES.ROOF_TILE ||
+                            z === 0 // 1階の床
+                        );
 
-                        // 色バリエーション（グリッド単位）をキャッシュ
-                        const gridX = Math.floor(x / blocksPerGrid);
-                        const gridY = Math.floor(y / blocksPerGrid);
-                        const gridZ = Math.floor(z / blocksPerGrid);
-                        const hash = (gridX * 73856093 + gridY * 19349663 + gridZ * 83492791) & 0xFFFF;
-                        const matKey = `stone_${hash}`;
+                        // X 座標と、水平面の場合は Y 座標、垂直面の場合は Z 座標を使用
+                        const tileAxis2 = isHorizontal ? 
+                            ((y % blocksPerGrid) + blocksPerGrid) % blocksPerGrid : 
+                            ((z % blocksPerGrid) + blocksPerGrid) % blocksPerGrid;
+
+                        blockGeometry = getCachedGeometry(tileX, tileAxis2, isHorizontal);
+                    }
+
+                    // 色バリエーション（グリッド単位）
+                    const gridX = Math.floor(x / blocksPerGrid);
+                    const gridY = Math.floor(y / blocksPerGrid);
+                    const gridZ = Math.floor(z / blocksPerGrid);
+                    const hash = (gridX * 73856093 + gridY * 19349663 + gridZ * 83492791) & 0xFFFF;
+                    
+                    // 石材系のみ色味をわずかに変える
+                    if (blockType === BLOCK_TYPES.STONE_WALL || blockType === BLOCK_TYPES.STONE_FLOOR) {
+                        if (!this._stoneMatCache) this._stoneMatCache = {};
+                        const matKey = `stone_${blockType}_${hash}`;
                         
                         if (!this._stoneMatCache[matKey]) {
-                            const brightness = 0.85 + (hash % 100) / 100 * 0.3;
-                            const hueShift = ((hash >> 4) % 20 - 10) / 360;
-                            const baseColor = new THREE.Color(hasTexture ? 0xffffff : 0x888888);
-                            baseColor.multiplyScalar(brightness);
-                            const r = baseColor.r + hueShift * 0.5;
-                            const g = baseColor.g;
-                            const b = baseColor.b - hueShift * 0.5;
-                            const mat = baseMat.clone();
-                            mat.color.setRGB(
-                                Math.max(0, Math.min(1, r)),
-                                Math.max(0, Math.min(1, g)),
-                                Math.max(0, Math.min(1, b))
-                            );
+                            const brightness = 0.9 + (hash % 100) / 100 * 0.2;
+                            const mat = material.clone();
+                            mat.color.multiplyScalar(brightness);
                             this._stoneMatCache[matKey] = mat;
                         }
                         material = this._stoneMatCache[matKey];
                     }
+
                     const blockMesh = new THREE.Mesh(blockGeometry, material);
 
-                    // 建物のローカル座標系でのグリッド位置
-                    // 中心を原点(0,0)とするように調整
                     const bx = x - size.x / 2 + 0.5;
                     const by = y - size.y / 2 + 0.5;
-
-                    // ブロック固有のサイズ（template.blockSize優先）
                     const currentBlockSize = template.blockSize || this.blockSize;
                     const scale = currentBlockSize / this.blockSize;
 
-                    // アイソメトリック投影変換（rendering3d.gridToWorld3Dと同様のロジック）
-                    // これにより建物もグリッドと同じ「歪んだ」座標系に乗る
-                    // createBuildingMeshのExtrudeGeometryはthis.blockSize(8)で作られているので、scale倍する
-
                     const wx = (bx - by) * (currentBlockSize / 2);
                     const wz = (bx + by) * (currentBlockSize / 4);
-
-                    // 高さ計算（エディター仕様に準拠: wy = bz * blockSize）
                     const blockHeight = currentBlockSize;
                     const wy = z * blockHeight + blockHeight / 2;
 
                     blockMesh.position.set(wx, wy, wz);
-
-                    // メッシュ自体のスケール調整（8 -> currentBlockSize）
-                    // エディタと同じスケールを使用（高さ方向も同じ）
                     blockMesh.scale.set(scale, scale, scale);
-
-                    // ExtrudeGeometryはXY平面からZ方向への押し出しなので、
-                    // これをXZ平面からY方向への立ち上がりに変換する
                     blockMesh.rotation.x = -Math.PI / 2;
-
                     blockMesh.castShadow = true;
                     blockMesh.receiveShadow = true;
-                    blockMesh.frustumCulled = false; // カメラ位置による誤カリングを防止
+                    blockMesh.frustumCulled = false;
 
                     group.add(blockMesh);
                 }
@@ -824,32 +823,39 @@ export class BuildingSystem {
         // 地面タイルの隠蔽処理
         if (this.renderingEngine && this.renderingEngine.tileGroup) {
             const blockSize = rotatedData.blockSize || this.blockSize;
-            const footprintX = Math.ceil(size.x * blockSize / TILE_SIZE);
-            const footprintY = Math.ceil(size.y * blockSize / TILE_SIZE);
+            const blocksPerTile = TILE_SIZE / blockSize;
 
-            // ブロックの回転やスケールを考慮して、各グリッドタイルにブロックがあるか判定
-            const gridToBlockScaleX = size.x / footprintX;
-            const gridToBlockScaleY = size.y / footprintY;
+            // 建物がカバーするタイル範囲を計算（ブロック単位の座標をタイル単位に変換）
+            const startTileX = Math.floor(gridX / blocksPerTile);
+            const startTileY = Math.floor(gridY / blocksPerTile);
+            const endTileX = Math.ceil((gridX + size.x) / blocksPerTile);
+            const endTileY = Math.ceil((gridY + size.y) / blocksPerTile);
 
             this.renderingEngine.tileGroup.children.forEach(tileMesh => {
                 const tx = tileMesh.userData.x;
                 const ty = tileMesh.userData.y;
-                
-                if (tx >= gridX && tx < gridX + footprintX && 
-                    ty >= gridY && ty < gridY + footprintY) {
+
+                // タイルが建物のフットプリント（タイル単位）の範囲内にあるか
+                if (tx >= startTileX && tx < endTileX && 
+                    ty >= startTileY && ty < endTileY) {
                     
-                    // そのグリッドタイルの直下（z=0）に実体ブロックがあるかチェック
-                    const localGridX = tx - gridX;
-                    const localGridY = ty - gridY;
-                    const blockX = Math.floor(localGridX * gridToBlockScaleX);
-                    const blockY = Math.floor(localGridY * gridToBlockScaleY);
+                    // このタイルがカバーするブロックのローカル座標（建物内インデックス）を計算
+                    // タイルの中心点付近をチェックするのが最も安全
+                    const localBlockX = Math.floor((tx + 0.5) * blocksPerTile - gridX);
+                    const localBlockY = Math.floor((ty + 0.5) * blocksPerTile - gridY);
 
                     // 1層目(z=0)にブロックがあれば地面を隠す
-                    const hasBaseBlock = (
-                        blocks[0] && 
-                        blocks[0][blockY] && 
-                        blocks[0][blockY][blockX] !== BLOCK_TYPES.AIR
-                    );
+                    // 範囲チェックを厳密に行う
+                    let hasBaseBlock = false;
+                    if (localBlockX >= 0 && localBlockX < size.x &&
+                        localBlockY >= 0 && localBlockY < size.y) {
+                        
+                        if (blocks[0] && 
+                            blocks[0][localBlockY] && 
+                            blocks[0][localBlockY][localBlockX] !== BLOCK_TYPES.AIR) {
+                            hasBaseBlock = true;
+                        }
+                    }
 
                     if (hasBaseBlock) {
                         tileMesh.visible = false;
