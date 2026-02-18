@@ -558,9 +558,11 @@ export class BuildingSystem {
 
         // --- キャッシュ: UV書き換え済みジオメトリ（タイル座標の組み合わせ） ---
         const blocksPerGrid = Math.round(TILE_SIZE / (template.blockSize || this.blockSize));
-        if (!this._uvGeometryCache) this._uvGeometryCache = {};
+        // キャッシュをクリア（開発中は毎回再計算）
+        this._uvGeometryCache = {};
 
         // UV書き換えヘルパー: ジオメトリのUVを指定されたタイルのインデックスに基づいてオフセットする
+        // 修正: 側面（壁面）のUVをposition座標から直接計算するように変更
         const getCachedGeometry = (tx, ty, isHorizontal = false) => {
             const key = `${tx}_${ty}_${isHorizontal ? 'h' : 'v'}`;
             if (this._uvGeometryCache[key]) return this._uvGeometryCache[key];
@@ -568,30 +570,52 @@ export class BuildingSystem {
             const geom = this.shearedBlockGeometry.clone();
             const uvAttr = geom.getAttribute('uv');
             const posAttr = geom.getAttribute('position');
+            const normalAttr = geom.getAttribute('normal');
             const hw = this.blockSize / 2;
             const hh = this.blockSize / 4;
+            const halfDepth = this.blockSize / 2;
 
             for (let i = 0; i < uvAttr.count; i++) {
-                const u = uvAttr.getX(i);
-                const v = uvAttr.getY(i);
+                const x = posAttr.getX(i);
+                const y = posAttr.getY(i);
                 const z = posAttr.getZ(i);
-                
+                const nz = normalAttr.getZ(i);
+
                 let nu, nv;
-                
-                // 上下面（キャップ）と側面を判定
-                // ExtrudeGeometry ではキャップのローカルZは ±depth/2 (translate後)
-                if (Math.abs(Math.abs(z) - this.blockSize / 2) < 0.001) {
-                    // キャップ面: 菱形の辺に合わせたUV座標変換
-                    // 頂点 (0, -hh), (hw, 0), (0, hh), (-hw, 0) を (0,0), (1,0), (1,1), (0,1) にマップ
-                    nu = u / (2 * hw) + v / (2 * hh) + 0.5;
-                    nv = -u / (2 * hw) + v / (2 * hh) + 0.5;
+
+                // 法線のZ成分でキャップ面 vs 側面を判定
+                // キャップ面: 法線が (0,0,1) or (0,0,-1)
+                // 側面: 法線のZが0に近い
+                if (Math.abs(nz) > 0.5) {
+                    // キャップ面: 菱形→正方形マッピング（既存ロジック、正常動作）
+                    nu = x / (2 * hw) + y / (2 * hh) + 0.5;
+                    nv = -x / (2 * hw) + y / (2 * hh) + 0.5;
                 } else {
-                    // 側面（壁面）: 床と同じように、頂点座標を使ったUV変換を適用
-                    // 床のロジック（上面）は既に正しく動いているので、壁面にも適用して統一する
-                    nu = u / (2 * hw) + v / (2 * hh) + 0.5;
-                    nv = -u / (2 * hw) + v / (2 * hh) + 0.5;
+                    // 側面（壁面）: 法線のXY成分で4面を区別し、各面内でUV計算
+                    const nx = normalAttr.getX(i);
+                    const ny = normalAttr.getY(i);
+                    const edgeLen = Math.sqrt(hw * hw + hh * hh);
+
+                    // 法線のXY成分からどの壁面かを判定
+                    // 菱形の4辺: 右下(0,-hh→hw,0), 右上(hw,0→0,hh), 左上(0,hh→-hw,0), 左下(-hw,0→0,-hh)
+                    if (nx > 0.3 && ny < -0.3) {
+                        // 右下の壁
+                        nu = Math.sqrt(x * x + (y + hh) * (y + hh)) / edgeLen;
+                    } else if (nx > 0.3 && ny > 0.3) {
+                        // 右上の壁
+                        nu = Math.sqrt((hw - x) * (hw - x) + y * y) / edgeLen;
+                    } else if (nx < -0.3 && ny > 0.3) {
+                        // 左上の壁
+                        nu = Math.sqrt(x * x + (hh - y) * (hh - y)) / edgeLen;
+                    } else {
+                        // 左下の壁
+                        nu = Math.sqrt((hw + x) * (hw + x) + y * y) / edgeLen;
+                    }
+
+                    // 垂直方向: z座標を0〜1に正規化
+                    nv = (z + halfDepth) / this.blockSize;
                 }
-                
+
                 // タイルインデックスに基づいてUVをずらす（シームレスなラッピング用）
                 uvAttr.setXY(i, (tx + nu) / blocksPerGrid, (ty + nv) / blocksPerGrid);
             }
