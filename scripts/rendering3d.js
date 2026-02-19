@@ -1452,7 +1452,9 @@ export class RenderingEngine3D {
             }
 
             // 繧ｭ繝｣繝・す繝･縺輔ｌ縺欸ector3繧貞・蛻ｩ逕ｨ
-            this._tempVec3.set(rawPos.x, groundHeight + 2, rawPos.z);
+            // 建物の陰に入っている場合のみ深度オフセットを設定して、正しく表示されるようにする
+            const isInBuildingShadow = (window.game && window.game.buildingSystem && bInfo && bInfo.isBuilding);
+            this._tempVec3.set(rawPos.x, groundHeight, rawPos.z);
             this._tempVec3.add(this._tempAnimOffset);
 
             // 繧ｰ繝ｪ繝・ラ遘ｻ蜍墓､懷・・井ｽ咲ｽｮ霑ｽ霍｡繧貞・譛溷喧・・
@@ -1858,8 +1860,6 @@ export class RenderingEngine3D {
             alphaTest: 0.5,
             depthWrite: true,
             depthTest: true,
-            polygonOffset: true,
-            polygonOffsetFactor: -1,
             polygonOffsetUnits: 1
         });
 
@@ -1882,7 +1882,12 @@ export class RenderingEngine3D {
         const plane = new THREE.Mesh(planeGeo, planeMat);
         plane.position.y = size * 1.0;
         plane.name = 'unitSprite';
-        plane.renderOrder = 100;
+        // 建物の陰に入っている場合はレンダリング順序を大きくして建物の後に表示されるようにする
+        if (isInBuildingShadow) {
+            plane.renderOrder = 200;
+        } else {
+            plane.renderOrder = 100;
+        }
 
         // フリップ（左右反転）
         if (spriteInfo.flip) {
