@@ -365,6 +365,8 @@ export class InputController {
         const game = this.game;
         if (game.targetContextUnit && game.selectedUnits.length > 0) {
             game.selectedUnits.forEach(u => {
+                // 既に行動済みのユニットにはオーダーを設定しない
+                if (u.hasActed) return;
                 u.order = { type: type, targetId: game.targetContextUnit.id };
             });
         }
