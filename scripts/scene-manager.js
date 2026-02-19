@@ -1,6 +1,6 @@
 
 import { STAGES, gameProgress } from './game-data.js';
-import { getUnitTypeInfo, UNIT_TYPES } from './constants.js?v=11';
+import { getUnitTypeInfo, UNIT_TYPES, SOLDIERS_PER_UNIT, MAP_W, MAP_H } from './constants.js?v=11';
 import { SPRITE_PATHS, UNIT_TYPE_TO_SPRITE } from './sprite-config.js'; // スプライト設定読み込み
 import { mapRepository } from './map-repository.js?v=2'; // マップリポジトリ読み込み
 import { createInputHandler, setupInputListeners } from './managers/input-handler.js';
@@ -821,7 +821,11 @@ class DeploymentScene {
 
             this.placedUnits.clear();
 
+            const mapW = (customMap && customMap.terrain) ? customMap.terrain.width : (stage ? stage.mapSize?.width : 30) || 30;
+            const mapH = (customMap && customMap.terrain) ? customMap.terrain.height : (stage ? stage.mapSize?.height : 30) || 30;
+
             if (this.deploymentZones.length > 0) {
+                // 配置可能エリアが指定されている場合
                 units.forEach((unit, idx) => {
                     if (idx < this.deploymentZones.length) {
                         const zone = this.deploymentZones[idx];
@@ -835,10 +839,15 @@ class DeploymentScene {
                             if (statusEl) statusEl.textContent = `(${zone.x}, ${zone.y})`;
                         }
 
-                        this.manager.game.renderingEngine.addDeploymentMarker(zone.x, zone.y);
+                        // 部隊全体（本陣+兵士）の配置マーカーを表示
+                        const totalUnits = this.calculateTotalUnitsForSquadron(unit);
+                        this.manager.game.renderingEngine.addSquadronDeploymentMarker(
+                            zone.x, zone.y, totalUnits, MAP_W, MAP_H
+                        );
                     }
                 });
             } else {
+                // 配置可能エリアが指定されていない場合（従来の自動配置）
                 let zone = { x: 0, y: 20, width: 10, height: 10 };
 
                 if (customMap && customMap.zones && customMap.zones.playerDeployment) {
@@ -847,15 +856,16 @@ class DeploymentScene {
                     zone = stage.deploymentZone;
                 }
 
-                const mapW = (customMap && customMap.terrain) ? customMap.terrain.width : (stage ? stage.mapSize?.width : 30) || 30;
-                const mapH = (customMap && customMap.terrain) ? customMap.terrain.height : (stage ? stage.mapSize?.height : 30) || 30;
-
                 let idx = 0;
                 units.forEach(unit => {
-                    const col = idx % 4;
-                    const row = Math.floor(idx / 4);
-                    const offsetX = col * 2 + 1;
-                    const offsetY = row * 2 + 1;
+                    const totalUnits = this.calculateTotalUnitsForSquadron(unit);
+                    const squadRadius = Math.ceil(Math.sqrt(totalUnits));
+
+                    // 部隊ごとに間隔を空けて配置
+                    const col = idx % 3;
+                    const row = Math.floor(idx / 3);
+                    const offsetX = col * (squadRadius + 2);
+                    const offsetY = row * (squadRadius + 2);
 
                     let x = zone.x + offsetX;
                     let y = zone.y + offsetY;
@@ -875,7 +885,10 @@ class DeploymentScene {
                         if (statusEl) statusEl.textContent = `(${x}, ${y})`;
                     }
 
-                    this.manager.game.renderingEngine.addDeploymentMarker(x, y);
+                    // 部隊全体（本陣+兵士）の配置マーカーを表示
+                    this.manager.game.renderingEngine.addSquadronDeploymentMarker(
+                        x, y, totalUnits, MAP_W, MAP_H
+                    );
 
                     idx++;
                 });
@@ -896,6 +909,16 @@ class DeploymentScene {
         } catch (e) {
             alert("自動配置中にエラーが発生しました。");
         }
+    }
+
+    /**
+     * 部隊の総ユニット数を計算（本陣+兵士）
+     * unit-manager.jsのcreateUnitsFromWarlordと同じロジック
+     */
+    calculateTotalUnitsForSquadron(unit) {
+        const unitCount = unit.unitCount || 1;
+        const soldiers = unitCount * SOLDIERS_PER_UNIT;
+        return Math.ceil(soldiers / SOLDIERS_PER_UNIT);
     }
     selectUnit(unitId) {
         this.selectedUnitId = parseInt(unitId);
@@ -934,11 +957,13 @@ class DeploymentScene {
 
                 const { x, y } = gridPos;
 
+                // 配置エリアの判定（本陣の位置が配置エリア内なら許可）
                 const isValidZone = this.deploymentZones.some(z => z.x === x && z.y === y);
                 if (!isValidZone) {
                     return;
                 }
 
+                // 既に配置されている部隊と重なるかチェック（本陣位置で判定）
                 let occupiedUnitId = null;
                 for (const [uid, pos] of this.placedUnits) {
                     if (pos.x === x && pos.y === y) {
@@ -947,7 +972,13 @@ class DeploymentScene {
                     }
                 }
 
+                // 既存のマーカーをクリアして再描画
+                if (game.renderingEngine?.clearDeploymentMarkers) {
+                    game.renderingEngine.clearDeploymentMarkers();
+                }
+
                 if (occupiedUnitId) {
+                    // 部隊入れ替え
                     if (occupiedUnitId === this.selectedUnitId) return;
 
                     const prevPos = this.placedUnits.get(this.selectedUnitId);
@@ -955,7 +986,6 @@ class DeploymentScene {
                     if (prevPos) {
                         this.placedUnits.set(occupiedUnitId, prevPos);
                         this.updateUnitStatus(occupiedUnitId, prevPos);
-                        game.renderingEngine.addDeploymentMarker(prevPos.x, prevPos.y);
                     } else {
                         this.placedUnits.delete(occupiedUnitId);
                         this.updateUnitStatus(occupiedUnitId, null);
@@ -974,7 +1004,9 @@ class DeploymentScene {
                     if (btn) btn.disabled = false;
                 }
 
-                game.renderingEngine.addDeploymentMarker(x, y);
+                // 部隊全体の配置マーカーを再描画
+                this.redeployAllMarkers();
+
             } catch (e) {
                 console.error("Manual Placement Error:", e);
                 alert("配置処理中にエラーが発生しました: " + e.message);
@@ -1011,6 +1043,31 @@ class DeploymentScene {
                 item.classList.remove('placed');
                 if (statusEl) statusEl.textContent = '未配置';
             }
+        }
+    }
+
+    /**
+     * すべての配置済み部隊のマーカーを再描画
+     * （手動配置時の部隊全体表示用）
+     */
+    redeployAllMarkers() {
+        if (!this.manager.game.renderingEngine?.clearDeploymentMarkers) return;
+
+        const game = this.manager.game;
+        const deployedUnits = gameProgress.getDeployedUnits();
+
+        // マーカーをクリア
+        game.renderingEngine.clearDeploymentMarkers();
+
+        // 配置済み部隊ごとにマーカーを表示
+        for (const [unitId, pos] of this.placedUnits) {
+            const unit = deployedUnits.find(u => u.id === parseInt(unitId));
+            if (!unit) continue;
+
+            const totalUnits = this.calculateTotalUnitsForSquadron(unit);
+            game.renderingEngine.addSquadronDeploymentMarker(
+                pos.x, pos.y, totalUnits, MAP_W, MAP_H
+            );
         }
     }
 

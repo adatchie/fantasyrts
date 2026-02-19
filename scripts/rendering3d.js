@@ -4262,7 +4262,126 @@ export class RenderingEngine3D {
      * @param {number} x - グリッドX座標
                             * @param {number} y - グリッドY座標
                             */
+    /**
+     * 部隊全体の配置マーカーを表示（本陣+兵士）
+     * @param {number} hqX - 本陣のX座標
+     * @param {number} hqY - 本陣のY座標
+     * @param {number} totalUnits - 部隊のユニット数（本陣+兵士）
+     * @param {number} mapWidth - マップ幅
+     * @param {number} mapHeight - マップ高さ
+     */
+    addSquadronDeploymentMarker(hqX, hqY, totalUnits, mapWidth = MAP_W, mapHeight = MAP_H) {
+        if (!this.deploymentMarkers) {
+            this.deploymentMarkers = new THREE.Group();
+            this.deploymentMarkers.name = 'deploymentMarkers';
+            this.scene.add(this.deploymentMarkers);
+        }
+
+        // 螺旋状の配置座標を生成（unit-manager.jsと同じロジック）
+        const positions = this.generateSpiralPositionsForDeployment(hqX, hqY, totalUnits, mapWidth, mapHeight);
+
+        // 各座標にマーカーを配置
+        positions.forEach((pos, index) => {
+            const isHeadquarters = (index === 0);
+            this.addDeploymentMarkerInternal(pos.x, pos.y, isHeadquarters);
+        });
+    }
+
+    /**
+     * 配置用スパイラル座標生成（unit-manager.jsと同等のロジック）
+     * @private
+     */
+    generateSpiralPositionsForDeployment(cx, cy, count, mapW, mapH) {
+        const positions = [];
+        let x = cx;
+        let y = cy;
+        let dx = 0;
+        let dy = -1;
+
+        // 中心を含む
+        positions.push({ x, y });
+        if (positions.length >= count) return positions;
+
+        // 簡易スパイラル
+        let segmentLength = 1;
+        let segmentPassed = 0;
+        const maxRun = 1000;
+
+        for (let run = 0; positions.length < count && run < maxRun; run++) {
+            for (let i = 0; i < segmentLength; i++) {
+                x += dx;
+                y += dy;
+
+                // マップ範囲内チェック
+                if (x >= 0 && x < mapW && y >= 0 && y < mapH) {
+                    positions.push({ x, y });
+                    if (positions.length >= count) return positions;
+                }
+            }
+            segmentPassed++;
+
+            // 方向転換
+            const temp = dx;
+            dx = -dy;
+            dy = temp;
+
+            if (segmentPassed >= 2) {
+                segmentLength++;
+                segmentPassed = 0;
+            }
+        }
+
+        return positions;
+    }
+
+    /**
+     * 単一の配置マーカーを追加（内部使用）
+     * @private
+     */
+    addDeploymentMarkerInternal(x, y, isHeadquarters = false) {
+        // 本陣は大きく目立つ色、兵士は小さめ
+        const sizeRatio = isHeadquarters ? 0.7 : 0.4;
+        const heightRatio = isHeadquarters ? 0.4 : 0.2;
+
+        const markerGeometry = new THREE.CylinderGeometry(
+            TILE_SIZE * sizeRatio,
+            TILE_SIZE * sizeRatio,
+            TILE_SIZE * heightRatio,
+            16
+        );
+        const markerMaterial = new THREE.MeshBasicMaterial({
+            color: isHeadquarters ? 0xff3366 : 0x66aaff,  // 本陣: ピンク, 兵士: 水色
+            transparent: true,
+            opacity: 0.85,
+            depthTest: false
+        });
+        const marker = new THREE.Mesh(markerGeometry, markerMaterial);
+
+        // グリッド座標を3D座標に変換
+        const worldPos = this.gridToWorld3D(x, y);
+        let markerY = 0.25;
+
+        // 建物がある場合はその上に配置
+        if (this.buildingSystem) {
+            const buildingHeightInfo = this.buildingSystem.getBuildingHeight(x, y);
+            if (buildingHeightInfo && buildingHeightInfo.isBuilding) {
+                markerY = buildingHeightInfo.height + 0.5;
+            } else {
+                const groundH = this.getGroundHeight(x, y);
+                markerY = groundH + 0.25;
+            }
+        }
+
+        marker.position.set(worldPos.x, markerY, worldPos.z);
+        this.deploymentMarkers.add(marker);
+    }
+
+    /**
+     * 単一ユニットの配置マーカーを追加（公開API、後方互換）
+     */
     addDeploymentMarker(x, y) {
+        this.addDeploymentMarkerInternal(x, y, false);
+    }
         if (!this.deploymentMarkers) {
             this.deploymentMarkers = new THREE.Group();
             this.deploymentMarkers.name = 'deploymentMarkers';
