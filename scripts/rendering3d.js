@@ -4382,42 +4382,6 @@ export class RenderingEngine3D {
     addDeploymentMarker(x, y) {
         this.addDeploymentMarkerInternal(x, y, false);
     }
-        if (!this.deploymentMarkers) {
-            this.deploymentMarkers = new THREE.Group();
-            this.deploymentMarkers.name = 'deploymentMarkers';
-            this.scene.add(this.deploymentMarkers);
-        }
-
-        // マーカーを大きくして目立つように（半径はTILE_SIZEの約70%）
-        const markerGeometry = new THREE.CylinderGeometry(TILE_SIZE * 0.7, TILE_SIZE * 0.7, TILE_SIZE * 0.3, 16);
-        const markerMaterial = new THREE.MeshBasicMaterial({
-            color: 0xff3366,  // ピンク系で目立つ色
-            transparent: true,
-            opacity: 0.85,
-            depthTest: false  // 建物の前面に常に表示
-        });
-        const marker = new THREE.Mesh(markerGeometry, markerMaterial);
-
-        // グリッド座標を3D座標に変換（gridToWorld3Dを使用）
-        const worldPos = this.gridToWorld3D(x, y);
-        let markerY = 0.25;
-
-        // 建物がある場合はその上に配置
-        if (this.buildingSystem) {
-            const buildingHeightInfo = this.buildingSystem.getBuildingHeight(x, y);
-            if (buildingHeightInfo && buildingHeightInfo.isBuilding) {
-                markerY = buildingHeightInfo.height + 0.5; // 建物の少し上
-            } else {
-                // 地形の高さを取得
-                const groundH = this.getGroundHeight(x, y);
-                markerY = groundH + 0.25;
-            }
-        }
-
-        marker.position.set(worldPos.x, markerY, worldPos.z);
-
-        this.deploymentMarkers.add(marker);
-    }
 
     /**
      * 配置マーカーを全てクリア
