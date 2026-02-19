@@ -1857,7 +1857,10 @@ export class RenderingEngine3D {
             side: THREE.DoubleSide,
             alphaTest: 0.5,
             depthWrite: true,
-            depthTest: true
+            depthTest: true,
+            polygonOffset: true,
+            polygonOffsetFactor: -1,
+            polygonOffsetUnits: 1
         });
 
         // 初期フレーム設定
