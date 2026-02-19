@@ -257,16 +257,16 @@ export class RenderingEngine3D {
     updateActiveMarkerPosition() {
         if (!this.activeMarkerUnit || !this.activeMarker) return;
         const unit = this.activeMarkerUnit;
-        
+
         // unit.pos (pixel coords) if available, otherwise grid
         // But rendering usually uses unit.x/y.
         // If unit moves smoothly, unit.pos might be updated?
         // In moveUnitStep, unit.pos is updated.
         // However, gridToWorld3D uses unit.x/y grid coords.
         // Ideally we should use interpolated position from unitMesh if available.
-        
+
         let worldX, worldZ;
-        
+
         // メッシュがあればその位置を使う（滑らかに移動している場合）
         const mesh = this.unitMeshes.get(unit.id);
         if (mesh) {
@@ -280,7 +280,7 @@ export class RenderingEngine3D {
 
         const h = this.getGroundHeight(unit.x, unit.y); // 高さもメッシュから取るべきだが、まあGround基準でOK
         this.activeMarkerBaseY = h + 80;
-        
+
         this.activeMarker.position.x = worldX;
         this.activeMarker.position.z = worldZ;
         // Y is handled in animate for bouncing
@@ -415,22 +415,32 @@ export class RenderingEngine3D {
 
                 const tileGeometry = new THREE.ShapeGeometry(tileShape);
 
-                // UV蠎ｧ讓吶ｒ險ｭ螳夲ｼ医・繝・・蜈ｨ菴薙・荳ｭ縺ｧ縺ｮ菴咲ｽｮ・・
+                // UV座標をワールド座標からグリッド座標に逆算して設定
                 const positions = tileGeometry.attributes.position;
                 const uvs = new Float32Array(positions.count * 2);
 
-                // 繧ｿ繧､繝ｫ縺ｮUV遽・峇繧定ｨ育ｮ・
-                const uBase = x / MAP_W;
-                const vBase = 1 - (y / MAP_H); // V蠎ｧ讓吶・蜿崎ｻ｢
-                const uSize = 1 / MAP_W;
-                const vSize = 1 / MAP_H;
+                // 等角投影の逆変換用定数
+                const isoScaleX = 2.0 / TILE_SIZE;  // 1 / (TILE_SIZE/2)
+                const isoScaleY = 4.0 / TILE_SIZE;  // 1 / (TILE_SIZE/4)
 
                 for (let i = 0; i < positions.count; i++) {
                     const localX = positions.getX(i);
                     const localY = positions.getY(i);
-                    // 繝ｭ繝ｼ繧ｫ繝ｫ蠎ｧ讓吶ｒUV繧ｪ繝輔そ繝・ヨ縺ｫ螟画鋤
-                    uvs[i * 2] = uBase + (localX / (hw * 2) + 0.5) * uSize;
-                    uvs[i * 2 + 1] = vBase - (localY / (hh * 2) + 0.5) * vSize;
+
+                    // 回転(-90度)を考慮してワールド座標を計算
+                    // rotation.x = -PI/2: (localX, 0, localY) -> (localX, -localY, 0)
+                    const worldX = worldPos.x + localX;
+                    const worldZ = worldPos.z - localY;  // 回転によりYが-Zに
+
+                    // 等角投影の逆変換: ワールド座標からグリッド座標へ
+                    // screenX = (gridX - gridY) * TILE_SIZE/2
+                    // screenY = (gridX + gridY) * TILE_SIZE/4
+                    const gridX = (worldX * isoScaleX + worldZ * isoScaleY) / 2;
+                    const gridY = (worldZ * isoScaleY - worldX * isoScaleX) / 2;
+
+                    // グリッド座標をUV座標に変換 (0-1範囲に正規化)
+                    uvs[i * 2] = Math.max(0, Math.min(1, gridX / MAP_W));
+                    uvs[i * 2 + 1] = 1.0 - Math.max(0, Math.min(1, gridY / MAP_H)); // V座標は上下反転
                 }
                 tileGeometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
 
@@ -633,23 +643,38 @@ export class RenderingEngine3D {
 
                 const tileGeometry = new THREE.ShapeGeometry(tileShape);
 
-                // UV蠎ｧ讓吶ｒ險ｭ螳夲ｼ医・繝・・蜈ｨ菴薙・荳ｭ縺ｧ縺ｮ菴咲ｽｮ・・
+                // UV座標をワールド座標からグリッド座標に逆算して設定
+                // 菱形タイル用のライブラリライクなレンダリングでは
+                // 各頂点のワールド位置から正確なUVを計算する必要がある
                 if (mapTexture) {
                     const positions = tileGeometry.attributes.position;
                     const uvs = new Float32Array(positions.count * 2);
 
-                    // 繧ｿ繧､繝ｫ縺ｮUV遽・峇繧定ｨ育ｮ・
-                    const uBase = x / width;
-                    const vBase = 1 - (y / height); // V蠎ｧ讓吶・蜿崎ｻ｢
-                    const uSize = 1 / width;
-                    const vSize = 1 / height;
+                    // 等角投影の逆変換用定数
+                    const isoScaleX = 2.0 / TILE_SIZE;  // 1 / (TILE_SIZE/2)
+                    const isoScaleY = 4.0 / TILE_SIZE;  // 1 / (TILE_SIZE/4)
 
                     for (let i = 0; i < positions.count; i++) {
                         const localX = positions.getX(i);
                         const localY = positions.getY(i);
-                        // 繝ｭ繝ｼ繧ｫ繝ｫ蠎ｧ讓吶ｒUV繧ｪ繝輔そ繝・ヨ縺ｫ螟画鋤
-                        uvs[i * 2] = uBase + (localX / (hw * 2) + 0.5) * uSize;
-                        uvs[i * 2 + 1] = vBase - (localY / (hh * 2) + 0.5) * vSize;
+
+                        // 回転(-90度)を考慮してワールド座標を計算
+                        // rotation.x = -PI/2: (localX, 0, localY) -> (localX, -localY, 0)
+                        const worldX = worldPos.x + localX;
+                        const worldZ = worldPos.z - localY;  // 回転によりYが-Zに
+
+                        // 等角投影の逆変換: ワールド座標からグリッド座標へ
+                        // screenX = (gridX - gridY) * TILE_SIZE/2
+                        // screenY = (gridX + gridY) * TILE_SIZE/4
+                        // 逆:
+                        // gridX = (screenX / (TILE_SIZE/2) + screenY / (TILE_SIZE/4)) / 2
+                        // gridY = (screenY / (TILE_SIZE/4) - screenX / (TILE_SIZE/2)) / 2
+                        const gridX = (worldX * isoScaleX + worldZ * isoScaleY) / 2;
+                        const gridY = (worldZ * isoScaleY - worldX * isoScaleX) / 2;
+
+                        // グリッド座標をUV座標に変換 (0-1範囲に正規化)
+                        uvs[i * 2] = Math.max(0, Math.min(1, gridX / width));
+                        uvs[i * 2 + 1] = 1.0 - Math.max(0, Math.min(1, gridY / height)); // V座標は上下反転
                     }
                     tileGeometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
                 }
@@ -861,7 +886,10 @@ export class RenderingEngine3D {
      * MapSystem險ｭ螳壼ｾ後↓繧ｿ繧､繝ｫ繧呈峩譁ｰ
      */
     updateTerrainTiles(tileGeometry, terrainColors, terrainTextures = {}) {
-        // 譌｢蟄倥・繧ｿ繧､繝ｫ繧偵け繝ｪ繧｢
+        // 水マスク適用後の再描画のために引数をキャッシュ
+        this._lastTerrainArgs = { tileGeometry, terrainColors, terrainTextures };
+
+        // 既存のタイルをクリア
         while (this.tileGroup.children.length > 0) {
             const child = this.tileGroup.children[0];
             this.tileGroup.remove(child);
@@ -1146,6 +1174,41 @@ export class RenderingEngine3D {
         }
 
         console.log(`Terrain analysis complete. Mountains: ${mountainCount}, Hills: ${hillCount}`);
+    }
+
+    /**
+     * 水マスク画像を解析してMapSystemに適用する
+     * 白 → WATER（海・湖）、中間グレー → RIVER（川）、黒 → 変更なし
+     * @param {HTMLImageElement} image - 水マスク画像
+     * @param {Object} options - { riverThreshold, waterThreshold }
+     */
+    analyzeWaterMask(image, options = {}) {
+        if (!this.mapSystem) return;
+
+        console.log('[Rendering] Analyzing water mask...');
+
+        const canvas = document.createElement('canvas');
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(image, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+        // MapSystemに水マスクを適用
+        this.mapSystem.applyWaterMask({
+            width: canvas.width,
+            height: canvas.height,
+            pixels: imageData.data
+        }, options);
+
+        // 地形タイルを再描画（テクスチャ・カラーを再適用）
+        if (this._lastTerrainArgs) {
+            const { tileGeometry, terrainColors, terrainTextures } = this._lastTerrainArgs;
+            this.updateTerrainTiles(tileGeometry, terrainColors, terrainTextures);
+        }
+
+        console.log('[Rendering] Water mask applied and terrain updated.');
     }
 
     /**
@@ -1793,8 +1856,8 @@ export class RenderingEngine3D {
             transparent: true,
             side: THREE.DoubleSide,
             alphaTest: 0.5,
-            depthWrite: false,
-            depthTest: false
+            depthWrite: true,
+            depthTest: true
         });
 
         // 初期フレーム設定
@@ -2120,7 +2183,7 @@ export class RenderingEngine3D {
         ctx.fillText(name, 128, 32);
 
         const texture = new THREE.CanvasTexture(canvas);
-        const material = new THREE.SpriteMaterial({ map: texture });
+        const material = new THREE.SpriteMaterial({ map: texture, depthTest: false });
         const sprite = new THREE.Sprite(material);
         sprite.scale.set(40, 10, 1);
         return sprite;
@@ -2143,7 +2206,7 @@ export class RenderingEngine3D {
         this.drawBar(ctx, currentHp, maxHp, barWidth, barHeight);
 
         const texture = new THREE.CanvasTexture(canvas);
-        const material = new THREE.SpriteMaterial({ map: texture });
+        const material = new THREE.SpriteMaterial({ map: texture, depthTest: false });
         const sprite = new THREE.Sprite(material);
         // ユニットサイズに合わせてスケール調整
         const scale = unitSize === 4 ? 22 : unitSize === 2 ? 18 : 15;
@@ -2180,7 +2243,7 @@ export class RenderingEngine3D {
         KamonDrawer.drawKamon(kCtx, unit.kamon || 'DEFAULT', kSize / 2, kSize / 2, kSize / 2 - 4, bgColor);
 
         const kTexture = new THREE.CanvasTexture(kCanvas);
-        const kMaterial = new THREE.SpriteMaterial({ map: kTexture });
+        const kMaterial = new THREE.SpriteMaterial({ map: kTexture, depthTest: false });
         const kSprite = new THREE.Sprite(kMaterial);
         kSprite.scale.set(15, 15, 1);
         return kSprite;
@@ -2614,8 +2677,8 @@ export class RenderingEngine3D {
 
         // ジオメトリキャッシュ
         if (!this.magicCastGeometry) {
-             this.magicCastGeometry = new THREE.RingGeometry(10, 25, 32);
-             this.magicCastMaterial = new THREE.MeshBasicMaterial({
+            this.magicCastGeometry = new THREE.RingGeometry(10, 25, 32);
+            this.magicCastMaterial = new THREE.MeshBasicMaterial({
                 color: 0x8800ff,
                 transparent: true,
                 opacity: 0.0,
@@ -2623,7 +2686,7 @@ export class RenderingEngine3D {
                 blending: THREE.AdditiveBlending
             });
         }
-        
+
         // 色をユニットタイプ等で変えたい場合はマテリアルをクローンするか、
         // 汎用的な色(紫)にする。今回は紫固定。
 
@@ -2645,11 +2708,11 @@ export class RenderingEngine3D {
         // ブレスエフェクト (円錐状の炎)
         const startPos = this.gridToWorld3D(att.x, att.y);
         const endPos = this.gridToWorld3D(def.x, def.y);
-        
+
         // 高さを胸のあたりに
         const h1 = this.getGroundHeight(att.x, att.y) + 30;
         const h2 = this.getGroundHeight(def.x, def.y) + 15;
-        
+
         startPos.y = h1;
         endPos.y = h2;
 
@@ -2669,7 +2732,7 @@ export class RenderingEngine3D {
 
         const mesh = new THREE.Mesh(this.breathGeometry, this.breathMaterial.clone());
         mesh.position.copy(startPos);
-        
+
         // ターゲットの方を向く
         mesh.lookAt(endPos);
         // ConeGeometryはY軸向きなので、Z軸に向けるために回転
@@ -4150,20 +4213,20 @@ export class RenderingEngine3D {
                 if (hit.object.userData && hit.object.userData.x !== undefined) {
                     return { x: hit.object.userData.x, y: hit.object.userData.y };
                 }
-                
+
                 // userDataがない場合はワールド座標から逆算 (高さ考慮済み)
                 // しかし、クリックした点のY座標を使って逆算すればより正確
                 // worldX = (x - y) * TILE_SIZE / 2
                 // worldZ = (x + y) * TILE_SIZE / 4
                 // x = (worldX * 2 / TILE_SIZE + worldZ * 4 / TILE_SIZE) / 2
                 // y = (worldZ * 4 / TILE_SIZE - worldX * 2 / TILE_SIZE) / 2
-                
+
                 const wX = hit.point.x;
                 const wZ = hit.point.z;
-                
+
                 let gX = (wX * 2 / TILE_SIZE + wZ * 4 / TILE_SIZE) / 2;
                 let gY = (wZ * 4 / TILE_SIZE - wX * 2 / TILE_SIZE) / 2;
-                
+
                 return { x: Math.round(gX), y: Math.round(gY) };
             }
         }
