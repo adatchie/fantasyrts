@@ -557,6 +557,9 @@
                         <button class="tool-btn active" id="tool-paint">ペイント</button>
                         <button class="tool-btn" id="tool-fill">塗りつぶし</button>
                         <button class="tool-btn" id="tool-eraser">消しゴム</button>
+                        <button class="tool-btn" id="tool-raise" title="高さを上げる">🔼 隆起</button>
+                        <button class="tool-btn" id="tool-lower" title="高さを下げる">🔽 沈降</button>
+                        <button class="tool-btn" id="tool-smooth" title="滑らかにする">〰️ 整地</button>
                     </div>
                 </div>
             </div>
@@ -587,6 +590,8 @@
                 <div class="toolbar-separator"></div>
                 <span class="toolbar-label">マップ名:</span>
                 <input type="text" class="toolbar-input" id="map-name" value="新規マップ" style="width:100px;">
+                <button class="toolbar-btn" id="btn-generate-terrain"
+                    style="background:rgba(100, 150, 100, 0.6); border-color:#8f8;" title="プロシージャル生成">🏔️ 自動生成</button>
                 <div class="toolbar-separator"></div>
 
                 <!-- ツール -->
@@ -594,6 +599,8 @@
                 <label style="font-size:11px; color:#aaa; margin-left:4px;"><input type="checkbox" id="chk-smooth"
                         checked> 補正</label>
                 <button class="toolbar-btn" id="btn-import-terrain">🎨 地形画像</button>
+                <button class="toolbar-btn" id="btn-import-watermask" title="白=水域(海・湖)、グレー=川、黒=変更なし"
+                    style="background:rgba(30,80,160,0.5); border-color:#4af;">💧 水マスク</button>
 
                 <a href="./building-designer.html" target="_blank" class="toolbar-btn"
                     style="text-decoration:none; display:inline-block; text-align:center;">🔨 建造物エディタ</a>
@@ -602,6 +609,7 @@
 
                 <input type="file" id="heightmap-input" class="hidden-input" accept="image/*">
                 <input type="file" id="terrain-input" class="hidden-input" accept="image/*">
+                <input type="file" id="watermask-input" class="hidden-input" accept="image/*">
                 <input type="file" id="map-json-input" class="hidden-input" accept=".json">
             </div>
 
@@ -672,6 +680,178 @@
                 <div style="margin-top:8px; font-size:10px; color:#888;">
                     リストから選択してペイントで配置
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 地形生成モーダル -->
+    <div class="modal-overlay" id="terrain-modal">
+        <div class="modal-content" style="width: 450px;">
+            <div class="modal-header">
+                <span>自動地形生成</span>
+                <span style="cursor:pointer;" id="btn-close-terrain-modal">×</span>
+            </div>
+            <div class="form-group">
+                <label class="form-label">プリセット</label>
+                <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                    <label style="cursor:pointer"><input type="radio" name="terrain-preset" value="flat" checked>
+                        平坦(クリア)</label>
+                    <label style="cursor:pointer"><input type="radio" name="terrain-preset" value="slope"> 坂</label>
+                    <label style="cursor:pointer"><input type="radio" name="terrain-preset" value="hill"> 丘</label>
+                    <label style="cursor:pointer"><input type="radio" name="terrain-preset" value="valley"> 谷</label>
+                    <label style="cursor:pointer"><input type="radio" name="terrain-preset" value="terrace"> 段丘</label>
+                    <label style="cursor:pointer"><input type="radio" name="terrain-preset" value="random"> ランダム</label>
+                </div>
+            </div>
+
+            <div id="terrain-options">
+                <div class="form-group" id="opt-direction">
+                    <label class="form-label">方向</label>
+                    <div style="display:flex; gap:8px;">
+                        <select class="form-select" id="terrain-direction" style="flex:1">
+                            <option value="n">北が高い (↑)</option>
+                            <option value="s">南が高い (↓)</option>
+                            <option value="e">東が高い (→)</option>
+                            <option value="w">西が高い (←)</option>
+                        </select>
+                        <select class="form-select" id="terrain-valley-axis" style="flex:1; display:none;">
+                            <option value="x">東西に伸びる (南北が高い)</option>
+                            <option value="y">南北に伸びる (東西が高い)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">高さ強度 / 変化量 (1-10)</label>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <input type="range" id="terrain-intensity" min="1" max="10" value="5" style="flex:1">
+                        <span id="terrain-intensity-val"
+                            style="width:20px; text-align:right; font-size:12px; color:#8af">5</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">ベースの高さ (0-5)</label>
+                    <input type="number" class="form-input" id="terrain-base-height" min="0" max="10" value="0">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">適用範囲</label>
+                    <div style="display:flex; gap:12px;">
+                        <label style="cursor:pointer"><input type="checkbox" id="terrain-keep-buildings" checked>
+                            建物を維持</label>
+                        <label style="cursor:pointer"><input type="checkbox" id="terrain-keep-units" checked>
+                            ユニットを維持</label>
+                    </div>
+                </div>
+            </div>
+
+            <div style="text-align:right; margin-top:16px;">
+                <button class="btn-cancel" id="btn-cancel-terrain">キャンセル</button>
+                <button class="btn-primary" id="btn-exec-terrain">生成実行</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 標高図インポート設定ダイアログ -->
+    <div class="modal-overlay" id="heightmap-settings-modal">
+        <div class="modal-content" style="width: 480px;">
+            <div class="modal-header">
+                <span>📷 標高図インポート設定</span>
+                <span style="cursor:pointer;" id="btn-close-heightmap-modal">×</span>
+            </div>
+            <div
+                style="font-size:11px; color:#8af; margin-bottom:12px; padding:8px; background:rgba(74,124,255,0.1); border-radius:4px; border:1px solid rgba(74,124,255,0.3);">
+                高さ（0〜10）をどの地形タイプとして扱うか指定します。<br>
+                水域は「💧 水マスク」で別途設定してください。
+            </div>
+
+            <!-- 閾値設定 -->
+            <div style="margin-bottom:12px;">
+                <div
+                    style="font-size:12px; font-weight:bold; color:#cde; margin-bottom:8px; padding-bottom:4px; border-bottom:1px solid rgba(80,120,180,0.3);">
+                    高さ → 地形タイプ マッピング</div>
+
+                <!-- ビジュアルバー -->
+                <div id="hm-gradient-bar"
+                    style="height:18px; border-radius:4px; margin-bottom:10px; background: linear-gradient(to right, #4a7c41, #4a7c41, #2d5a27, #7a6b5a, #4a4a4a); border:1px solid rgba(255,255,255,0.2);">
+                </div>
+
+                <div style="display:grid; grid-template-columns: 1fr auto auto; gap:6px 10px; align-items:center;">
+                    <!-- 草原 -->
+                    <div style="font-size:12px; display:flex; align-items:center; gap:6px;">
+                        <span
+                            style="display:inline-block; width:14px; height:14px; background:#4a7c41; border-radius:2px; border:1px solid rgba(255,255,255,0.3);"></span>
+                        草原（grass） — コスト1
+                    </div>
+                    <span style="font-size:11px; color:#888;">高さ</span>
+                    <div style="display:flex; align-items:center; gap:4px; font-size:12px;">
+                        <input type="number" id="hm-grass-min" min="0" max="10" value="1"
+                            style="width:44px; padding:3px 5px; background:rgba(20,30,50,0.8); border:1px solid rgba(80,120,180,0.5); border-radius:4px; color:#e8f0ff; font-size:12px;">
+                        <span style="color:#888;">〜</span>
+                        <input type="number" id="hm-grass-max" min="0" max="10" value="3"
+                            style="width:44px; padding:3px 5px; background:rgba(20,30,50,0.8); border:1px solid rgba(80,120,180,0.5); border-radius:4px; color:#e8f0ff; font-size:12px;">
+                    </div>
+
+                    <!-- 森 -->
+                    <div style="font-size:12px; display:flex; align-items:center; gap:6px;">
+                        <span
+                            style="display:inline-block; width:14px; height:14px; background:#2d5a27; border-radius:2px; border:1px solid rgba(255,255,255,0.3);"></span>
+                        森（forest） — コスト1.5
+                    </div>
+                    <span style="font-size:11px; color:#888;">高さ</span>
+                    <div style="display:flex; align-items:center; gap:4px; font-size:12px;">
+                        <input type="number" id="hm-forest-min" min="0" max="10" value="4"
+                            style="width:44px; padding:3px 5px; background:rgba(20,30,50,0.8); border:1px solid rgba(80,120,180,0.5); border-radius:4px; color:#e8f0ff; font-size:12px;">
+                        <span style="color:#888;">〜</span>
+                        <input type="number" id="hm-forest-max" min="0" max="10" value="5"
+                            style="width:44px; padding:3px 5px; background:rgba(20,30,50,0.8); border:1px solid rgba(80,120,180,0.5); border-radius:4px; color:#e8f0ff; font-size:12px;">
+                    </div>
+
+                    <!-- 山 -->
+                    <div style="font-size:12px; display:flex; align-items:center; gap:6px;">
+                        <span
+                            style="display:inline-block; width:14px; height:14px; background:#7a6b5a; border-radius:2px; border:1px solid rgba(255,255,255,0.3);"></span>
+                        山（mountain） — コスト2
+                    </div>
+                    <span style="font-size:11px; color:#888;">高さ</span>
+                    <div style="display:flex; align-items:center; gap:4px; font-size:12px;">
+                        <input type="number" id="hm-mountain-min" min="0" max="10" value="6"
+                            style="width:44px; padding:3px 5px; background:rgba(20,30,50,0.8); border:1px solid rgba(80,120,180,0.5); border-radius:4px; color:#e8f0ff; font-size:12px;">
+                        <span style="color:#888;">〜</span>
+                        <input type="number" id="hm-mountain-max" min="0" max="10" value="8"
+                            style="width:44px; padding:3px 5px; background:rgba(20,30,50,0.8); border:1px solid rgba(80,120,180,0.5); border-radius:4px; color:#e8f0ff; font-size:12px;">
+                    </div>
+
+                    <!-- 崖 -->
+                    <div style="font-size:12px; display:flex; align-items:center; gap:6px;">
+                        <span
+                            style="display:inline-block; width:14px; height:14px; background:#4a4a4a; border-radius:2px; border:1px solid rgba(255,255,255,0.3);"></span>
+                        崖（cliff） — 侵入不可
+                    </div>
+                    <span style="font-size:11px; color:#888;">高さ</span>
+                    <div style="display:flex; align-items:center; gap:4px; font-size:12px;">
+                        <input type="number" id="hm-cliff-min" min="0" max="10" value="9"
+                            style="width:44px; padding:3px 5px; background:rgba(20,30,50,0.8); border:1px solid rgba(80,120,180,0.5); border-radius:4px; color:#e8f0ff; font-size:12px;">
+                        <span style="color:#888;">〜</span>
+                        <span style="font-size:12px; color:#8af; min-width:44px;">10（上限）</span>
+                    </div>
+                </div>
+                <div style="font-size:10px; color:#888; margin-top:8px;">
+                    ※ 草原範囲外（それ以下/以上）で割り当てなし → 草原（grass）として扱います
+                </div>
+            </div>
+
+            <!-- スムービングオプション -->
+            <div class="form-group">
+                <label style="cursor:pointer; font-size:12px; display:flex; align-items:center; gap:6px;">
+                    <input type="checkbox" id="hm-smooth" checked> 高さ補正（3×3 平均フィルタ）を適用
+                </label>
+            </div>
+
+            <div style="text-align:right; margin-top:16px;">
+                <button class="btn-cancel" id="btn-cancel-heightmap">キャンセル</button>
+                <button class="btn-primary" id="btn-exec-heightmap">適用</button>
             </div>
         </div>
     </div>
@@ -868,6 +1048,72 @@
                 container.appendChild(btn);
             }
 
+            selectTerrain(terrainId) {
+                this.currentTool = 'paint';
+                this.currentTerrain = terrainId;
+
+                // ツール状態更新
+                // update active state in toolbar
+                document.querySelectorAll('.tool-btn, .toolbar-btn').forEach(btn => btn.classList.remove('active'));
+                const paintBtn = document.getElementById('tool-paint');
+                if (paintBtn) paintBtn.classList.add('active');
+
+                // UI更新
+                document.querySelectorAll('.terrain-btn').forEach(btn => {
+                    if (btn.dataset.terrain === terrainId) {
+                        btn.style.borderColor = '#4a7cff';
+                        btn.style.background = 'rgba(74, 124, 255, 0.4)';
+                    } else {
+                        btn.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                        btn.style.background = ''; // reset or keep default class style? relies on class 'active' usually.
+                    }
+                });
+
+                // class 'active' is better if CSS handles it
+                // Re-doing with class toggle based on previous CSS view
+                document.querySelectorAll('.terrain-btn').forEach(btn => {
+                    if (btn.dataset.terrain === terrainId) btn.classList.add('active');
+                    else btn.classList.remove('active');
+                });
+
+                // 建物・ユニット選択解除
+                this.currentBuilding = null;
+                this.currentUnitDefId = null;
+                document.querySelectorAll('.building-btn').forEach(btn => btn.classList.remove('active'));
+                document.querySelectorAll('.unit-list-item').forEach(btn => btn.classList.remove('active'));
+            }
+
+            selectBuilding(buildingId) {
+                this.currentTool = 'building';
+                this.currentBuilding = buildingId;
+                this.currentUnitDefId = null;
+
+                // ツールボタンの選択状態解除
+                document.querySelectorAll('#tool-select, #tool-paint, #tool-fill, #tool-eraser, #tool-raise, #tool-lower, #tool-smooth').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+
+                // UI更新
+                document.querySelectorAll('.building-btn').forEach(btn => {
+                    if (btn.dataset.building === buildingId) btn.classList.add('active');
+                    else btn.classList.remove('active');
+                });
+
+                // 他の選択解除
+                document.querySelectorAll('.terrain-btn').forEach(btn => btn.classList.remove('active'));
+                document.querySelectorAll('.unit-list-item').forEach(btn => btn.classList.remove('active'));
+            }
+
+            rotateBuilding() {
+                if (this.currentTool !== 'building' || !this.currentBuilding) {
+                    this.currentRotation = (this.currentRotation + 1) % 4;
+                    return;
+                }
+                this.currentRotation = (this.currentRotation + 1) % 4;
+                this.render();
+                this.update3DPreviewDebounced();
+            }
+
             setupEventListeners() {
                 // Canvas events
                 this.canvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
@@ -885,7 +1131,49 @@
                 document.getElementById('tool-select').addEventListener('click', () => this.setTool('select'));
                 document.getElementById('tool-fill').addEventListener('click', () => this.setTool('fill'));
                 document.getElementById('tool-eraser').addEventListener('click', () => this.setTool('eraser'));
+                document.getElementById('tool-raise').addEventListener('click', () => this.setTool('raise'));
+                document.getElementById('tool-lower').addEventListener('click', () => this.setTool('lower'));
+                document.getElementById('tool-smooth').addEventListener('click', () => this.setTool('smooth'));
                 document.getElementById('btn-rotate').addEventListener('click', () => this.rotateBuilding());
+
+                // Terrain Generator
+                document.getElementById('btn-generate-terrain').addEventListener('click', () => {
+                    document.getElementById('terrain-modal').style.display = 'flex';
+                });
+                document.getElementById('btn-close-terrain-modal').addEventListener('click', () => {
+                    document.getElementById('terrain-modal').style.display = 'none';
+                });
+                document.getElementById('btn-cancel-terrain').addEventListener('click', () => {
+                    document.getElementById('terrain-modal').style.display = 'none';
+                });
+                document.getElementById('btn-exec-terrain').addEventListener('click', () => {
+                    this.executeTerrainGeneration();
+                    document.getElementById('terrain-modal').style.display = 'none';
+                });
+
+                // Terrain Generator Options Logic
+                const terrainPresets = document.getElementsByName('terrain-preset');
+                terrainPresets.forEach(radio => {
+                    radio.addEventListener('change', () => {
+                        const val = radio.value;
+                        const optDir = document.getElementById('opt-direction');
+                        if (val === 'slope') {
+                            optDir.style.display = 'block';
+                            document.getElementById('terrain-direction').style.display = 'block';
+                            document.getElementById('terrain-valley-axis').style.display = 'none';
+                        } else if (val === 'valley') {
+                            optDir.style.display = 'block';
+                            document.getElementById('terrain-direction').style.display = 'none';
+                            document.getElementById('terrain-valley-axis').style.display = 'block';
+                        } else {
+                            // hill, terrace, random, flat は方向/軸パラメータ不要
+                            optDir.style.display = 'none';
+                        }
+                    });
+                });
+                document.getElementById('terrain-intensity').addEventListener('input', (e) => {
+                    document.getElementById('terrain-intensity-val').textContent = e.target.value;
+                });
 
                 // Key binding
                 window.addEventListener('keydown', (e) => {
@@ -924,12 +1212,34 @@
                     e.target.value = ''; // Reset
                 });
 
-                // Heightmap import
+                // Heightmap import - ダイアログ経由
                 document.getElementById('btn-import-heightmap').addEventListener('click', () => {
                     document.getElementById('heightmap-input').click();
                 });
                 document.getElementById('heightmap-input').addEventListener('change', (e) => {
-                    this.importHeightmap(e.target.files[0]);
+                    if (e.target.files[0]) {
+                        this._pendingHeightmapFile = e.target.files[0];
+                        // ダイアログを表示する前にsmoothチェックボックスの値を同期
+                        const chkSmooth = document.getElementById('chk-smooth');
+                        document.getElementById('hm-smooth').checked = chkSmooth ? chkSmooth.checked : true;
+                        document.getElementById('heightmap-settings-modal').classList.add('active');
+                    }
+                    e.target.value = ''; // Reset
+                });
+                document.getElementById('btn-close-heightmap-modal').addEventListener('click', () => {
+                    document.getElementById('heightmap-settings-modal').classList.remove('active');
+                    this._pendingHeightmapFile = null;
+                });
+                document.getElementById('btn-cancel-heightmap').addEventListener('click', () => {
+                    document.getElementById('heightmap-settings-modal').classList.remove('active');
+                    this._pendingHeightmapFile = null;
+                });
+                document.getElementById('btn-exec-heightmap').addEventListener('click', () => {
+                    document.getElementById('heightmap-settings-modal').classList.remove('active');
+                    if (this._pendingHeightmapFile) {
+                        this.importHeightmap(this._pendingHeightmapFile);
+                        this._pendingHeightmapFile = null;
+                    }
                 });
 
                 // Terrain image import
@@ -938,6 +1248,17 @@
                 });
                 document.getElementById('terrain-input').addEventListener('change', (e) => {
                     this.importTerrainImage(e.target.files[0]);
+                });
+
+                // Water mask import
+                document.getElementById('btn-import-watermask').addEventListener('click', () => {
+                    document.getElementById('watermask-input').click();
+                });
+                document.getElementById('watermask-input').addEventListener('change', (e) => {
+                    if (e.target.files[0]) {
+                        this.importWaterMask(e.target.files[0]);
+                        e.target.value = '';
+                    }
                 });
 
                 // 3D Preview view toggle
@@ -954,10 +1275,9 @@
                     this.togglePreviewExpand();
                 });
 
-                // JSON Import
-                document.getElementById('map-json-input').addEventListener('change', (e) => {
-                    this.importFromJson(e.target.files[0]);
-                });
+                // JSON Import - Duplicate removed
+                // document.getElementById('map-json-input').addEventListener('change', ... is already handled above calling importFromJsonFile
+
 
                 // Clipboard Import
                 document.getElementById('btn-import-clipboard').addEventListener('click', async () => {
@@ -1619,15 +1939,9 @@
                 this.renderUnitList();
             }
 
-            rotateBuilding() {
-                if (this.currentTool !== 'building' || !this.currentBuilding) return;
-                this.currentRotation = (this.currentRotation + 1) % 4;
-                this.render(); // プレビュー更新
-            }
-
             setTool(tool) {
                 this.currentTool = tool;
-                document.querySelectorAll('#tool-select, #tool-paint, #tool-fill, #tool-eraser').forEach(btn => {
+                document.querySelectorAll('#tool-select, #tool-paint, #tool-fill, #tool-eraser, #tool-raise, #tool-lower, #tool-smooth').forEach(btn => {
                     btn.classList.remove('active');
                 });
                 const toolBtn = document.getElementById(`tool-${tool}`);
@@ -1712,18 +2026,21 @@
                 this.lastCell = cell;
 
                 if (this.isMouseDown) {
-                    // 建物モード以外ならドラッグで連続描画
-                    if (cellChanged && this.currentTool !== 'building') {
-                        this.paintCell(cell.x, cell.y);
+                    if (cellChanged) {
+                        if (this.currentTool !== 'building' && this.currentTool !== 'select' && this.currentTool !== 'fill') {
+                            this.paintCell(cell.x, cell.y);
+                        } else if (this.currentTool === 'building') {
+                            this.render(); // プレビュー更新
+                        }
                     }
-                } else if (this.currentTool === 'building' && cellChanged) {
-                    this.render(); // プレビュー更新
                 }
             }
 
             onWheel(e) {
                 if (e.target === this.canvas) {
                     e.preventDefault();
+                    // Zoom update provided in original code via delta, keeping minimal prevention here or restore zoom logic if needed.
+                    // Assuming setZoom exists.
                     const delta = e.deltaY > 0 ? -0.1 : 0.1;
                     this.setZoom(this.zoom + delta);
                 }
@@ -1740,30 +2057,53 @@
                         this.render();
                         this.update3DPreviewDebounced();
                     }
-                } else if (this.currentTool === 'eraser') {
-                    // 削除優先順位: ユニット → 配置可能座標 → 建物（1クリックずつ削除）
-                    let removed = false;
+                } else if (this.currentTool === 'raise') {
+                    const currentH = map.terrain.heightMap[y][x];
+                    if (currentH < 10) {
+                        map.terrain.heightMap[y][x] = currentH + 1;
+                        this.render();
+                        this.update3DPreviewDebounced();
+                    }
+                } else if (this.currentTool === 'lower') {
+                    const currentH = map.terrain.heightMap[y][x];
+                    if (currentH > 0) {
+                        map.terrain.heightMap[y][x] = currentH - 1;
+                        this.render();
+                        this.update3DPreviewDebounced();
+                    }
+                } else if (this.currentTool === 'smooth') {
+                    let sum = 0;
+                    let count = 0;
+                    for (let dy = -1; dy <= 1; dy++) {
+                        for (let dx = -1; dx <= 1; dx++) {
+                            const ny = y + dy;
+                            const nx = x + dx;
+                            if (ny >= 0 && ny < map.terrain.height && nx >= 0 && nx < map.terrain.width) {
+                                sum += map.terrain.heightMap[ny][nx];
+                                count++;
+                            }
+                        }
+                    }
+                    map.terrain.heightMap[y][x] = Math.round(sum / count);
+                    this.render();
+                    this.update3DPreviewDebounced();
 
-                    // 1. ユニット削除
-                    const map = mapRepository.get(this.currentMapId);
-                    if (map && map.units) {
+                } else if (this.currentTool === 'eraser') {
+                    let removed = false;
+                    if (map.units) {
                         const idx = map.units.findIndex(u => u.x === x && u.y === y);
                         if (idx >= 0) {
                             map.units.splice(idx, 1);
                             removed = true;
                         }
                     }
-
-                    // 2. ユニットがない場合は配置可能座標を削除
-                    if (!removed && map && map.playerDeploymentZones) {
+                    if (!removed && map.playerDeploymentZones) {
                         const idx = map.playerDeploymentZones.findIndex(z => z.x === x && z.y === y);
                         if (idx >= 0) {
                             map.playerDeploymentZones.splice(idx, 1);
                             removed = true;
                         }
                     }
-
-                    // 3. ユニットも配置可能座標もない場合は建造物を削除（確認ダイアログ付き）
                     if (!removed) {
                         const building = this.getBuildingAt(x, y);
                         if (building) {
@@ -1772,70 +2112,57 @@
                             }
                         }
                     }
+                    // 何も削除しなかった場合、地形をリセット
+                    if (!removed) {
+                        mapRepository.setTerrain(this.currentMapId, x, y, 'grass', 0);
+                    }
 
-                    mapRepository.setTerrain(this.currentMapId, x, y, 'grass', 0);
                     this.render();
                     this.update3DPreviewDebounced();
+
                 } else if (this.currentTool === 'fill') {
                     this.floodFill(x, y);
                     this.update3DPreview();
                 } else if (this.currentTool === 'building') {
                     if (this.currentBuilding) {
-                        // 既存の建物を削除（同じ場所に重ねない）
                         if (!map.buildings) map.buildings = [];
-                        // 単純な重複チェック
                         const existingIdx = map.buildings.findIndex(b => b.x === x && b.y === y);
                         if (existingIdx >= 0) {
                             map.buildings.splice(existingIdx, 1);
                         }
-
                         mapRepository.addBuilding(this.currentMapId, {
                             type: this.currentBuilding,
                             x: x,
                             y: y,
                             rotation: this.currentRotation
                         });
-                        console.log(`Placed building: ${this.currentBuilding} at ${x},${y} rot:${this.currentRotation}`);
-
-                        // 配置後は選択モードに戻る（連続配置防止）
                         this.currentBuilding = null;
                         this.setTool('select');
-
-                        this.render(); // 2Dキャンバス更新
-                        this.update3DPreview(); // 3D更新
+                        this.render();
+                        this.update3DPreview();
                     }
                 } else if (this.currentTool === 'unit') {
                     if (this.currentUnitDefId) {
-                        // Remove existing unit at this location
                         if (!map.units) map.units = [];
                         const existingIdx = map.units.findIndex(u => u.x === x && u.y === y);
                         if (existingIdx >= 0) {
                             map.units.splice(existingIdx, 1);
                         }
-
-                        // Remove building if any (optional)
-                        // this.removeBuildingAt(x, y); 
-
                         map.units.push({
                             defId: this.currentUnitDefId,
                             x: x,
                             y: y,
                             rotation: 0
                         });
-
                         this.render();
                     }
                 } else if (this.currentTool === 'deployment') {
-                    // 配置座標の設定/解除
                     if (!map.playerDeploymentZones) map.playerDeploymentZones = [];
-
                     if (this.deploymentMode === 'player') {
                         const existingIdx = map.playerDeploymentZones.findIndex(z => z.x === x && z.y === y);
                         if (existingIdx >= 0) {
-                            // 既にある場合は削除
                             map.playerDeploymentZones.splice(existingIdx, 1);
                         } else {
-                            // なければ追加
                             map.playerDeploymentZones.push({ x, y, id: `pz_${Date.now()}` });
                         }
                         this.render();
@@ -1862,6 +2189,24 @@
                 }
             }
 
+            removeBuildingAt(x, y) {
+                const map = mapRepository.get(this.currentMapId);
+                if (!map || !map.buildings) return;
+                // Find building covering x,y
+                const idx = map.buildings.findIndex(b => {
+                    const template = this.getTemplate(b.type);
+                    if (!template) return false;
+                    const rot = b.rotation || 0;
+                    const isRotated = rot % 2 !== 0;
+                    const w = isRotated ? template.size.y : template.size.x;
+                    const h = isRotated ? template.size.x : template.size.y;
+                    return x >= b.x && x < b.x + w && y >= b.y && y < b.y + h;
+                });
+                if (idx >= 0) {
+                    map.buildings.splice(idx, 1);
+                }
+            }
+
             getBuildingAt(x, y) {
                 if (!this.currentMapId) return null;
                 const map = mapRepository.get(this.currentMapId);
@@ -1876,12 +2221,81 @@
                     const w = isRotated ? template.size.y : template.size.x;
                     const h = isRotated ? template.size.x : template.size.y;
 
-                    // 範囲チェック (b.x, b.y) から (b.x + w, b.y + h)
+                    // 範囲チェック
                     const insideX = x >= b.x && x < b.x + w;
                     const insideY = y >= b.y && y < b.y + h;
 
                     return insideX && insideY;
                 });
+            }
+
+            executeTerrainGeneration() {
+                const map = mapRepository.get(this.currentMapId);
+                if (!map) return;
+
+                const preset = document.querySelector('input[name="terrain-preset"]:checked').value;
+                const intensity = parseInt(document.getElementById('terrain-intensity').value, 10);
+                const baseHeight = parseInt(document.getElementById('terrain-base-height').value, 10);
+                const direction = document.getElementById('terrain-direction').value;
+                const valleyAxis = document.getElementById('terrain-valley-axis').value;
+
+                const keepBuildings = document.getElementById('terrain-keep-buildings').checked;
+                const keepUnits = document.getElementById('terrain-keep-units').checked;
+
+                if (!keepBuildings && map.buildings) map.buildings = [];
+                if (!keepUnits && map.units) map.units = [];
+
+                const width = map.terrain.width;
+                const height = map.terrain.height;
+                const newHeightMap = JSON.parse(JSON.stringify(map.terrain.heightMap));
+
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        let h = baseHeight;
+
+                        if (preset === 'slope') {
+                            let factor = 0;
+                            if (direction === 'n') factor = (height - 1 - y) / height;
+                            else if (direction === 's') factor = y / height;
+                            else if (direction === 'w') factor = (width - 1 - x) / width;
+                            else if (direction === 'e') factor = x / width;
+                            h += Math.floor(factor * intensity);
+                        } else if (preset === 'hill') {
+                            let dx = (x - width / 2) / (width / 2);
+                            let dy = (y - height / 2) / (height / 2);
+                            let dist = Math.sqrt(dx * dx + dy * dy);
+                            if (dist < 1) {
+                                h += Math.floor((Math.cos(dist * Math.PI) + 1) / 2 * intensity);
+                            }
+                        } else if (preset === 'valley') {
+                            let factor = 0;
+                            if (valleyAxis === 'y') {
+                                let dx = (x - width / 2) / (width / 2);
+                                factor = Math.abs(dx);
+                            } else {
+                                let dy = (y - height / 2) / (height / 2);
+                                factor = Math.abs(dy);
+                            }
+                            h += Math.floor(factor * intensity);
+                        } else if (preset === 'terrace') {
+                            const steps = 3;
+                            const di = (x + y) / (width + height);
+                            const stepVal = Math.floor(di * steps);
+                            h += Math.floor((stepVal / steps) * intensity);
+                        } else if (preset === 'random') {
+                            if (Math.random() < 0.5) {
+                                h += Math.floor(Math.random() * intensity);
+                            }
+                        }
+
+                        h = Math.max(0, Math.min(10, h));
+                        newHeightMap[y][x] = h;
+                    }
+                }
+                map.terrain.heightMap = newHeightMap;
+                this.render();
+                this.update3DPreviewDebounced();
+                alert('地形を生成しました。');
             }
 
             floodFill(startX, startY) {
@@ -2356,12 +2770,36 @@
                 reader.readAsDataURL(file);
             }
 
+            /**
+             * ダイアログで設定した閾値に基づき、高さ値を地形タイプに変換する
+             * @param {number} h - 高さ (0-10)
+             * @param {Object} thresholds - 各地形の範囲設定
+             * @returns {string} 地形タイプID
+             */
+            heightToTerrainType(h, thresholds) {
+                if (h >= thresholds.cliff.min) return 'cliff';
+                if (h >= thresholds.mountain.min && h <= thresholds.mountain.max) return 'mountain';
+                if (h >= thresholds.forest.min && h <= thresholds.forest.max) return 'forest';
+                if (h >= thresholds.grass.min && h <= thresholds.grass.max) return 'grass';
+                // 草原範囲外（閾値間のギャップ）は草原にフォールバック
+                return 'grass';
+            }
+
             processHeightmap(img) {
                 const map = mapRepository.get(this.currentMapId);
                 const canvas = document.createElement('canvas');
                 canvas.width = map.terrain.width;
                 canvas.height = map.terrain.height;
                 const ctx = canvas.getContext('2d');
+
+                // ダイアログから閾値を読み取る
+                const thresholds = {
+                    grass: { min: parseInt(document.getElementById('hm-grass-min').value, 10), max: parseInt(document.getElementById('hm-grass-max').value, 10) },
+                    forest: { min: parseInt(document.getElementById('hm-forest-min').value, 10), max: parseInt(document.getElementById('hm-forest-max').value, 10) },
+                    mountain: { min: parseInt(document.getElementById('hm-mountain-min').value, 10), max: parseInt(document.getElementById('hm-mountain-max').value, 10) },
+                    cliff: { min: parseInt(document.getElementById('hm-cliff-min').value, 10) }
+                };
+                const doSmooth = document.getElementById('hm-smooth').checked;
 
                 // 画像をマップサイズに合わせて描画（リサイズ）
                 ctx.drawImage(img, 0, 0, map.terrain.width, map.terrain.height);
@@ -2371,16 +2809,19 @@
                 for (let y = 0; y < map.terrain.height; y++) {
                     for (let x = 0; x < map.terrain.width; x++) {
                         const i = (y * map.terrain.width + x) * 4;
-                        // 明るさ(0-255)を高さ(0-5)に変換（なだらかにするため最大値を抑制）
+                        // 明るさ(0-255)を高さ(0-10)に変換
                         const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
-                        const height = Math.floor((brightness / 255) * 5); // 10 -> 5
-                        map.terrain.heightMap[y][x] = height;
+                        const height = Math.floor((brightness / 255) * 10);
+                        const clampedHeight = Math.max(0, Math.min(10, height));
+                        map.terrain.heightMap[y][x] = clampedHeight;
+                        // 高さ閾値に基づいて地形タイプを自動割り当て
+                        map.terrain.terrainType[y][x] = this.heightToTerrainType(clampedHeight, thresholds);
                     }
                 }
 
                 // スムージング処理（極端な凹凸を慣らす）
-                if (document.getElementById('chk-smooth').checked) {
-                    const smoothedMap = JSON.parse(JSON.stringify(map.terrain.heightMap));
+                if (doSmooth) {
+                    const smoothedHeightMap = JSON.parse(JSON.stringify(map.terrain.heightMap));
                     for (let y = 0; y < map.terrain.height; y++) {
                         for (let x = 0; x < map.terrain.width; x++) {
                             let sum = 0;
@@ -2398,16 +2839,22 @@
                                 }
                             }
 
-                            // 四捨五入して整数に戻す
-                            smoothedMap[y][x] = Math.round(sum / count);
+                            smoothedHeightMap[y][x] = Math.round(sum / count);
                         }
                     }
-                    map.terrain.heightMap = smoothedMap;
+                    map.terrain.heightMap = smoothedHeightMap;
+
+                    // スムージング後の高さで地形タイプを再割り当て
+                    for (let y = 0; y < map.terrain.height; y++) {
+                        for (let x = 0; x < map.terrain.width; x++) {
+                            map.terrain.terrainType[y][x] = this.heightToTerrainType(map.terrain.heightMap[y][x], thresholds);
+                        }
+                    }
                 }
 
                 this.render();
                 this.update3DPreview();
-                alert('ハイトマップを適用しました（滑らか補正済み）');
+                alert(`ハイトマップを適用しました。\n草原[${thresholds.grass.min}-${thresholds.grass.max}] 森[${thresholds.forest.min}-${thresholds.forest.max}] 山[${thresholds.mountain.min}-${thresholds.mountain.max}] 崖[${thresholds.cliff.min}+]\n地形タイプも自動割り当てしました。水マスクで水域を追加できます。`);
             }
 
             importTerrainImage(file) {
@@ -2505,6 +2952,71 @@
             }
 
             // ==========================================
+            // 水マスク読み込み機能
+            // ==========================================
+
+            importWaterMask(file) {
+                if (!file || !this.currentMapId) return;
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        this.processWaterMask(img);
+                    };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+
+            processWaterMask(img) {
+                const map = mapRepository.get(this.currentMapId);
+                if (!map) return;
+
+                const canvas = document.createElement('canvas');
+                canvas.width = map.terrain.width;
+                canvas.height = map.terrain.height;
+                const ctx = canvas.getContext('2d');
+
+                // 画像をマップサイズにリサイズして描画
+                ctx.drawImage(img, 0, 0, map.terrain.width, map.terrain.height);
+                const data = ctx.getImageData(0, 0, map.terrain.width, map.terrain.height).data;
+
+                // グレー値の閾値
+                const riverThreshold = 100;  // 100以上200未満 → RIVER（川）
+                const waterThreshold = 200;  // 200以上 → WATER（海・湖）
+
+                let waterCount = 0;
+                let riverCount = 0;
+
+                for (let y = 0; y < map.terrain.height; y++) {
+                    for (let x = 0; x < map.terrain.width; x++) {
+                        const i = (y * map.terrain.width + x) * 4;
+                        const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
+
+                        if (brightness >= waterThreshold) {
+                            // 白 → 水域（海・湖）
+                            map.terrain.terrainType[y][x] = 'water';
+                            map.terrain.heightMap[y][x] = 0; // 水面は高さ0
+                            waterCount++;
+                        } else if (brightness >= riverThreshold) {
+                            // 中間グレー → 川
+                            map.terrain.terrainType[y][x] = 'river';
+                            map.terrain.heightMap[y][x] = 0;
+                            riverCount++;
+                        }
+                        // 黒（brightness < riverThreshold）は変更しない
+                    }
+                }
+
+                this.render();
+                this.update3DPreview();
+
+                alert(`水マスクを適用しました。\n水域: ${waterCount}タイル、川: ${riverCount}タイル\n（保存ボタンを押してください）`);
+                console.log(`[MapEditor] Water mask applied: WATER=${waterCount}, RIVER=${riverCount}`);
+            }
+
+            // ==========================================
             // 3Dプレビュー機能 (Three.js)
             // ==========================================
 
@@ -2564,40 +3076,7 @@
                     map.terrain.height - 1
                 );
 
-                // Apply height
-                const positionAttribute = geometry.attributes.position;
-                const colors = [];
-                const color = new THREE.Color();
-
-                for (let y = 0; y < map.terrain.height; y++) {
-                    for (let x = 0; x < map.terrain.width; x++) {
-                        // 頂点のインデックス計算（PlaneGeometryの頂点順序は左上から右下ではないので注意が必要だが、
-                        // デフォルトでは row-major）
-                        // Y軸を反転させる必要があるかも確認
-                        const i = (map.terrain.height - 1 - y) * map.terrain.width + x;
-
-                        // 高さを適用 (Z軸)
-                        const height = map.terrain.heightMap[y][x];
-                        positionAttribute.setZ(i, height * 0.5); // スケール調整
-
-                        // 地形色を適用 (Vertex Colors)
-                        const terrainId = map.terrain.terrainType[y][x];
-                        const terrain = TERRAIN_TYPES[terrainId.toUpperCase()] || TERRAIN_TYPES.GRASS;
-                        color.set(terrain.color);
-
-                        // 高さに応じて少し暗く/明るく
-                        if (height > 5) color.multiplyScalar(1.2);
-                        else if (height < 2) color.multiplyScalar(0.8);
-
-                        colors.push(color.r, color.g, color.b);
-                    }
-                }
-
-                // 頂点カラー設定（頂点数と一致させる必要があるため、再計算）
-                // PlaneGeometryの頂点数は (w+1)*(h+1) なので、上記ループとは合わない可能性がある。
-                // 簡易的に、マテリアルカラーのみで行くか、キャンバスをテクスチャとして貼るのが確実
-
-                // キャンバスからテクスチャを生成して貼る方式に変更
+                // キャンバスからテクスチャを生成して貼る方式
                 const texture = new THREE.CanvasTexture(this.canvas);
                 texture.magFilter = THREE.NearestFilter;
 
@@ -2608,16 +3087,24 @@
                     metalness: 0.2
                 });
 
-                // 頂点の高さを再設定
-                for (let i = 0; i < positionAttribute.count; i++) {
-                    // PlaneGeometry(w, h, ws, hs) -> ws+1, hs+1 vertices
-                    // グリッド座標へのマッピング近似
-                    const gridX = Math.floor((positionAttribute.getX(i) + map.terrain.width / 2));
-                    const gridY = Math.floor((-positionAttribute.getY(i) + map.terrain.height / 2));
+                // 頂点の高さを設定
+                const positionAttribute = geometry.attributes.position;
+                // PlaneGeometryの頂点順序は左上からrow-majorで (x, y) -> (y * (width + 1) + x)
+                const width = map.terrain.width;
+                const height = map.terrain.height;
+                const segmentsW = width - 1;
+                const segmentsH = height - 1;
 
-                    if (gridX >= 0 && gridX < map.terrain.width && gridY >= 0 && gridY < map.terrain.height) {
-                        const h = map.terrain.heightMap[gridY][gridX];
-                        positionAttribute.setZ(i, h * 0.5);
+                for (let i = 0; i < positionAttribute.count; i++) {
+                    // 頂点インデックスからグリッド座標を逆算
+                    const x = i % (segmentsW + 1);
+                    const y = Math.floor(i / (segmentsW + 1));
+
+                    if (x < width && y < height) {
+                        const h = map.terrain.heightMap[y][x];
+                        if (!isNaN(h)) {
+                            positionAttribute.setZ(i, h * 0.5);
+                        }
                     }
                 }
 
