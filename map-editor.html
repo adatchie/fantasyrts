@@ -2890,56 +2890,16 @@
                 texCtx.drawImage(img, 0, 0, texWidth, texHeight);
                 this.currentTexture = texCanvas.toDataURL('image/jpeg', 0.85); // JPEG品質0.85で保存
 
-                // マップデータに反映
+                // マップデータにテクスチャとして反映（地形タイプは変更しない）
                 const map = mapRepository.get(this.currentMapId);
                 map.image = this.currentTexture;
                 map.textureData = this.currentTexture; // rendering3d.js優先読み込み用
-
-                const canvas = document.createElement('canvas');
-                canvas.width = map.terrain.width;
-                canvas.height = map.terrain.height;
-                const ctx = canvas.getContext('2d');
-
-                ctx.drawImage(img, 0, 0, map.terrain.width, map.terrain.height);
-                const data = ctx.getImageData(0, 0, map.terrain.width, map.terrain.height).data;
-
-                // RGB値から最も近い地形タイプを探す
-                const terrainColors = Object.values(TERRAIN_TYPES).map(t => ({
-                    id: t.id,
-                    rgb: this.hexToRgb(t.color)
-                }));
-
-                for (let y = 0; y < map.terrain.height; y++) {
-                    for (let x = 0; x < map.terrain.width; x++) {
-                        const i = (y * map.terrain.width + x) * 4;
-                        const r = data[i];
-                        const g = data[i + 1];
-                        const b = data[i + 2];
-
-                        let minDist = Infinity;
-                        let bestTerrain = 'grass';
-
-                        terrainColors.forEach(tc => {
-                            const dist = Math.sqrt(
-                                Math.pow(r - tc.rgb.r, 2) +
-                                Math.pow(g - tc.rgb.g, 2) +
-                                Math.pow(b - tc.rgb.b, 2)
-                            );
-                            if (dist < minDist) {
-                                minDist = dist;
-                                bestTerrain = tc.id;
-                            }
-                        });
-
-                        map.terrain.terrainType[y][x] = bestTerrain;
-                    }
-                }
 
                 this.render();
                 this.update3DPreview();
 
                 console.log(`[MapEditor] Processed texture size: ${(this.currentTexture.length / 1024).toFixed(1)}KB`);
-                alert('地形テクスチャを解析して適用しました。\n（保存ボタンを押してください）');
+                alert('地形テクスチャを適用しました（見た目のみ）。\n地形タイプ（移動コスト等）は変更しません。\n（保存ボタンを押してください）');
             }
 
             hexToRgb(hex) {
