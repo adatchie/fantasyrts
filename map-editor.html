@@ -599,6 +599,9 @@
                 <label style="font-size:11px; color:#aaa; margin-left:4px;"><input type="checkbox" id="chk-smooth"
                         checked> 補正</label>
                 <button class="toolbar-btn" id="btn-import-terrain">🎨 地形画像</button>
+                <button class="toolbar-btn" id="btn-generate-texture"
+                    style="background:rgba(80,140,80,0.5); border-color:#6f6;" title="heightMapからリアルなテクスチャ画像を自動生成">🖼️
+                    テクスチャ生成</button>
                 <button class="toolbar-btn" id="btn-import-watermask" title="白=水域(海・湖)、グレー=川、黒=変更なし"
                     style="background:rgba(30,80,160,0.5); border-color:#4af;">💧 水マスク</button>
 
@@ -1248,6 +1251,11 @@
                 });
                 document.getElementById('terrain-input').addEventListener('change', (e) => {
                     this.importTerrainImage(e.target.files[0]);
+                });
+
+                // テクスチャ自動生成
+                document.getElementById('btn-generate-texture').addEventListener('click', () => {
+                    this.generateTerrainTexture();
                 });
 
                 // Water mask import
@@ -2861,6 +2869,173 @@
                     }
                 };
                 reader.readAsText(file);
+            }
+
+            // ==========================================
+            // テクスチャ自動生成
+            // ==========================================
+
+            /**
+             * heightMapからリアルな鳥瞰図テクスチャを自動生成し、マップに適用する。
+             * ・高さによる色付け（草原→枯草→砂→茶岩→岩山頂）
+             * ・法線ベースのヒルシェーディング（光源北西）
+             * ・fBmマイクロノイズで表面の質感
+             */
+            generateTerrainTexture() {
+                if (!this.currentMapId) return;
+                const map = mapRepository.get(this.currentMapId);
+                if (!map) return;
+
+                const TW = map.terrain.width;
+                const TH = map.terrain.height;
+                const hm = map.terrain.heightMap;
+
+                // テクスチャ解像度（タイルあたり8px）
+                const SCALE = 8;
+                const imgW = TW * SCALE;
+                const imgH = TH * SCALE;
+
+                const canvas = document.createElement('canvas');
+                canvas.width = imgW;
+                canvas.height = imgH;
+                const ctx = canvas.getContext('2d');
+                const imgData = ctx.createImageData(imgW, imgH);
+                const px = imgData.data;
+
+                // ---- ノイズ用Perlinを再初期化（テクスチャ専用シード） ----
+                const savedPerm = this._perlinPerm ? [...this._perlinPerm] : null;
+                this._perlinPerm = null;
+                this._initPerlin();
+
+                // ---- 高さ→基本色テーブル（0〜10） ----
+                // [h, r, g, b] リアルな地形カラー
+                const colorRamp = [
+                    [0, 55, 72, 35],   // 0: 深い谷・湿地（暗い濃緑）
+                    [1, 68, 85, 42],   // 1: 低地草原（深緑）
+                    [2, 85, 100, 55],   // 2: 草原（中緑）
+                    [3, 95, 108, 62],   // 3: 草原〜低木
+                    [4, 108, 108, 72],   // 4: 乾燥草地（黄緑）
+                    [5, 118, 108, 78],   // 5: 乾燥斜面（オリーブ）
+                    [6, 118, 98, 72],   // 6: 山麓（枯草＋土）
+                    [7, 112, 86, 62],   // 7: 山肌（茶土）
+                    [8, 102, 72, 52],   // 8: 岩山（赤茶）
+                    [9, 85, 58, 42],   // 9: 急峻な岩（暗褐色）
+                    [10, 68, 45, 32],   // 10: 山頂岩盤（最暗）
+                ];
+
+                /** 高さ値(float)を線形補間でRGBに変換 */
+                const heightToColor = (h) => {
+                    const clamped = Math.max(0, Math.min(10, h));
+                    const lo = Math.floor(clamped);
+                    const hi = Math.min(10, lo + 1);
+                    const t = clamped - lo;
+                    const cl = colorRamp[lo];
+                    const ch = colorRamp[hi];
+                    return [
+                        cl[1] + (ch[1] - cl[1]) * t,
+                        cl[2] + (ch[2] - cl[2]) * t,
+                        cl[3] + (ch[3] - cl[3]) * t,
+                    ];
+                };
+
+                /** タイル(tx, ty)の高さ（境界外はクランプ） */
+                const getH = (tx, ty) => {
+                    const cx = Math.max(0, Math.min(TW - 1, tx));
+                    const cy = Math.max(0, Math.min(TH - 1, ty));
+                    return hm[cy][cx];
+                };
+
+                // 光源方向（北西 = 左上）
+                const LX = -1 / Math.SQRT2;
+                const LY = -1 / Math.SQRT2;
+                const LZ = 1.0;
+                const Llen = Math.sqrt(LX * LX + LY * LY + LZ * LZ);
+
+                for (let py = 0; py < imgH; py++) {
+                    for (let px_ = 0; px_ < imgW; px_++) {
+
+                        // ピクセルが属するタイル座標
+                        const tx = px_ / SCALE;
+                        const ty = py / SCALE;
+
+                        // タイルインデックス（整数）
+                        const txi = Math.floor(tx);
+                        const tyi = Math.floor(ty);
+
+                        // ---- ヒルシェーディング（法線ベクトル計算）----
+                        // 隣接タイルの高さ差でグラジェントを計算
+                        const hL = getH(txi - 1, tyi);
+                        const hR = getH(txi + 1, tyi);
+                        const hU = getH(txi, tyi - 1);
+                        const hD = getH(txi, tyi + 1);
+                        // 傾斜の強さ（高さ差が大きいほど急勾配）
+                        const strength = 2.5;
+                        const nx_ = (hL - hR) * strength;
+                        const ny_ = (hU - hD) * strength;
+                        const nz_ = 2.0;
+                        const nLen = Math.sqrt(nx_ * nx_ + ny_ * ny_ + nz_ * nz_);
+                        // ランバート拡散反射
+                        const dot = (nx_ / nLen * LX / Llen) + (ny_ / nLen * LY / Llen) + (nz_ / nLen * LZ / Llen);
+                        const shade = Math.max(0.15, Math.min(1.35, 0.7 + dot * 0.85));
+
+                        // ---- 基本高さ色 ----
+                        const h = getH(txi, tyi);
+                        let [r, g, b] = heightToColor(h);
+
+                        // ---- fBmマイクロテクスチャ（表面の細かい凸凹感） ----
+                        const ns = 0.08;
+                        const micro = this.fbmNoise(tx * ns * 18, ty * ns * 18, 5, 2.0, 0.55) * 0.18;
+
+                        // ---- 傾斜に応じた岩肌（急斜面は茶色っぽく） ----
+                        const slope = Math.sqrt((hL - hR) ** 2 + (hU - hD) ** 2) * 0.5;
+                        const rockBlend = Math.min(1, slope / 3.0);  // 0=草  1=岩肌
+                        r = r + (108 - r) * rockBlend;
+                        g = g + (78 - g) * rockBlend;
+                        b = b + (52 - b) * rockBlend;
+
+                        // ---- ノイズを色に適用 ----
+                        r = r * (1 + micro);
+                        g = g * (1 + micro * 0.8);
+                        b = b * (1 + micro * 0.5);
+
+                        // ---- シェーディング適用 ----
+                        r = Math.max(0, Math.min(255, Math.round(r * shade)));
+                        g = Math.max(0, Math.min(255, Math.round(g * shade)));
+                        b = Math.max(0, Math.min(255, Math.round(b * shade)));
+
+                        const idx = (py * imgW + px_) * 4;
+                        px[idx] = r;
+                        px[idx + 1] = g;
+                        px[idx + 2] = b;
+                        px[idx + 3] = 255;
+                    }
+                }
+
+                ctx.putImageData(imgData, 0, 0);
+
+                // テクスチャとして保存
+                const maxSize = 512;
+                const ratio = Math.min(1, maxSize / imgW, maxSize / imgH);
+                const outW = Math.floor(imgW * ratio);
+                const outH = Math.floor(imgH * ratio);
+
+                const outCanvas = document.createElement('canvas');
+                outCanvas.width = outW;
+                outCanvas.height = outH;
+                outCanvas.getContext('2d').drawImage(canvas, 0, 0, outW, outH);
+
+                const dataUrl = outCanvas.toDataURL('image/jpeg', 0.88);
+                this.currentTexture = dataUrl;
+                map.image = dataUrl;
+                map.textureData = dataUrl;
+
+                // Perlinテーブルを元に戻す
+                if (savedPerm) this._perlinPerm = savedPerm;
+
+                this.render();
+                this.update3DPreview();
+                console.log(`[MapEditor] Terrain texture generated: ${(dataUrl.length / 1024).toFixed(1)}KB`);
+                alert('テクスチャを自動生成しました。\n（保存ボタンを押してください）');
             }
 
             // ==========================================
