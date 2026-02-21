@@ -2229,6 +2229,71 @@
                 });
             }
 
+            // ============================================================
+            // Perlinノイズ実装
+            // ============================================================
+
+            /** パーミュテーションテーブルを初期化（呼び出し毎にランダムシード） */
+            _initPerlin() {
+                const p = Array.from({ length: 256 }, (_, i) => i);
+                for (let i = 255; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [p[i], p[j]] = [p[j], p[i]];
+                }
+                this._perlinPerm = new Array(512).fill(0).map((_, i) => p[i & 255]);
+            }
+
+            _perlinFade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+            _perlinLerp(a, b, t) { return a + t * (b - a); }
+            _perlinGrad(hash, x, y) {
+                const h = hash & 3;
+                const u = h < 2 ? x : y;
+                const v = h < 2 ? y : x;
+                return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+            }
+
+            /** 2D Perlinノイズ（値域: 約-1〜1） */
+            perlin2D(x, y) {
+                const perm = this._perlinPerm;
+                const xi = Math.floor(x) & 255;
+                const yi = Math.floor(y) & 255;
+                const xf = x - Math.floor(x);
+                const yf = y - Math.floor(y);
+                const u = this._perlinFade(xf);
+                const v = this._perlinFade(yf);
+                const aa = perm[perm[xi] + yi];
+                const ab = perm[perm[xi] + yi + 1];
+                const ba = perm[perm[xi + 1] + yi];
+                const bb = perm[perm[xi + 1] + yi + 1];
+                return this._perlinLerp(
+                    this._perlinLerp(this._perlinGrad(aa, xf, yf), this._perlinGrad(ba, xf - 1, yf), u),
+                    this._perlinLerp(this._perlinGrad(ab, xf, yf - 1), this._perlinGrad(bb, xf - 1, yf - 1), u),
+                    v
+                );
+            }
+
+            /**
+             * fBm（フラクタルブラウン運動）ノイズ（値域: 約-1〜1）
+             * @param {number} x @param {number} y
+             * @param {number} octaves オクターブ数（多いほど細かい起伏）
+             * @param {number} lacunarity 各オクターブの周波数乗数（通常2.0）
+             * @param {number} gain 各オクターブの振幅乗数（通常0.5）
+             */
+            fbmNoise(x, y, octaves = 6, lacunarity = 2.0, gain = 0.5) {
+                let value = 0, amplitude = 1.0, frequency = 1.0, maxValue = 0;
+                for (let i = 0; i < octaves; i++) {
+                    value += this.perlin2D(x * frequency, y * frequency) * amplitude;
+                    maxValue += amplitude;
+                    amplitude *= gain;
+                    frequency *= lacunarity;
+                }
+                return value / maxValue; // -1〜1に正規化
+            }
+
+            // ============================================================
+            // 地形自動生成
+            // ============================================================
+
             executeTerrainGeneration() {
                 const map = mapRepository.get(this.currentMapId);
                 if (!map) return;
@@ -2238,60 +2303,106 @@
                 const baseHeight = parseInt(document.getElementById('terrain-base-height').value, 10);
                 const direction = document.getElementById('terrain-direction').value;
                 const valleyAxis = document.getElementById('terrain-valley-axis').value;
-
                 const keepBuildings = document.getElementById('terrain-keep-buildings').checked;
                 const keepUnits = document.getElementById('terrain-keep-units').checked;
 
                 if (!keepBuildings && map.buildings) map.buildings = [];
                 if (!keepUnits && map.units) map.units = [];
 
-                const width = map.terrain.width;
-                const height = map.terrain.height;
-                const newHeightMap = JSON.parse(JSON.stringify(map.terrain.heightMap));
+                // 毎回ランダムシードを再初期化して異なる地形を生成
+                this._perlinPerm = null;
+                this._initPerlin();
 
-                for (let y = 0; y < height; y++) {
-                    for (let x = 0; x < width; x++) {
-                        let h = baseHeight;
+                const W = map.terrain.width;
+                const H = map.terrain.height;
+                const NS = 4.0; // ノイズサンプリングスケール
 
-                        if (preset === 'slope') {
-                            let factor = 0;
-                            if (direction === 'n') factor = (height - 1 - y) / height;
-                            else if (direction === 's') factor = y / height;
-                            else if (direction === 'w') factor = (width - 1 - x) / width;
-                            else if (direction === 'e') factor = x / width;
-                            h += Math.floor(factor * intensity);
-                        } else if (preset === 'hill') {
-                            let dx = (x - width / 2) / (width / 2);
-                            let dy = (y - height / 2) / (height / 2);
-                            let dist = Math.sqrt(dx * dx + dy * dy);
-                            if (dist < 1) {
-                                h += Math.floor((Math.cos(dist * Math.PI) + 1) / 2 * intensity);
-                            }
-                        } else if (preset === 'valley') {
-                            let factor = 0;
-                            if (valleyAxis === 'y') {
-                                let dx = (x - width / 2) / (width / 2);
-                                factor = Math.abs(dx);
-                            } else {
-                                let dy = (y - height / 2) / (height / 2);
-                                factor = Math.abs(dy);
-                            }
-                            h += Math.floor(factor * intensity);
-                        } else if (preset === 'terrace') {
-                            const steps = 3;
-                            const di = (x + y) / (width + height);
-                            const stepVal = Math.floor(di * steps);
-                            h += Math.floor((stepVal / steps) * intensity);
-                        } else if (preset === 'random') {
-                            if (Math.random() < 0.5) {
-                                h += Math.floor(Math.random() * intensity);
-                            }
-                        }
-
-                        h = Math.max(0, Math.min(10, h));
-                        newHeightMap[y][x] = h;
+                // 丘プリセット用の丘データを事前生成（3〜7個）
+                const hillData = [];
+                if (preset === 'hill') {
+                    const numHills = 3 + Math.floor(Math.random() * 5);
+                    for (let i = 0; i < numHills; i++) {
+                        hillData.push({
+                            cx: Math.random() * W,
+                            cy: Math.random() * H,
+                            rx: W * (0.12 + Math.random() * 0.18),
+                            ry: H * (0.12 + Math.random() * 0.18),
+                            amp: 0.4 + Math.random() * 0.6
+                        });
                     }
                 }
+
+                const newHeightMap = Array.from({ length: H }, () => new Array(W).fill(baseHeight));
+
+                for (let y = 0; y < H; y++) {
+                    for (let x = 0; x < W; x++) {
+                        // 正規化座標（0〜1）
+                        const nx = x / W;
+                        const ny = y / H;
+                        let h = baseHeight;
+
+                        if (preset === 'flat') {
+                            h = baseHeight;
+
+                        } else if (preset === 'slope') {
+                            // 大局的傾斜 + Perlinノイズで自然な起伏
+                            let trend = 0;
+                            if (direction === 'n') trend = 1 - ny;
+                            else if (direction === 's') trend = ny;
+                            else if (direction === 'e') trend = nx;
+                            else if (direction === 'w') trend = 1 - nx;
+                            const noise = this.fbmNoise(nx * NS, ny * NS, 5, 2.0, 0.5);
+                            h = baseHeight + trend * intensity + noise * intensity * 0.35;
+
+                        } else if (preset === 'hill') {
+                            // 複数ガウシアン丘の重ね合わせ
+                            let hillH = 0;
+                            for (const hd of hillData) {
+                                const dx = (x - hd.cx) / hd.rx;
+                                const dy = (y - hd.cy) / hd.ry;
+                                const d2 = dx * dx + dy * dy;
+                                if (d2 < 4.0) hillH += hd.amp * Math.exp(-d2 * 1.5);
+                            }
+                            // 小規模ノイズでテクスチャ
+                            const noise = this.fbmNoise(nx * NS * 2, ny * NS * 2, 5, 2.0, 0.5);
+                            h = baseHeight + Math.min(1, hillH) * intensity + noise * intensity * 0.2;
+
+                        } else if (preset === 'valley') {
+                            // Perlinで蛇行する谷底をもつ谷
+                            let dist;
+                            if (valleyAxis === 'y') {
+                                // 南北に走る谷（東西が高い）
+                                const center = 0.5 + this.perlin2D(ny * 2.5, 17.3) * 0.18;
+                                dist = Math.min(1, Math.abs(nx - center) * 2);
+                            } else {
+                                // 東西に走る谷（南北が高い）
+                                const center = 0.5 + this.perlin2D(21.7, nx * 2.5) * 0.18;
+                                dist = Math.min(1, Math.abs(ny - center) * 2);
+                            }
+                            // smoothstep で谷底〜山腹を滑らかに
+                            const slope = dist * dist * (3 - 2 * dist);
+                            const sideNoise = this.fbmNoise(nx * NS, ny * NS, 4, 2.0, 0.5);
+                            h = baseHeight + slope * intensity + sideNoise * intensity * 0.25;
+
+                        } else if (preset === 'terrace') {
+                            // 大局的傾斜をPerlinで波打たせ → 量子化で段差
+                            const trend = (nx + ny) * 0.5;
+                            const wave = this.fbmNoise(nx * NS * 0.8, ny * NS * 0.8, 4, 2.0, 0.5);
+                            const raw = baseHeight + (trend + wave * 0.45) * intensity;
+                            const steps = 3 + Math.floor(intensity / 3); // 強度で段数が増える
+                            const stepH = 10.0 / steps;
+                            h = Math.floor(raw / stepH) * stepH;
+
+                        } else if (preset === 'random') {
+                            // 純粋fBm：自然な起伏のある地形（平野〜山岳がランダムに分布）
+                            const noise = this.fbmNoise(nx * NS, ny * NS, 6, 2.0, 0.5);
+                            h = baseHeight + noise * intensity;
+                        }
+
+                        newHeightMap[y][x] = Math.max(0, Math.min(10, Math.round(h)));
+                    }
+                }
+
                 map.terrain.heightMap = newHeightMap;
                 this.render();
                 this.update3DPreviewDebounced();
