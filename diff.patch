@@ -1,0 +1,40 @@
+diff --git a/scripts/rendering3d.js b/scripts/rendering3d.js
+index f21d38a..4ca8912 100644
+--- a/scripts/rendering3d.js
++++ b/scripts/rendering3d.js
+@@ -1443,17 +1443,18 @@ export class RenderingEngine3D {
+             }
+ 
+             // 蟒ｺ迚ｩ縺後≠繧句ｴ蜷医・蟒ｺ迚ｩ縺ｮ鬮倥＆繧剃ｽｿ逕ｨ
++            let isInBuildingShadow = false;
+             if (window.game && window.game.buildingSystem) {
+                 const bInfo = window.game.buildingSystem.getBuildingHeightAtWorldPos(rawPos.x, rawPos.z);
+                 if (bInfo && bInfo.isBuilding) {
+                     // console.log removed
+                     groundHeight = Math.max(groundHeight, bInfo.height);
++                    isInBuildingShadow = true;
+                 }
+             }
+ 
+             // 繧ｭ繝｣繝・す繝･縺輔ｌ縺欸ector3繧貞・蛻ｩ逕ｨ
+             // 建物の陰に入っている場合のみ深度オフセットを設定して、正しく表示されるようにする
+-            const isInBuildingShadow = (window.game && window.game.buildingSystem && bInfo && bInfo.isBuilding);
+             this._tempVec3.set(rawPos.x, groundHeight, rawPos.z);
+             this._tempVec3.add(this._tempAnimOffset);
+ 
+@@ -1882,6 +1883,15 @@ export class RenderingEngine3D {
+         const plane = new THREE.Mesh(planeGeo, planeMat);
+         plane.position.y = size * 1.0;
+         plane.name = 'unitSprite';
++
++        // Calculate building shadow state for the unit
++        let isInBuildingShadow = false;
++        if (window.game && window.game.buildingSystem) {
++            const rawPos = this.gridToWorld3D(unit.x, unit.y);
++            const bInfo = window.game.buildingSystem.getBuildingHeightAtWorldPos(rawPos.x, rawPos.z);
++            if (bInfo && bInfo.isBuilding) isInBuildingShadow = true;
++        }
++
+         // 建物の陰に入っている場合はレンダリング順序を大きくして建物の後に表示されるようにする
+         if (isInBuildingShadow) {
+             plane.renderOrder = 200;

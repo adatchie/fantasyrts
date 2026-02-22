@@ -605,6 +605,9 @@
                 <button class="toolbar-btn" id="btn-download-texture"
                     style="background:rgba(60,100,60,0.4); border-color:#6d6;" title="生成済みテクスチャをJPEGでダウンロード">⬇
                     PNG保存</button>
+                <button class="toolbar-btn" id="btn-download-heightmap"
+                    style="background:rgba(100,60,60,0.4); border-color:#d66;" title="ハイトマップをグレースケールPNGでダウンロード">⬇
+                    ハイトマップ保存</button>
                 <button class="toolbar-btn" id="btn-import-watermask" title="白=水域(海・湖)、グレー=川、黒=変更なし"
                     style="background:rgba(30,80,160,0.5); border-color:#4af;">💧 水マスク</button>
 
@@ -1263,6 +1266,10 @@
                 // テクスチャPNG保存
                 document.getElementById('btn-download-texture').addEventListener('click', () => {
                     this.downloadTerrainTexture();
+                });
+                // ハイトマップ保存
+                document.getElementById('btn-download-heightmap').addEventListener('click', () => {
+                    this.downloadHeightmap();
                 });
 
                 // Water mask import
@@ -2419,6 +2426,22 @@
                 }
 
                 map.terrain.heightMap = newHeightMap;
+
+                // 高さ閾値に基づいて地形タイプも自動割り当てする（ハイトマップインポートと同じロジック）
+                const thresholds = {
+                    grass: { min: parseInt(document.getElementById('hm-grass-min').value, 10) || 0, max: parseInt(document.getElementById('hm-grass-max').value, 10) || 3 },
+                    forest: { min: parseInt(document.getElementById('hm-forest-min').value, 10) || 4, max: parseInt(document.getElementById('hm-forest-max').value, 10) || 5 },
+                    mountain: { min: parseInt(document.getElementById('hm-mountain-min').value, 10) || 6, max: parseInt(document.getElementById('hm-mountain-max').value, 10) || 8 },
+                    cliff: { min: parseInt(document.getElementById('hm-cliff-min').value, 10) || 9 }
+                };
+
+                for (let y = 0; y < H; y++) {
+                    for (let x = 0; x < W; x++) {
+                        const h = newHeightMap[y][x];
+                        map.terrain.terrainType[y][x] = this.heightToTerrainType(h, thresholds);
+                    }
+                }
+
                 this.render();
                 this.update3DPreviewDebounced();
                 alert('地形を生成しました。');
@@ -3120,6 +3143,58 @@
                 a.click();
             }
 
+            downloadHeightmap() {
+                const map = mapRepository.get(this.currentMapId);
+                if (!map || !map.terrain || !map.terrain.heightMap) {
+                    alert('マップまたはハイトマップデータがありません。');
+                    return;
+                }
+
+                // 倍率を指定して高解像度で出力（タイルのピクセルサイズに合わせるため）
+                const SCALE = 12; // テクスチャ生成時と同じスケール
+                const outW = map.terrain.width * SCALE;
+                const outH = map.terrain.height * SCALE;
+
+                const canvas = document.createElement('canvas');
+                canvas.width = outW;
+                canvas.height = outH;
+                const ctx = canvas.getContext('2d');
+
+                // ニアレストネイバーで拡大（ブロックノイズを残すか、滑らかにするか。ハイトマップの特性上滑らかにする場合はバイリニア補間等を自前で書くか、APIに任せる必要があるが、補間不要ならfillRectで塗るのが確実）
+                // より綺麗な補間のために、タイル単位でグラデーションを描画する簡易手法も可能だが、
+                // 今回は手軽にキャンバスのスケーリングを使用。
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+
+                // 元のサイズで描画するための仮キャンバス
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = map.terrain.width;
+                tempCanvas.height = map.terrain.height;
+                const tempCtx = tempCanvas.getContext('2d');
+                const imgData = tempCtx.createImageData(tempCanvas.width, tempCanvas.height);
+
+                for (let y = 0; y < tempCanvas.height; y++) {
+                    for (let x = 0; x < tempCanvas.width; x++) {
+                        const h = map.terrain.heightMap[y][x]; // 0-10
+                        const v = Math.floor((h / 10) * 255);
+                        const idx = (y * tempCanvas.width + x) * 4;
+                        imgData.data[idx] = v;
+                        imgData.data[idx + 1] = v;
+                        imgData.data[idx + 2] = v;
+                        imgData.data[idx + 3] = 255;
+                    }
+                }
+                tempCtx.putImageData(imgData, 0, 0);
+
+                // スケールしてメインキャンバスに描画
+                ctx.drawImage(tempCanvas, 0, 0, tempCanvas.width, tempCanvas.height, 0, 0, outW, outH);
+
+                const dataUrl = canvas.toDataURL('image/png');
+                const a = document.createElement('a');
+                a.href = dataUrl;
+                a.download = `terrain_heightmap_${Date.now()}.png`;
+                a.click();
+            }
 
             // ==========================================
             // 画像インポート機能

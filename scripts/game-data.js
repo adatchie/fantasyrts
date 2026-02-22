@@ -46,6 +46,7 @@ export const STAGES = {
         description: '初めての戦場 - 基本操作を学ぼう',
         difficulty: 1,
         mapName: 'チュートリアル平原',
+        customMapName: 'チュートリアル平原',
         enemyForces: [
             { type: 'INFANTRY', count: 5 },
             { type: 'ARCHER', count: 3 }
@@ -59,6 +60,7 @@ export const STAGES = {
         description: '高低差を活かした戦い',
         difficulty: 3,
         mapName: '山岳決戦',
+        customMapName: '山岳決戦',
         enemyForces: [
             { type: 'INFANTRY', count: 6 },
             { type: 'ARCHER', count: 6 },

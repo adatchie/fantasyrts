@@ -403,6 +403,52 @@ export class MapSystem {
     }
 
     /**
+     * 水マスク画像データを適用してタイルの地形タイプを上書き
+     * @param {Object} maskData - { width, height, pixels: Uint8ClampedArray }
+     * @param {Object} options - { riverThreshold: 128, waterThreshold: 200 }
+     *   riverThreshold以上waterThreshold未満 → RIVER（川）
+     *   waterThreshold以上 → WATER（海・湖）
+     */
+    applyWaterMask(maskData, options = {}) {
+        const { width, height, pixels } = maskData;
+        const riverThreshold = options.riverThreshold ?? 100;
+        const waterThreshold = options.waterThreshold ?? 200;
+
+        const mapH = this.tiles.length;
+        const mapW = this.tiles[0] ? this.tiles[0].length : 0;
+
+        let waterCount = 0;
+        let riverCount = 0;
+
+        for (let y = 0; y < mapH; y++) {
+            for (let x = 0; x < mapW; x++) {
+                // タイルに対応するマスク画像上のピクセル座標を計算
+                const imgX = Math.min(Math.floor(x / mapW * width), width - 1);
+                const imgY = Math.min(Math.floor(y / mapH * height), height - 1);
+                const idx = (imgY * width + imgX) * 4;
+                const brightness = pixels[idx]; // Rチャンネル（グレースケールなのでRGB同値）
+
+                if (brightness >= waterThreshold) {
+                    // 明るい白 → 水域（海・湖）
+                    this.tiles[y][x].type = 'WATER';
+                    this.tiles[y][x].z = 0;
+                    this.tiles[y][x].blocksLOS = false;
+                    waterCount++;
+                } else if (brightness >= riverThreshold) {
+                    // 中間グレー → 川
+                    this.tiles[y][x].type = 'RIVER';
+                    this.tiles[y][x].z = 0;
+                    this.tiles[y][x].blocksLOS = false;
+                    riverCount++;
+                }
+                // 黒（brightness < riverThreshold）は変更しない
+            }
+        }
+
+        console.log(`[MapSystem] Water mask applied: WATER=${waterCount}, RIVER=${riverCount}`);
+    }
+
+    /**
      * 旧API互換性のためのエイリアス（段階的移行用）
      * @deprecated 将来削除予定
      */

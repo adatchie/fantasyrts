@@ -214,6 +214,7 @@ export class CombatSystem {
      * 攻撃を処理
      */
     async processAttack(unit, target, allUnits, map, reach) {
+        let hasAttackedThisPhase = false;
         // スクエアグリッドに伴い、距離判定を厳格化（チェビシェフ距離を使用）
         const dist = getDistAttack(unit, target);
 
@@ -282,14 +283,17 @@ export class CombatSystem {
             unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
             this.speak(unit, 'ATTACK');
             await this.combat(unit, target, allUnits, map);
+            hasAttackedThisPhase = true;
         } else if (canUseBow(dist)) {
             // 弓攻撃射程内（最小射程以上、最大射程まで）なら遠距離攻撃
             unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
             await this.rangedCombat(unit, target, map, allUnits);
+            hasAttackedThisPhase = true;
         } else if (canRangedAttack && dist <= extendedBowRange) {
             // 弓兵が拡張射程内にいる場合は移動せずに攻撃
             unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
             await this.rangedCombat(unit, target, map, allUnits);
+            hasAttackedThisPhase = true;
         } else if (canRangedAttack && this.mapSystem) {
             // 弓兵が高い位置にいる場合、移動を諦めてその場から攻撃
             const unitZ = this.mapSystem.getHeight(unit.x, unit.y);
@@ -299,6 +303,7 @@ export class CombatSystem {
             if (heightDiff > 2 * TILE_HEIGHT) {
                 unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
                 await this.rangedCombat(unit, target, map, allUnits);
+                hasAttackedThisPhase = true;
                 return;
             }
         }
@@ -306,9 +311,10 @@ export class CombatSystem {
         if (dist > engagementDist || (dist <= reach && !canMeleeAttack)) {
             // 遠い場合、または近接攻撃できない高さ差がある場合は移動
             // 弓射程内なら先に弓を撃つ
-            if (canUseBow(dist)) {
+            if (!hasAttackedThisPhase && canUseBow(dist)) {
                 unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
                 await this.rangedCombat(unit, target, map, allUnits);
+                hasAttackedThisPhase = true;
                 // 弓攻撃後、まだ距離があれば陣形で近づく
             }
 
@@ -329,15 +335,17 @@ export class CombatSystem {
 
             // 移動後に攻撃可能かチェック（特に弓兵用）
             const newDist = getDistAttack(unit, target);
-            if (newDist <= reach) {
+            if (!hasAttackedThisPhase && newDist <= reach) {
                 // 近接攻撃射程内
                 unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
                 this.speak(unit, 'ATTACK');
                 await this.combat(unit, target, allUnits, map);
-            } else if (canUseBow(newDist)) {
+                hasAttackedThisPhase = true;
+            } else if (!hasAttackedThisPhase && canUseBow(newDist)) {
                 // 弓射程内なら遠距離攻撃
                 unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
                 await this.rangedCombat(unit, target, map, allUnits);
+                hasAttackedThisPhase = true;
             }
 
             // 命令を元に戻す（次ターンも攻撃を継続するため）
@@ -354,14 +362,16 @@ export class CombatSystem {
             const moved = await this.moveUnitStep(unit, target, allUnits, map);
             // 移動後に再チェック
             const newDist = getDistAttack(unit, target);
-            if (newDist <= reach) {
+            if (!hasAttackedThisPhase && newDist <= reach) {
                 unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
                 this.speak(unit, 'ATTACK');
                 await this.combat(unit, target, allUnits, map);
-            } else if (canUseBow(newDist)) {
+                hasAttackedThisPhase = true;
+            } else if (!hasAttackedThisPhase && canUseBow(newDist)) {
                 // 移動後に弓射程内なら遠距離攻撃
                 unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
                 await this.rangedCombat(unit, target, map, allUnits);
+                hasAttackedThisPhase = true;
             }
         }
     }
@@ -622,7 +632,7 @@ export class CombatSystem {
                     unit.x = next.x;
                     unit.y = next.y;
                     unit.pos = hexToPixel(unit.x, unit.y);
-                    
+
                     // unitはMapに入っていないので更新不要（他ユニットとの衝突判定用なので）
 
                     actuallyMoved = true;
@@ -1591,8 +1601,8 @@ export class CombatSystem {
             const splashDmg = Math.max(3, Math.floor(dmgToDef * 0.5));
             const surroundingOffsets = [
                 { dx: -1, dy: -1 }, { dx: 0, dy: -1 }, { dx: 1, dy: -1 },
-                { dx: -1, dy: 0 },                      { dx: 1, dy: 0 },
-                { dx: -1, dy: 1 },  { dx: 0, dy: 1 },  { dx: 1, dy: 1 }
+                { dx: -1, dy: 0 }, { dx: 1, dy: 0 },
+                { dx: -1, dy: 1 }, { dx: 0, dy: 1 }, { dx: 1, dy: 1 }
             ];
             for (const offset of surroundingOffsets) {
                 const tx = def.x + offset.dx;

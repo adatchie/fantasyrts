@@ -204,6 +204,13 @@ export class MapDataRepository {
     }
 
     /**
+     * ランダムなIDを生成
+     */
+    generateId() {
+        return 'map_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+    }
+
+    /**
      * MapRegistryから定義済みマップを読み込む
      */
     loadFromRegistry() {

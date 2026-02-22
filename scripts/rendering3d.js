@@ -1453,7 +1453,6 @@ export class RenderingEngine3D {
 
             // 繧ｭ繝｣繝・す繝･縺輔ｌ縺欸ector3繧貞・蛻ｩ逕ｨ
             // 建物の陰に入っている場合のみ深度オフセットを設定して、正しく表示されるようにする
-            const isInBuildingShadow = (window.game && window.game.buildingSystem && bInfo && bInfo.isBuilding);
             this._tempVec3.set(rawPos.x, groundHeight, rawPos.z);
             this._tempVec3.add(this._tempAnimOffset);
 
@@ -1860,7 +1859,9 @@ export class RenderingEngine3D {
             alphaTest: 0.5,
             depthWrite: true,
             depthTest: true,
-            polygonOffsetUnits: 1
+            polygonOffset: true,
+            polygonOffsetFactor: -2,
+            polygonOffsetUnits: -2
         });
 
         // 初期フレーム設定
@@ -1881,13 +1882,9 @@ export class RenderingEngine3D {
 
         const plane = new THREE.Mesh(planeGeo, planeMat);
         plane.position.y = size * 1.0;
+        plane.position.z = 4; // カメラ方向（グループの手前側）に少し出して地形へのめり込みを防ぐ
         plane.name = 'unitSprite';
-        // 建物の陰に入っている場合はレンダリング順序を大きくして建物の後に表示されるようにする
-        if (isInBuildingShadow) {
-            plane.renderOrder = 200;
-        } else {
-            plane.renderOrder = 100;
-        }
+        plane.renderOrder = 100;
 
         // フリップ（左右反転）
         if (spriteInfo.flip) {
