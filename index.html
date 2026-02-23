@@ -518,7 +518,7 @@
     </script>
 
     <script type="module">
-import { Game } from './scripts/main.js?v=119';
+        import { Game } from './scripts/main.js?v=119';
 
         try {
             // グローバルスコープにGameインスタンスを作成
@@ -572,6 +572,15 @@ import { Game } from './scripts/main.js?v=119';
                     window.game.setActionSpeed(speed);
                 } catch (e) {
                     console.error("SetActionSpeed failed", e);
+                    throw e;
+                }
+            };
+
+            window.toggleBGM = () => {
+                try {
+                    window.game.toggleBGM();
+                } catch (e) {
+                    console.error("ToggleBGM failed", e);
                     throw e;
                 }
             };

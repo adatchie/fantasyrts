@@ -1359,7 +1359,7 @@ class BattleScene {
         // Action speed control
         window.setActionSpeed = (speed) => {
             try {
-                game.actionSpeed = speed;
+                game.setActionSpeed(speed);
                 document.querySelectorAll('.speed-btn').forEach(btn => {
                     const btnSpeed = parseFloat(btn.getAttribute('data-speed'));
                     if (btnSpeed === speed) {
@@ -1370,6 +1370,14 @@ class BattleScene {
                 });
             } catch (e) {
                 console.error('setActionSpeed error:', e);
+            }
+        };
+
+        window.toggleBGM = () => {
+            try {
+                game.toggleBGM();
+            } catch (e) {
+                console.error('toggleBGM error:', e);
             }
         };
 
