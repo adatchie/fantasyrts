@@ -40,7 +40,8 @@ export class UIManager {
             .reduce((a, c) => a + c.soldiers, 0);
         const wS = game.units.filter(u => u.side === 'WEST' && !u.dead)
             .reduce((a, c) => a + c.soldiers, 0);
-        document.getElementById('status-text').innerText = `東軍: ${eS} / 西軍: ${wS}`;
+        const statusText = document.getElementById('status-text');
+        if (statusText) statusText.innerText = `東軍: ${eS} / 西軍: ${wS}`;
     }
 
     // ==================== Selection UI ====================
@@ -48,6 +49,7 @@ export class UIManager {
     updateSelectionUI(list, targetUnit = null) {
         const game = this.game;
         const container = document.getElementById('unit-list');
+        if (!container) return;
         container.innerHTML = '';
 
         // ターゲットユニットがある場合、その情報を最上部に表示

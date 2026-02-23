@@ -1264,6 +1264,7 @@ class BattleScene {
                 <div id="formation-tooltip"></div>
             </div>
             <div id="speed-control">
+                <button id="bgm-toggle" class="${this.manager.game.audioEngine.bgmEnabled ? 'active' : ''}" onclick="window.toggleBGM()">${this.manager.game.audioEngine.bgmEnabled ? '🔊' : '🔇'}</button>
                 <button class="speed-btn" data-speed="1.0" onclick="window.setActionSpeed(1.0)">▶</button>
                 <button class="speed-btn" data-speed="1.5" onclick="window.setActionSpeed(1.5)">▶▶</button>
                 <button class="speed-btn" data-speed="2.0" onclick="window.setActionSpeed(2.0)">▶▶▶</button>
