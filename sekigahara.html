@@ -477,6 +477,29 @@
             border-color: #ffd700;
             box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
         }
+
+        #bgm-toggle {
+            padding: 8px 12px;
+            font-size: 18px;
+            cursor: pointer;
+            border: 2px solid #888;
+            background: rgba(20, 20, 30, 0.9);
+            color: #ffd700;
+            font-family: serif;
+            transition: 0.2s;
+            min-width: 45px;
+            margin-right: 5px;
+        }
+
+        #bgm-toggle:hover {
+            background: rgba(40, 40, 50, 0.95);
+            border-color: #ffd700;
+        }
+
+        #bgm-toggle.active {
+            background: rgba(255, 215, 0, 0.2);
+            border-color: #ffd700;
+        }
     </style>
 </head>
 
@@ -510,6 +533,7 @@
                 <div id="formation-tooltip"></div>
             </div>
             <div id="speed-control">
+                <button id="bgm-toggle" class="active" onclick="toggleBGM()">🔊</button>
                 <button class="speed-btn" data-speed="1.0" onclick="setActionSpeed(1.0)">▶</button>
                 <button class="speed-btn" data-speed="1.5" onclick="setActionSpeed(1.5)">▶▶</button>
                 <button class="speed-btn" data-speed="2.0" onclick="setActionSpeed(2.0)">▶▶▶</button>
@@ -597,6 +621,15 @@
                     window.game.setActionSpeed(speed);
                 } catch (e) {
                     console.error("SetActionSpeed failed", e);
+                    throw e;
+                }
+            };
+
+            window.toggleBGM = () => {
+                try {
+                    window.game.toggleBGM();
+                } catch (e) {
+                    console.error("ToggleBGM failed", e);
                     throw e;
                 }
             };

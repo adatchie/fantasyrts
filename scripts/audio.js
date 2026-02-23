@@ -14,6 +14,11 @@ export class AudioEngine {
         this.section = 0;
         this.sfxVolume = 0.5; // SE音量
 
+        // BGM設定
+        this.bgmAudio = null;
+        this.bgmEnabled = true;
+        this.currentBGMUrl = 'sounds/bgm/battlefield.mp3';
+
         // 外部サウンドファイルのAudioオブジェクト
         this.sounds = {
             battle: null,
@@ -63,6 +68,9 @@ export class AudioEngine {
      * サウンドを再生するヘルパー関数
      */
     playSound(soundKey) {
+        if (!this.bgmEnabled && (soundKey === 'clear' || soundKey === 'defeated')) {
+            // ファンファーレもBGM扱いならここで止めることも検討
+        }
         const sound = this.sounds[soundKey];
         if (sound) {
             sound.currentTime = 0; // 最初から再生
@@ -142,57 +150,49 @@ export class AudioEngine {
         this.playTone(n, 'sawtooth', 0.02, 0.6, 0.2, t);
     }
 
-    playBGM() {
-        if (this.isPlaying) return;
-        if (!this.ctx) return; // AudioContext未初期化なら何もしない
+    /**
+     * BGMの再生（外部ファイル）
+     * @param {string} url - 再生するBGMのURL（省略時はデフォルト）
+     */
+    playBGM(url) {
+        if (url) this.currentBGMUrl = url;
+
+        // 既存のBGMを停止
+        this.stopBGM();
+
+        // 外部ファイルを再生
+        this.bgmAudio = new Audio(this.currentBGMUrl);
+        this.bgmAudio.loop = true;
+        this.bgmAudio.volume = this.bgmEnabled ? 0.3 : 0;
+
         this.isPlaying = true;
-        if (this.ctx.state === 'suspended') this.ctx.resume();
-        this.tick = 0;
-        this.section = 0;
-        this.schedule();
+        this.bgmAudio.play().catch(e => console.warn('BGM play failed:', e));
+
+        // 旧来のシンセサイザーBGMは使用しない
+        // if (this.ctx.state === 'suspended') this.ctx.resume();
+        // this.tick = 0;
+        // this.section = 0;
+        // this.schedule();
     }
 
     stopBGM() {
         this.isPlaying = false;
+        if (this.bgmAudio) {
+            this.bgmAudio.pause();
+            this.bgmAudio = null;
+        }
         if (this.timerID) clearTimeout(this.timerID);
-        if (this.masterGain) {
-            this.masterGain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 1);
-        }
     }
 
-    schedule() {
-        if (!this.isPlaying) return;
-        const t = this.ctx.currentTime;
-
-        for (let i = 0; i < 4; i++) {
-            this.sequencer(this.tick, t + i * this.tempo);
-            this.tick++;
+    /**
+     * BGMのON/OFF切り替え
+     */
+    toggleBGM() {
+        this.bgmEnabled = !this.bgmEnabled;
+        if (this.bgmAudio) {
+            this.bgmAudio.volume = this.bgmEnabled ? 0.3 : 0;
         }
-
-        if (this.tick % 64 === 0) this.section = (this.section + 1) % 3;
-        this.timerID = setTimeout(() => this.schedule(), (4 * this.tempo * 1000) - 20);
-    }
-
-    sequencer(step, t) {
-        const beat = step % 16;
-        const scale = [146, 164, 196, 220, 261, 293, 329, 392];
-
-        // 太鼓のリズム
-        if (beat === 0 || beat === 8) this.instTaikoLow(t);
-        if (beat % 2 === 1 && Math.random() > 0.6) this.instTaikoHigh(t);
-        if (this.section > 0 && (beat === 14 || beat === 15)) this.instTaikoHigh(t);
-
-        // 尺八のメロディ
-        if (step % 32 === 0) this.instShakuhachi(scale[0], t, 4.0);
-        if (this.section === 1 && step % 16 === 8) this.instShakuhachi(scale[3], t, 2.0);
-        if (this.section === 2 && beat % 4 === 0) {
-            this.instShakuhachi(scale[Math.floor(Math.random() * 5)], t, 0.8);
-        }
-
-        // 琴の伴奏
-        if (this.section > 0 && step % 2 === 0) {
-            this.instKoto(scale[(step / 2) % scale.length] * (this.section === 2 ? 2 : 1), t);
-        }
+        return this.bgmEnabled;
     }
 
     playFanfare(win) {

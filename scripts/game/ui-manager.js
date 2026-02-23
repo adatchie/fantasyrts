@@ -15,6 +15,21 @@ export class UIManager {
      */
     constructor(game) {
         this.game = game;
+        this._setupBGMControl();
+    }
+
+    /**
+     * BGMトロールのセットアップ
+     * @private
+     */
+    _setupBGMControl() {
+        const bgmToggle = document.getElementById('bgm-toggle');
+        if (bgmToggle) {
+            bgmToggle.onclick = () => {
+                const enabled = this.game.audioEngine.toggleBGM();
+                this.updateBGMControlUI(enabled);
+            };
+        }
     }
 
     // ==================== HUD ====================
@@ -349,6 +364,22 @@ export class UIManager {
         const speedControl = document.getElementById('speed-control');
         if (speedControl) {
             speedControl.style.display = show ? 'flex' : 'none';
+        }
+    }
+
+    /**
+     * BGM制御UIの状態を更新
+     * @param {boolean} enabled - BGMが有効かどうか
+     */
+    updateBGMControlUI(enabled) {
+        const bgmToggle = document.getElementById('bgm-toggle');
+        if (bgmToggle) {
+            bgmToggle.textContent = enabled ? '🔊' : '🔇';
+            if (enabled) {
+                bgmToggle.classList.add('active');
+            } else {
+                bgmToggle.classList.remove('active');
+            }
         }
     }
 }

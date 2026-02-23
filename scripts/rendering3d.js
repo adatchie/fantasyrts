@@ -5,12 +5,13 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { HEX_SIZE, TILE_SIZE, TILE_HEIGHT, MAP_W, MAP_H, WARLORDS } from './constants.js';
+import { HEX_SIZE, TILE_SIZE, TILE_HEIGHT, MAP_W, MAP_H, WARLORDS, getUnitTypeInfo } from './constants.js';
 import { KamonDrawer } from './kamon.js';
 import { ANIMATIONS, DIRECTIONS, SPRITE_SHEET_PATH, SHEET_LAYOUT, getSpriteIndex, SPRITE_PATHS, UNIT_TYPE_TO_SPRITE } from './sprite-config.js';
 
 import TerrainManager from './terrain-manager.js';
 import { BuildingSystem, BUILDING_TEMPLATES } from './building.js';
+import SkyManager from './sky-manager.js';
 
 import { decompressBlocks } from './map-repository.js';
 import { generatePortrait } from './rendering.js'; // Import generatePortrait
@@ -44,7 +45,10 @@ export class RenderingEngine3D {
 
         // Three.js蝓ｺ譛ｬ繧ｻ繝・ヨ繧｢繝・・
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x1a2a1a);
+        // this.scene.background = new THREE.Color(0x1a2a1a); // SkyManagerが担当するため削除
+
+        // SkyManager (スカイドームと天候制御)
+        this.skyManager = new SkyManager(this);
 
         // Building System
         this.buildingSystem = new BuildingSystem(this.scene, this);
@@ -165,12 +169,9 @@ export class RenderingEngine3D {
     }
 
     setupLights() {
-        // 迺ｰ蠅・・・亥・菴鍋噪縺ｪ譏弱ｋ縺包ｼ・
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-        this.scene.add(ambientLight);
-
         // 蟷ｳ陦悟・貅撰ｼ亥､ｪ髯ｽ蜈会ｼ・
         const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+        this.directionalLight = directionalLight; // SkyManagerから参照できるように保存
         directionalLight.position.set(100, 200, 100);
         directionalLight.castShadow = true;
         directionalLight.shadow.camera.left = -500;
@@ -180,6 +181,19 @@ export class RenderingEngine3D {
         directionalLight.shadow.mapSize.width = 2048;
         directionalLight.shadow.mapSize.height = 2048;
         this.scene.add(directionalLight);
+
+        // 迺ｰ蠅・・・亥・菴鍋噪縺ｪ譏弱ｋ縺包ｼ・
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+        this.ambientLight = ambientLight; // SkyManagerから参照できるように保存
+        this.scene.add(ambientLight);
+
+        // SkyManagerに初期の照明設定を同期させる
+        if (this.skyManager) {
+            this.skyManager._syncLights();
+
+            // 太陽の初期位置をDirectionalLightに合わせる
+            this.skyManager.sunDirection.copy(directionalLight.position).normalize();
+        }
     }
 
     setupGround() {
@@ -1164,7 +1178,7 @@ export class RenderingEngine3D {
 
                 this.mapSystem.updateTerrain(q, r, heightVal);
 
-                // 鬮倥＆繧ｭ繝｣繝・す繝･縺ｫ菫晏ｭ・(displacementScale = 50)
+                // 鬮倥＆繧ｭ繝｣繝・す繝･縺ｫ菫晏ｭ假ｼ医 displacementScale = 50)
                 if (!this.hexHeights[r]) this.hexHeights[r] = [];
                 this.hexHeights[r][q] = (heightVal / 255) * 50;
 
@@ -1453,7 +1467,6 @@ export class RenderingEngine3D {
 
             // 繧ｭ繝｣繝・す繝･縺輔ｌ縺欸ector3繧貞・蛻ｩ逕ｨ
             // 建物の陰に入っている場合のみ深度オフセットを設定して、正しく表示されるようにする
-            const isInBuildingShadow = (window.game && window.game.buildingSystem && bInfo && bInfo.isBuilding);
             this._tempVec3.set(rawPos.x, groundHeight, rawPos.z);
             this._tempVec3.add(this._tempAnimOffset);
 
@@ -1533,7 +1546,7 @@ export class RenderingEngine3D {
 
             this._tempVec3.y += elevYOffset;
 
-            // 迴ｾ蝨ｨ菴咲ｽｮ縺ｨ繧ｿ繝ｼ繧ｲ繝・ヨ菴咲ｽｮ縺碁屬繧後※縺・ｋ蝣ｴ蜷医・縺ｿ譖ｴ譁ｰ・域ｮｵ蟾ｮ繧｢繝九Γ荳ｭ縺ｯ蟶ｸ縺ｫ譖ｴ譁ｰ・・
+            // 迴ｾ蝨ｨ菴咲ｽｮ縺ｨ繧ｿ繝ｼ繧ｲ繝・ヨ菴咲ｽｮ縺碁屬繧後※縺・ｋ蝣ｴ蜷医・縺ｿ譖ｴ譁ｰ・域ｮｵ蟾ｮ繧｢繝九Γ繧ｭ繝ｳ荳ｭ縺ｯ蟶ｸ縺ｫ譖ｴ譁ｰ・・
             if (mesh.userData.elevAnim?.active || this._tempAnimOffset.lengthSq() > 0 ||
                 Math.abs(mesh.position.x - this._tempVec3.x) > 0.1 ||
                 Math.abs(mesh.position.z - this._tempVec3.z) > 0.1 ||
@@ -1799,7 +1812,7 @@ export class RenderingEngine3D {
     }
 
     /**
-     * 繝ｦ繝九ャ繝医Γ繝・す繝･繧剃ｽ懈・縺励※霑斐☆・亥句挨繧ｹ繝励Λ繧､繝医ヵ繧｡繧､繝ｫ迚茨ｼ・
+     * 繝ｦ繝九ャ繝医Γ繝・す繝･繧剃ｽ懈・縺励※霑斐☆・亥句挨繝輔ぃ繧､繝ｫ迚茨ｼ・
      */
     /**
      * ユニットメッシュを作成して返す（スプライトシート版）
@@ -1860,7 +1873,9 @@ export class RenderingEngine3D {
             alphaTest: 0.5,
             depthWrite: true,
             depthTest: true,
-            polygonOffsetUnits: 1
+            polygonOffset: true,
+            polygonOffsetFactor: -2,
+            polygonOffsetUnits: -2
         });
 
         // 初期フレーム設定
@@ -1881,13 +1896,9 @@ export class RenderingEngine3D {
 
         const plane = new THREE.Mesh(planeGeo, planeMat);
         plane.position.y = size * 1.0;
+        plane.position.z = 4; // カメラ方向（グループの手前側）に少し出して地形へのめり込みを防ぐ
         plane.name = 'unitSprite';
-        // 建物の陰に入っている場合はレンダリング順序を大きくして建物の後に表示されるようにする
-        if (isInBuildingShadow) {
-            plane.renderOrder = 200;
-        } else {
-            plane.renderOrder = 100;
-        }
+        plane.renderOrder = 100;
 
         // フリップ（左右反転）
         if (spriteInfo.flip) {
@@ -2592,6 +2603,18 @@ export class RenderingEngine3D {
 
         // 繧ｨ繝輔ぉ繧ｯ繝域峩譁ｰ
         this.updateEffects();
+
+        // スカイボックスと天候の更新（SkyManagerのエラーがゲームを停止させないよう防御）
+        if (this.skyManager) {
+            try {
+                const now = performance.now();
+                const deltaTime = this.lastFrameTime ? now - this.lastFrameTime : 16;
+                this.lastFrameTime = now;
+                this.skyManager.update(deltaTime);
+            } catch (e) {
+                console.warn('[RenderingEngine] SkyManager update failed:', e.message);
+            }
+        }
 
         // 蜻ｽ莉､繝ｩ繧､繝ｳ謠冗判
         this.drawOrderLines();

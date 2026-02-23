@@ -192,7 +192,7 @@ class MapSelectScene {
         this.manager = manager;
     }
 
-    createUI() {
+    async createUI() {
         if (!this.manager.uiContainer) return;
 
         // ゲーム進行状態から利用可能なステージを取得
@@ -201,7 +201,7 @@ class MapSelectScene {
         // カスタムマップリストを確実に最新化
         if (mapRepository) {
             try {
-                mapRepository.loadFromStorage();
+                await mapRepository.loadFromStorage();
             } catch (e) {
                 console.error('[MapSelectScene] Failed to load maps:', e);
             }

@@ -3,8 +3,8 @@
  * フィールド（地形）と建造物配置データを複数保存・管理
  */
 
-import { MAP_REGISTRY } from './map-registry.js';
-// import { TUTORIAL_PLAIN_DATA } from './data/maps/tutorial_plain.js'; // Removed in favor of registry
+import { MAP_REGISTRY, MapRegistry } from './map-registry.js';
+// import { TUTORIAL_PLAIN_DATA } from './data/maps/tutorial_plain.js'; // Removed in favor of JSON loading
 
 // ============================================
 // マップデータ構造
@@ -199,16 +199,31 @@ export const BUILDING_TYPES = {
 export class MapDataRepository {
     constructor() {
         this.maps = new Map();
-        // 初期化時にRegistryからロード
-        this.loadFromRegistry();
+        // 初期化はasyncのinitialize()で行う（コンストラクタからは呼ばない）
     }
 
     /**
-     * MapRegistryから定義済みマップを読み込む
+     * 非同期初期化: Registryからマップを読み込む
+     * 使用側で `await mapRepository.initialize()` を呼ぶこと
      */
-    loadFromRegistry() {
+    async initialize() {
+        await this.loadFromRegistry();
+    }
+
+    /**
+     * ランダムなIDを生成
+     */
+    generateId() {
+        return 'map_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+    }
+
+    /**
+     * MapRegistryから定義済みマップを読み込む（非同期）
+     */
+    async loadFromRegistry() {
         try {
-            // 定義済みマップを読み込む
+            // JSON fetchで全マップを読み込む
+            await MapRegistry.loadAll();
             const maps = MAP_REGISTRY;
             let loadedCount = 0;
             maps.forEach(mapData => {
@@ -220,8 +235,7 @@ export class MapDataRepository {
                     if (typeof mapClone.createdAt === 'string') mapClone.createdAt = new Date(mapClone.createdAt);
                     if (typeof mapClone.updatedAt === 'string') mapClone.updatedAt = new Date(mapClone.updatedAt);
 
-                    // メモリ上に既にロードされている（ユーザーが編集中の）場合は上書きしない
-                    // ただし、初回ロード時はセットする
+                    // メモリ上に既にロードされている場合は上書きしない
                     if (!this.maps.has(mapClone.id)) {
                         this.maps.set(mapClone.id, mapClone);
                         loadedCount++;
@@ -530,10 +544,10 @@ export class MapDataRepository {
     /**
      * LocalStorageから読み込み (復活)
      */
-    loadFromStorage() {
+    async loadFromStorage() {
         try {
             // Registryからの読み込みを先に行う
-            this.loadFromRegistry();
+            await this.loadFromRegistry();
 
             const json = localStorage.getItem('fantasy_rts_maps');
             if (json) {

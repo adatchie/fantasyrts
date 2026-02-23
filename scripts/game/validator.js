@@ -122,32 +122,32 @@ export function validateUnitData(unitDef) {
         }
     }
 
-    // MAP_W, MAP_H の境界値チェック（境界を含む）
+    // MAP_W, MAP_H の境界値チェック（配置時のx,yは存在する場合のみ）
     if (unitDef.x !== undefined) {
         const x = Number(unitDef.x);
-        if (isNaN(x) || x < 0 || x > MAP_W - 1) {  // MAP_W - 1 まで有効
-            errors.push(VALIDATION_ERRORS.INVALID_X.replace('{0}', unitDef.x).replace('{1}', MAP_W - 1));
+        if (isNaN(x) || x < 0 || x > MAP_W + 50) {  // 拡張マップ考慮
+            errors.push(VALIDATION_ERRORS.INVALID_X.replace('{0}', unitDef.x).replace('{1}', MAP_W + 50));
         }
     }
 
     if (unitDef.y !== undefined) {
         const y = Number(unitDef.y);
-        if (isNaN(y) || y < 0 || y > MAP_H - 1) {  // MAP_H - 1 まで有効
-            errors.push(VALIDATION_ERRORS.INVALID_Y.replace('{0}', unitDef.y).replace('{1}', MAP_H - 1));
+        if (isNaN(y) || y < 0 || y > MAP_H + 50) {  // 拡張マップ考慮
+            errors.push(VALIDATION_ERRORS.INVALID_Y.replace('{0}', unitDef.y).replace('{1}', MAP_H + 50));
         }
     }
 
-    // ステータス値のチェック
+    // ステータス値のチェック（存在する場合のみ、かつ上限を緩和）
     if (unitDef.atk !== undefined) {
         const atk = Number(unitDef.atk);
-        if (isNaN(atk) || !isFinite(atk) || atk < 0 || atk > 200) {
+        if (isNaN(atk) || !isFinite(atk) || atk < 0) {
             errors.push(VALIDATION_ERRORS.INVALID_ATK.replace('{0}', unitDef.atk));
         }
     }
 
     if (unitDef.def !== undefined) {
         const def = Number(unitDef.def);
-        if (isNaN(def) || !isFinite(def) || def < 0 || def > 200) {
+        if (isNaN(def) || !isFinite(def) || def < 0) {
             errors.push(VALIDATION_ERRORS.INVALID_DEF.replace('{0}', unitDef.def));
         }
     }

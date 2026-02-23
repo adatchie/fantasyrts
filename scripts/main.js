@@ -12,7 +12,7 @@
  */
 
 import { WARLORDS } from './constants.js';
-import { TUTORIAL_PLAIN_DATA } from './data/maps/tutorial_plain.js';
+// TUTORIAL_PLAIN_DATA import removed: JSON統一化によりfetch経由で読み込む
 import { AudioEngine } from './audio.js';
 import { MapSystem } from './map.js?v=118';
 import { RenderingEngine3D } from './rendering3d.js?v=122';
@@ -111,7 +111,7 @@ export class Game {
         this.renderingEngine = new RenderingEngine3D(this.canvas);
         this.renderingEngine.setMapSystem(this.mapSystem);
 
-        this.renderingEngine.init().then(() => {
+        this.renderingEngine.init().then(async () => {
             console.log('Rendering Engine Initialized');
 
             // Combat System
@@ -155,7 +155,7 @@ export class Game {
             this.buildingEditor = new BuildingEditor(this);
 
             // Initial Map Generation for Title Screen Background
-            this._loadBackgroundMap();
+            await this._loadBackgroundMap();
 
             // HTMLファイルに応じてモードを切り替え
             this._initSceneManager();
@@ -175,7 +175,9 @@ export class Game {
      */
     startStage(stageData, playerSide = 'EAST') {
         this.audioEngine.init();
-        this.audioEngine.playBGM();
+        // ステージデータにBGM設定がある場合はそれを使用
+        const bgmUrl = stageData.bgm || stageData.meta?.bgm || 'sounds/bgm/battlefield.mp3';
+        this.audioEngine.playBGM(bgmUrl);
         this.playerSide = playerSide;
         this.combatSystem.setPlayerSide(playerSide);
         document.getElementById('start-screen').style.display = 'none';
@@ -196,7 +198,9 @@ export class Game {
 
     startGame(side) {
         this.audioEngine.init();
-        this.audioEngine.playBGM();
+        // カスタムマップデータにBGM設定がある場合はそれを使用
+        const bgmUrl = (this.customMapData && this.customMapData.bgm) ? this.customMapData.bgm : 'sounds/bgm/battlefield.mp3';
+        this.audioEngine.playBGM(bgmUrl);
         this.playerSide = side;
         this.combatSystem.setPlayerSide(side);
 
@@ -306,30 +310,34 @@ export class Game {
     // Input (scene-manager.js が .bind(this.game) で参照)
     handleMouseDownInternal(e) { this.inputController.handleMouseDown(e); }
     handleMouseMoveInternal(e) { this.inputController.handleMouseMove(e); }
-    handleMouseUpInternal(e)   { this.inputController.handleMouseUp(e); }
-    handleKeyDownInternal(e)   { this.inputController.handleKeyDown(e); }
-    onWheel(e)                 { this.inputController.onWheel(e); }
-    onTouchStart(e)            { this.inputController.onTouchStart(e); }
-    onTouchMove(e)             { this.inputController.onTouchMove(e); }
-    onTouchEnd(e)              { this.inputController.onTouchEnd(e); }
+    handleMouseUpInternal(e) { this.inputController.handleMouseUp(e); }
+    handleKeyDownInternal(e) { this.inputController.handleKeyDown(e); }
+    onWheel(e) { this.inputController.onWheel(e); }
+    onTouchStart(e) { this.inputController.onTouchStart(e); }
+    onTouchMove(e) { this.inputController.onTouchMove(e); }
+    onTouchEnd(e) { this.inputController.onTouchEnd(e); }
 
     // UI (HTML onclick, scene-manager.js)
-    updateHUD()                              { this.uiManager.updateHUD(); }
-    updateSelectionUI(list, targetUnit)       { this.uiManager.updateSelectionUI(list, targetUnit); }
-    showFormationPanel(hqUnit, subordinates)  { this.uiManager.showFormationPanel(hqUnit, subordinates); }
-    hideFormationPanel()                      { this.uiManager.hideFormationPanel(); }
-    setFormation(hqUnit, formation)           { this.uiManager.setFormation(hqUnit, formation); }
-    setActionSpeed(speed)                     { this.uiManager.setActionSpeed(speed); }
-    showSpeedControl(show)                    { this.uiManager.showSpeedControl(show); }
+    updateHUD() { this.uiManager.updateHUD(); }
+    updateSelectionUI(list, targetUnit) { this.uiManager.updateSelectionUI(list, targetUnit); }
+    showFormationPanel(hqUnit, subordinates) { this.uiManager.showFormationPanel(hqUnit, subordinates); }
+    hideFormationPanel() { this.uiManager.hideFormationPanel(); }
+    setFormation(hqUnit, formation) { this.uiManager.setFormation(hqUnit, formation); }
+    setActionSpeed(speed) { this.uiManager.setActionSpeed(speed); }
+    showSpeedControl(show) { this.uiManager.showSpeedControl(show); }
+    toggleBGM() {
+        const enabled = this.audioEngine.toggleBGM();
+        this.uiManager.updateBGMControlUI(enabled);
+    }
 
     // Commands (HTML onclick)
     issueCommand(type) { this.inputController.issueCommand(type); }
-    closeCtx()         { this.inputController.closeCtx(); }
+    closeCtx() { this.inputController.closeCtx(); }
 
     // Building Placement (building-editor.js)
     enterBuildingPlacementMode(data) { this.buildingPlacement.enterPlacementMode(data); }
-    cancelPlacementMode()            { this.buildingPlacement.cancelPlacementMode(); }
-    exportMapData()                  { this.buildingPlacement.exportMapData(); }
+    cancelPlacementMode() { this.buildingPlacement.cancelPlacementMode(); }
+    exportMapData() { this.buildingPlacement.exportMapData(); }
 
     // Utility
     findNonOverlappingPosition(cx, cy, totalUnits, existingUnits) {
@@ -339,13 +347,13 @@ export class Game {
     // ==================== Private Init Helpers ====================
 
     /**
-     * タイトル画面背景マップをロード
+     * タイトル画面背景マップをロード（非同期）
      * @private
      */
-    _loadBackgroundMap() {
-        let backgroundMapData = TUTORIAL_PLAIN_DATA;
+    async _loadBackgroundMap() {
+        let backgroundMapData = null;
         try {
-            mapRepository.loadFromStorage();
+            await mapRepository.loadFromStorage();
             const storedMaps = mapRepository.list();
             console.log('[Init] Available maps:', storedMaps.map(m => ({ id: m.id, name: m.name })));
             if (storedMaps.length > 0) {
@@ -353,12 +361,22 @@ export class Game {
                 const firstMap = mapRepository.get(firstMapId);
                 if (firstMap && firstMap.terrain) {
                     backgroundMapData = firstMap;
-                    console.log(`[Init] Using stored map as background: ${firstMap.name}`);
+                    console.log(`[Init] Using map as background: ${firstMap.name}`);
                 }
             }
         } catch (e) {
-            console.warn('[Init] Failed to load stored maps, using fallback:', e);
+            console.warn('[Init] Failed to load maps:', e);
         }
+
+        if (!backgroundMapData) {
+            console.warn('[Init] No map data available for background. Using empty terrain.');
+            backgroundMapData = {
+                id: 'fallback',
+                name: 'Fallback',
+                terrain: { width: 30, height: 30, heightMap: [], terrainType: [] }
+            };
+        }
+
         this.mapSystem.setMapData(backgroundMapData);
         this.renderingEngine.buildTerrainFromMapData(backgroundMapData);
         console.log('[Init] Map built successfully');
