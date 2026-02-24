@@ -121,6 +121,9 @@ export class Game {
             this.combatSystem.setGame(this);
             this.combatSystem.setUnitManager(this.unitManager);
 
+            // AISystemにCombatSystemの参照を設定（遮蔽チェック用）
+            this.aiSystem.combatSystem = this.combatSystem;
+
             // Building System
             this.buildingSystem = this.renderingEngine.buildingSystem;
 

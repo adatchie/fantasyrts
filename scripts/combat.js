@@ -54,8 +54,9 @@ export class CombatSystem {
         if (!unit.order) return;
 
         // アクティブマーカーを表示
-        if (this.renderingEngine && this.renderingEngine.showActiveMarker) {
-            this.renderingEngine.showActiveMarker(unit);
+        const re = this.renderingEngine || (window.game && window.game.renderingEngine);
+        if (re && re.showActiveMarker) {
+            re.showActiveMarker(unit);
         }
 
         try {
@@ -81,8 +82,9 @@ export class CombatSystem {
             }
         } finally {
             // アクティブマーカーを非表示
-            if (this.renderingEngine && this.renderingEngine.hideActiveMarker) {
-                this.renderingEngine.hideActiveMarker();
+            const re2 = this.renderingEngine || (window.game && window.game.renderingEngine);
+            if (re2 && re2.hideActiveMarker) {
+                re2.hideActiveMarker();
             }
         }
 
@@ -315,7 +317,11 @@ export class CombatSystem {
                 unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
                 await this.rangedCombat(unit, target, map, allUnits);
                 hasAttackedThisPhase = true;
-                // 弓攻撃後、まだ距離があれば陣形で近づく
+                // 遠距離ユニットは射程内なら移動不要（射撃のみで行動終了）
+                if (canRangedAttack) {
+                    return;
+                }
+                // 近接ユニットは弓攻撃後、まだ距離があれば陣形で近づく
             }
 
             // 陣形を維持して移動
@@ -358,20 +364,30 @@ export class CombatSystem {
                 unit.order = originalOrder;
             }
         } else {
-            // 接敵距離に入ったら、個別にターゲットへ殺到する
-            const moved = await this.moveUnitStep(unit, target, allUnits, map);
-            // 移動後に再チェック
-            const newDist = getDistAttack(unit, target);
-            if (!hasAttackedThisPhase && newDist <= reach) {
-                unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
-                this.speak(unit, 'ATTACK');
-                await this.combat(unit, target, allUnits, map);
-                hasAttackedThisPhase = true;
-            } else if (!hasAttackedThisPhase && canUseBow(newDist)) {
-                // 移動後に弓射程内なら遠距離攻撃
-                unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
-                await this.rangedCombat(unit, target, map, allUnits);
-                hasAttackedThisPhase = true;
+            // 接敵距離に入った場合
+            if (canRangedAttack && canUseBow(dist)) {
+                // 遠距離ユニットは射程内なら射撃のみ（突撃しない）
+                if (!hasAttackedThisPhase) {
+                    unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
+                    await this.rangedCombat(unit, target, map, allUnits);
+                    hasAttackedThisPhase = true;
+                }
+            } else {
+                // 近接ユニットは従来通り突撃
+                const moved = await this.moveUnitStep(unit, target, allUnits, map);
+                // 移動後に再チェック
+                const newDist = getDistAttack(unit, target);
+                if (!hasAttackedThisPhase && newDist <= reach) {
+                    unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
+                    this.speak(unit, 'ATTACK');
+                    await this.combat(unit, target, allUnits, map);
+                    hasAttackedThisPhase = true;
+                } else if (!hasAttackedThisPhase && canUseBow(newDist)) {
+                    // 移動後に弓射程内なら遠距離攻撃
+                    unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
+                    await this.rangedCombat(unit, target, map, allUnits);
+                    hasAttackedThisPhase = true;
+                }
             }
         }
     }

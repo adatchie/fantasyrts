@@ -1585,12 +1585,13 @@ export class RenderingEngine3D {
                 }
             }
 
-            // 驕ｸ謚槭Μ繝ｳ繧ｰ縺ｮ陦ｨ遉ｺ蛻・ｊ譖ｿ縺・
+            // 選択リングの表示切り替え（行動フェイズ中は非表示）
             const selRing = mesh.getObjectByName('selectionRing');
             if (selRing) {
-                selRing.visible = isSelected;
-                if (isSelected) {
-                    // 轤ｹ貊・い繝九Γ繝ｼ繧ｷ繝ｧ繝ｳ
+                const inOrderPhase = window.game && window.game.gameState === 'ORDER';
+                selRing.visible = isSelected && inOrderPhase;
+                if (selRing.visible) {
+                    // 点滅アニメーション
                     const time = Date.now() * 0.005;
                     selRing.material.opacity = 0.5 + Math.sin(time) * 0.3;
                 }
@@ -2164,13 +2165,15 @@ export class RenderingEngine3D {
     }
 
     /**
-     * 繝ｦ繝九ャ繝域ュ蝣ｱ繧ｪ繝ｼ繝舌・繝ｬ繧､・亥・螢ｫ繧ｲ繝ｼ繧ｸ縲∝ｮｶ邏具ｼ峨ｒ菴懈・
+     * ユニット情報オーバーレイ（兵力ゲージ、家紋）を作成
      */
     createUnitInfoOverlay(mesh, unit) {
-        // 蜈ｵ螢ｫ繧ｲ繝ｼ繧ｸ逕ｨ繧ｹ繝励Λ繧､繝・
+        // 兵力ゲージ用スプライト
         const barSprite = this.createBarSprite(unit);
         barSprite.name = 'barSprite';
-        barSprite.position.set(0, 20, 0); // 鬮倥＆隱ｿ謨ｴ
+        const unitSize = unit.size || 1;
+        const barHeight = unitSize === 4 ? 50 : unitSize === 2 ? 40 : 30;
+        barSprite.position.set(0, barHeight, 0); // ユニットサイズに応じた高さ
         mesh.add(barSprite);
 
         // 譛ｬ髯｣繝槭・繧ｫ繝ｼ縺ｨ蜷榊燕
@@ -2968,15 +2971,20 @@ export class RenderingEngine3D {
         // data: { q, r } or { x, y, z }
         const pos = data.x !== undefined ? data : this.hexToWorld3D(data.q, data.r);
 
-        const geometry = new THREE.SphereGeometry(10, 8, 8);
+        // PlaneGeometryで地面に寝かせることでユニットを隠さない
+        const geometry = new THREE.PlaneGeometry(30, 30);
         const material = new THREE.MeshBasicMaterial({
             color: 0xcccccc,
             transparent: true,
-            opacity: 0.6
+            opacity: 0.4,
+            depthWrite: false,
+            side: THREE.DoubleSide
         });
 
         const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(pos.x, 10, pos.z);
+        mesh.position.set(pos.x, 5, pos.z);
+        mesh.rotation.x = -Math.PI / 2; // 地面に寝かせる
+        mesh.renderOrder = -1; // ユニットより後ろに描画
         this.scene.add(mesh);
 
         this.effects.push({

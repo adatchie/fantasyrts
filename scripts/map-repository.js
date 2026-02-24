@@ -584,7 +584,17 @@ export class MapDataRepository {
                                 data.units = [];
                             }
 
-                            // 重複時はStorage優先（ユーザー編集データのため）
+                            // 重複判定：Registryから読み込んだ公式マップの方が新しい(または同じバージョン)場合は上書きしない
+                            if (this.maps.has(data.id)) {
+                                const existingMap = this.maps.get(data.id);
+                                const existingVer = existingMap.version || 1;
+                                const storageVer = data.version || 1;
+                                if (existingVer >= storageVer) {
+                                    return; // Storageからの上書きをスキップ
+                                }
+                            }
+
+                            // 重複時はStorage優先（ユーザー編集データなど、Storage側が新しい場合のみ）
                             this.maps.set(data.id, data);
                             storageLoadedCount++;
                         } catch (e) {

@@ -170,6 +170,10 @@ export class TurnManager {
             const currentGameState = this.getGameState();
             if (currentGameState !== 'END') {
                 this.setGameState('ORDER');
+                // 全ユニットの行動済みフラグをリセット（新しいターンでの命令設定を可能にする）
+                const units = this.getUnits();
+                units.forEach(u => u.hasActed = false);
+
                 this._updateOrderPhaseUI();
             }
         }

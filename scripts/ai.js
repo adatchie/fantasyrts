@@ -4,7 +4,7 @@
  */
 
 import { getDist, getDistRaw } from './pathfinding.js';
-import { FORMATION_HOKO, FORMATION_KAKUYOKU, FORMATION_GYORIN, UNIT_TYPE_HEADQUARTERS, UNIT_TYPES } from './constants.js';
+import { FORMATION_HOKO, FORMATION_KAKUYOKU, FORMATION_GYORIN, UNIT_TYPE_HEADQUARTERS, UNIT_TYPES, TILE_HEIGHT } from './constants.js';
 
 export class AISystem {
     constructor() {
@@ -35,6 +35,43 @@ export class AISystem {
         // 敵ユニットをリストアップ
         const enemies = allUnits.filter(t => t.side !== unit.side && !t.dead);
         if (enemies.length === 0) return null;
+
+        // ============ ① 本陣保護ロジック ============
+        if (unit.unitType === UNIT_TYPE_HEADQUARTERS) {
+            // 配下ユニットを取得
+            const subordinates = allUnits.filter(u =>
+                u.warlordId === unit.warlordId &&
+                u.unitType !== UNIT_TYPE_HEADQUARTERS &&
+                !u.dead
+            );
+
+            if (subordinates.length > 0) {
+                // 最も近い敵との距離
+                const nearestEnemyDist = Math.min(...enemies.map(e => getDist(unit, e)));
+
+                // 配下が生存している場合、敵が十分近くない限り攻撃しない
+                // 距離5以内に敵がいなければ待機（配下が戦うのを待つ）
+                if (nearestEnemyDist > 5) {
+                    // 配下の平均位置を計算
+                    const avgX = subordinates.reduce((s, u) => s + u.x, 0) / subordinates.length;
+                    const avgY = subordinates.reduce((s, u) => s + u.y, 0) / subordinates.length;
+
+                    // 本陣が配下の平均位置より敵に近い場合は攻撃しない（突出防止）
+                    const nearestEnemy = enemies.reduce((best, e) => {
+                        const d = getDist(unit, e);
+                        return d < getDist(unit, best) ? e : best;
+                    });
+                    const hqDistToEnemy = getDist(unit, nearestEnemy);
+                    const avgDistToEnemy = getDistRaw(avgX, avgY, nearestEnemy.x, nearestEnemy.y);
+
+                    if (hqDistToEnemy <= avgDistToEnemy) {
+                        // 本陣が配下より前方にいる→攻撃しない（待機）
+                        return null;
+                    }
+                }
+            }
+        }
+        // ============ 本陣保護ロジック終わり ============
 
         // 調略の可能性を検討（仁が高い場合）
         if (unit.jin >= 75) {
@@ -109,8 +146,12 @@ export class AISystem {
         const rangeType = typeInfo.rangeType || 'melee';
 
         // 遠距離攻撃ユニットの射程
-        const isRanged = ['bowArc', 'longArc', 'siege'].includes(rangeType);
-        const rangedRange = 8; // 弓の基本射程
+        const isRanged = ['bowArc', 'longArc', 'siege', 'aoe', 'breath', 'heal'].includes(rangeType);
+        let rangedRange = 8; // 弓の基本射程
+        if (rangeType === 'aoe') rangedRange = 6;
+        if (rangeType === 'breath') rangedRange = 4;
+        if (rangeType === 'siege') rangedRange = 12;
+        if (rangeType === 'heal') rangedRange = 5;
 
         // 射程内にいる敵を探す
         const enemiesInRange = [];
@@ -128,8 +169,22 @@ export class AISystem {
         // 射程内に敵がいればその中から選択
         const candidates = enemiesInRange.length > 0 ? enemiesInRange : enemiesOutOfRange;
 
+        // ② 遮蔽チェック用のマップデータを取得
+        const map = mapSystem ? mapSystem.getMap() : null;
+
         for (const { enemy, distance } of candidates) {
             let score = this.evaluateTarget(unit, enemy, allUnits, mapSystem);
+
+            // ② 遠距離ユニットの遮蔽チェック
+            if (isRanged && map && this.combatSystem) {
+                const blockInfo = this.combatSystem.isArrowPathBlocked(
+                    unit, enemy, map
+                );
+                if (blockInfo && blockInfo.blocked) {
+                    score -= 200; // 遮蔽される敵に大きなペナルティ
+                }
+            }
+
             // 射程外の敵には距離ペナルティを追加
             if (enemiesInRange.length === 0) {
                 score -= distance * 10; // 射程外なら距離で大きく減点
