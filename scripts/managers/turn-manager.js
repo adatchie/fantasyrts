@@ -169,12 +169,17 @@ export class TurnManager {
         } finally {
             const currentGameState = this.getGameState();
             if (currentGameState !== 'END') {
+                if (this.incrementTurnCount) this.incrementTurnCount();
                 this.setGameState('ORDER');
                 // 全ユニットの行動済みフラグをリセット（新しいターンでの命令設定を可能にする）
                 const units = this.getUnits();
                 units.forEach(u => u.hasActed = false);
 
                 this._updateOrderPhaseUI();
+
+                if (this.triggerPhaseEvent) {
+                    await this.triggerPhaseEvent();
+                }
             }
         }
     }
@@ -353,6 +358,13 @@ export function createTurnManager(gameInstance) {
         getPlayerSide: () => gameInstance.playerSide,
         getGameState: () => gameInstance.gameState,
         setGameState: (state) => { gameInstance.gameState = state; },
+        getTurnCount: () => gameInstance.turnCount,
+        incrementTurnCount: () => { if (gameInstance.turnCount != null) gameInstance.turnCount++; },
+        triggerPhaseEvent: async () => {
+            if (gameInstance.eventManager) {
+                await gameInstance.eventManager.triggerPhaseEvent(gameInstance.units, gameInstance.turnCount);
+            }
+        },
         getWarlordPlotUsed: () => gameInstance.warlordPlotUsed,
         setWarlordPlotUsed: (value) => { gameInstance.warlordPlotUsed = value; },
         onTurnPhaseChange: gameInstance.onTurnPhaseChange?.bind(gameInstance),

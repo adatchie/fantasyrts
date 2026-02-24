@@ -46,10 +46,24 @@ export const STAGES = {
         description: '初めての戦場 - 基本操作を学ぼう',
         difficulty: 1,
         mapName: 'チュートリアル平原',
-        customMapName: 'チュートリアル平原',
+        stageFile: 'stage_01.json',
         enemyForces: [
             { type: 'INFANTRY', count: 5 },
             { type: 'ARCHER', count: 3 }
+        ],
+        victoryCondition: 'eliminate',
+        turns: null
+    },
+    castle: {
+        id: 'castle',
+        name: '城攻めの攻防',
+        description: '堅牢な城を攻略せよ',
+        difficulty: 2,
+        mapName: '攻城戦',
+        stageFile: 'stage_02.json',
+        enemyForces: [
+            { type: 'INFANTRY', count: 6 },
+            { type: 'ARCHER', count: 4 }
         ],
         victoryCondition: 'eliminate',
         turns: null
@@ -60,7 +74,7 @@ export const STAGES = {
         description: '高低差を活かした戦い',
         difficulty: 3,
         mapName: '山岳決戦',
-        customMapName: '山岳決戦',
+        stageFile: 'stage_03.json',
         enemyForces: [
             { type: 'INFANTRY', count: 6 },
             { type: 'ARCHER', count: 6 },
@@ -149,7 +163,7 @@ export class GameProgress {
         }
 
         // 次のステージをアンロック
-        const stageOrder = ['tutorial', 'mountain'];
+        const stageOrder = ['tutorial', 'castle', 'mountain'];
         const currentIndex = stageOrder.indexOf(stageId);
         if (currentIndex >= 0 && currentIndex < stageOrder.length - 1) {
             const nextStage = stageOrder[currentIndex + 1];

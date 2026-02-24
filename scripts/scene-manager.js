@@ -305,30 +305,36 @@ class MapSelectScene {
             this.manager.transition(SCENES.TITLE);
         });
 
-        document.getElementById('btn-to-org').addEventListener('click', () => {
+        document.getElementById('btn-to-org').addEventListener('click', async () => {
             if (this.selectedId !== null) {
                 if (this.selectedType === 'story') {
                     gameProgress.currentStage = parseInt(this.selectedId);
 
-                    // シナリオに対応するカスタムマップがあれば読み込む
+                    // シナリオに対応するステージJSONファイルを読み込む
                     const stages = gameProgress.getAvailableStages();
                     const selectedStage = stages[parseInt(this.selectedId)];
-                    if (selectedStage && selectedStage.customMapName) {
-                        // customMapNameでmapRepositoryから検索
-                        const allMaps = mapRepository.list();
-                        const matchingMap = allMaps.find(m => m.name === selectedStage.customMapName);
-                        if (matchingMap) {
-                            const fullMapData = mapRepository.get(matchingMap.id);
-                            // Validate custom map data
-                            const validation = validateMapData(fullMapData);
-                            if (!validation.valid) {
-                                console.error('[MapSelectScene] Custom map validation failed:', validation.errors);
-                                alert(`カスタムマップデータにエラーがあります:\n${validation.errors.join('\n')}`);
+                    if (selectedStage && selectedStage.stageFile) {
+                        try {
+                            const response = await fetch(`./scripts/data/stages/${selectedStage.stageFile}`);
+                            if (response.ok) {
+                                const fullMapData = await response.json();
+                                // Validate stage map data
+                                const validation = validateMapData(fullMapData);
+                                if (!validation.valid) {
+                                    console.error('[MapSelectScene] Stage data validation failed:', validation.errors);
+                                    alert(`ステージデータにエラーがあります:\n${validation.errors.join('\n')}`);
+                                    return;
+                                }
+                                this.manager.setGameData('customMapData', fullMapData);
+                            } else {
+                                console.error(`[MapSelectScene] Failed to load ${selectedStage.stageFile}: ${response.status}`);
+                                alert(`ステージデータの読み込みに失敗しました。`);
                                 return;
                             }
-                            this.manager.setGameData('customMapData', fullMapData);
-                        } else {
-                            this.manager.setGameData('customMapData', null);
+                        } catch (e) {
+                            console.error('[MapSelectScene] Error loading stage file:', e);
+                            alert(`ステージデータの読み込み中にエラーが発生しました。`);
+                            return;
                         }
                     } else {
                         // カスタムマップデータをクリア
@@ -1268,6 +1274,33 @@ class BattleScene {
                 <button class="speed-btn" data-speed="1.0" onclick="window.setActionSpeed(1.0)">▶</button>
                 <button class="speed-btn" data-speed="1.5" onclick="window.setActionSpeed(1.5)">▶▶</button>
                 <button class="speed-btn" data-speed="2.0" onclick="window.setActionSpeed(2.0)">▶▶▶</button>
+            </div>
+            <div id="conversation-layer">
+                <div id="dialogue-top" class="dialogue-box top">
+                    <div class="dialogue-content">
+                        <div class="dialogue-speaker">
+                            <div class="speaker-img">
+                                <span id="dialogue-top-img-placeholder"></span>
+                                <img id="dialogue-top-img" src="" style="display:none;">
+                            </div>
+                            <div id="dialogue-top-name" class="speaker-name"></div>
+                        </div>
+                        <div id="dialogue-top-text" class="dialogue-text"></div>
+                    </div>
+                </div>
+                <div id="dialogue-bottom" class="dialogue-box bottom">
+                    <div class="dialogue-content">
+                        <div class="dialogue-speaker">
+                            <div class="speaker-img">
+                                <span id="dialogue-bottom-img-placeholder"></span>
+                                <img id="dialogue-bottom-img" src="" style="display:none;">
+                            </div>
+                            <div id="dialogue-bottom-name" class="speaker-name"></div>
+                        </div>
+                        <div id="dialogue-bottom-text" class="dialogue-text"></div>
+                    </div>
+                </div>
+                <div class="click-prompt">▼ タップして次へ</div>
             </div>
         `;
 

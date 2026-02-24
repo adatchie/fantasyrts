@@ -500,6 +500,135 @@
             background: rgba(255, 215, 0, 0.2);
             border-color: #ffd700;
         }
+
+        /* Conversation UI */
+        #conversation-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            /* デフォルトは操作ブロックしない */
+            z-index: 150;
+            /* ui-layer(50), start-screen(200) の間 */
+            display: none;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        #conversation-layer.active {
+            display: flex;
+            pointer-events: auto;
+            /* アクティブ時は全体でクリックを拾う */
+            background: rgba(0, 0, 0, 0.3);
+            /* 背景を少し暗くしてイベント感を出す */
+        }
+
+        .dialogue-box {
+            position: relative;
+            width: 80%;
+            max-width: 800px;
+            margin: 30px auto;
+            background: rgba(15, 15, 20, 0.95);
+            border: 2px solid #555;
+            border-radius: 4px;
+            padding: 15px 25px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.8), inset 0 0 20px rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+
+        .dialogue-box.show {
+            opacity: 1;
+            transform: translateY(0);
+            border-color: #ffd700;
+        }
+
+        .dialogue-top {
+            /* 上部のダイアログは少し下向きのアニメーションにすると良いかも */
+            transform: translateY(-20px);
+        }
+
+        .dialogue-box.dialogue-top.show {
+            transform: translateY(0);
+        }
+
+        .dialogue-bottom {
+            /* For future use */
+        }
+
+        .dialogue-portrait {
+            width: 80px;
+            height: 80px;
+            border: 2px solid #888;
+            border-radius: 5px;
+            background: #222;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #aaa;
+            font-size: 12px;
+            flex-shrink: 0;
+            overflow: hidden;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+
+        .dialogue-portrait img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .dialogue-content {
+            flex-grow: 1;
+        }
+
+        .dialogue-name {
+            font-size: 18px;
+            font-weight: bold;
+            color: #ffd700;
+            margin-bottom: 8px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 4px;
+            font-family: serif;
+            letter-spacing: 1px;
+        }
+
+        .dialogue-text {
+            font-size: 17px;
+            color: #fff;
+            line-height: 1.6;
+            font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+            min-height: 54px;
+            /* 2行確保 */
+            text-shadow: 1px 1px 2px #000;
+        }
+
+        .dialogue-indicator {
+            position: absolute;
+            bottom: 15px;
+            right: 25px;
+            font-size: 14px;
+            color: #ffd700;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0;
+            }
+        }
     </style>
 </head>
 
@@ -511,6 +640,35 @@
         <div id="effect-layer"></div>
         <div id="flash-overlay"></div>
         <div id="error-log"></div>
+
+        <!-- Conversation UI -->
+        <div id="conversation-layer">
+            <div id="dialogue-top" class="dialogue-box dialogue-top">
+                <div class="dialogue-portrait">
+                    <div id="dialogue-top-img-placeholder">Image</div><img id="dialogue-top-img" src="" alt=""
+                        style="display:none;">
+                </div>
+                <div class="dialogue-content">
+                    <div class="dialogue-name" id="dialogue-top-name">Name</div>
+                    <div class="dialogue-text" id="dialogue-top-text">Text</div>
+                </div>
+                <div class="dialogue-indicator">▼</div>
+            </div>
+
+            <div style="flex-grow: 1;"></div>
+
+            <div id="dialogue-bottom" class="dialogue-box dialogue-bottom">
+                <div class="dialogue-portrait">
+                    <div id="dialogue-bottom-img-placeholder">Image</div><img id="dialogue-bottom-img" src="" alt=""
+                        style="display:none;">
+                </div>
+                <div class="dialogue-content">
+                    <div class="dialogue-name" id="dialogue-bottom-name">Name</div>
+                    <div class="dialogue-text" id="dialogue-bottom-text">Text</div>
+                </div>
+                <div class="dialogue-indicator">▼</div>
+            </div>
+        </div>
 
         <div id="ui-layer">
             <div id="top-bar" class="hud-panel">

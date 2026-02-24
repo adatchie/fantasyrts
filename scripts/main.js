@@ -25,6 +25,7 @@ import { StageLoader } from './stage-loader.js';
 import { createSceneManager, SCENES } from './scene-manager.js?v=118';
 import { mapRepository } from './map-repository.js';
 import { createTurnManager } from './managers/turn-manager.js';
+import { EventManager } from './managers/event-manager.js';
 
 // Sub-modules
 import { InputController } from './game/input-controller.js';
@@ -84,6 +85,9 @@ export class Game {
         this.uiManager = new UIManager(this);
         this.unitSpawner = new UnitSpawner(this);
         this.buildingPlacement = new BuildingPlacementController(this);
+        this.eventManager = new EventManager(this);
+
+        this.turnCount = 1;
 
         // TurnManager (initialized after combatSystem is ready in init())
         this.turnManager = null;
@@ -186,6 +190,9 @@ export class Game {
         document.getElementById('start-screen').style.display = 'none';
 
         this.stageLoader.loadStage(stageData);
+        if (stageData.events) {
+            this.eventManager.loadEvents(stageData.events);
+        }
 
         this.uiManager.updateHUD();
         this.uiManager.updateSelectionUI([]);
@@ -197,6 +204,11 @@ export class Game {
         if (this.renderingEngine && this.renderingEngine.drawUnits) {
             this.renderingEngine.drawUnits();
         }
+
+        // Wait a frame for UI to render, then trigger start event
+        setTimeout(() => {
+            if (this.eventManager) this.eventManager.triggerStartEvent();
+        }, 50);
     }
 
     startGame(side) {
@@ -273,6 +285,15 @@ export class Game {
         if (this.renderingEngine && this.renderingEngine.drawUnits) {
             this.renderingEngine.drawUnits();
         }
+
+        // カスタムマップのイベントデータがある場合はロード
+        if (this.customMapData && this.customMapData.events) {
+            this.eventManager.loadEvents(this.customMapData.events);
+        }
+
+        setTimeout(() => {
+            if (this.eventManager) this.eventManager.triggerStartEvent();
+        }, 50);
     }
 
     // ==================== Turn Management (delegates to TurnManager) ====================
@@ -422,7 +443,11 @@ export class Game {
      * ゲーム終了画面を表示
      * @private
      */
-    _showEndGameScreen(winnerSide, loserName) {
+    async _showEndGameScreen(winnerSide, loserName) {
+        if (this.eventManager) {
+            await this.eventManager.triggerClearEvent(winnerSide);
+        }
+
         const isPlayerWin = (winnerSide === this.playerSide);
 
         let msg = "";
