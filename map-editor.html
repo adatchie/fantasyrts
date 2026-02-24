@@ -2739,6 +2739,9 @@
                 map.image = this.currentTexture;
                 map.textureData = this.currentTexture; // rendering3d.js優先読み込み用
 
+                // ★重要: リポジトリに保存して永続化
+                mapRepository.saveToStorage();
+
                 this.render();
                 this.update3DPreview();
 
