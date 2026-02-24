@@ -2532,7 +2532,9 @@
                     playerDeploymentZones: map.playerDeploymentZones || [],
                     customBuildingDefinitions: this.registeredCustomBuildings,
                     unitDefinitions: map.unitDefinitions || [],
-                    units: map.units || []
+                    units: map.units || [],
+                    // 地形テクスチャ（base64）を含める
+                    textureData: map.textureData || null
                 };
 
                 // Update repository with new data
