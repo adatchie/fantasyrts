@@ -581,6 +581,12 @@ export class CombatSystem {
         let moves = unit.movePower || 6;
         let actuallyMoved = false;
 
+        // パスが無効な場合のチェック
+        if (!path || path.length === 0 || (path.length === 1 && path[0].x === unit.x && path[0].y === unit.y)) {
+            console.warn(`[Pathfinding] Unit ${unit.id} has no valid path to (${targetQ}, ${targetR}). Current pos: (${unit.x}, ${unit.y})`);
+            return false;
+        }
+
         // ユニット位置の高速検索用Mapを作成 (移動中の衝突判定用)
         // 他のユニットは動かない前提 (ターン制/順次処理)
         const unitMap = new Map();
@@ -699,7 +705,15 @@ export class CombatSystem {
                     await this.wait(20);
                     continue;
                 } else {
-                    // 敵なら移動不可
+                    // 敵ユニットがいる場合
+                    // パスが正しく生成されていれば到達しないはずだが、念のため対処
+                    // ゴール地点に敵がいる場合はその場で攻撃可能なのでOK
+                    if (next.x === targetQ && next.y === targetR && dest.id !== undefined) {
+                        // 攻撃対象の隣に到達したとみなす
+                        break;
+                    }
+                    // それ以外の場合は警告を出して停止
+                    console.warn(`[Pathfinding] Unit ${unit.id} blocked by enemy at (${next.x}, ${next.y}). Path:`, path);
                     return actuallyMoved;
                 }
             }
@@ -721,9 +735,12 @@ export class CombatSystem {
      * 目標の周囲で空いているスペースを見つける
      */
     findSurroundPosition(unit, target, allUnits) {
+        // スクエアグリッド用4方向（上下左右）
         const directions = [
-            [+1, 0], [+1, -1], [0, -1],
-            [-1, 0], [-1, +1], [0, +1]
+            [+1, 0],   // 右
+            [-1, 0],  // 左
+            [0, +1],  // 下
+            [0, -1]   // 上
         ];
 
         // 移動可能な最大高低差（段差2まで = 32 world units）
@@ -745,11 +762,11 @@ export class CombatSystem {
                 }
             }
 
-            // 空いているかチェック
+            // 空いているかチェック（スクエアグリッド：同じタイルにいるかどうか）
             const isOccupied = allUnits.some(u =>
                 u.id !== unit.id &&
                 !u.dead &&
-                getDistRaw(nx, ny, u.x, u.y) < (unit.radius + u.radius)
+                u.x === nx && u.y === ny
             );
 
             if (!isOccupied) {

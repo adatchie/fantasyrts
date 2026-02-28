@@ -324,17 +324,41 @@ export function findPath(startX, startY, goalX, goalY, units, movingUnit, mapSys
     // 直線距離が近い場合は直線パスを試す
     const straightPath = getLine(startX, startY, goalX, goalY);
     let blocked = false;
+
+    // 飛行ユニット判定
+    const canFly = movingUnit && (movingUnit.canFly || movingUnit.type === 'FLYING');
+
     for (let i = 1; i < straightPath.length; i++) {
         // unitMapを使用して高速チェック
         const blockInfo = getBlockingInfo(straightPath[i].x, straightPath[i].y, unitMap, movingUnit);
-        
-        // 敵ユニットのみブロック扱い
-        if (blockInfo.blocked && !blockInfo.isFriendly) {
-            blocked = true;
-            break;
+
+        // 敵ユニットのみブロック扱い（ゴール地点は例外）
+        if (!(straightPath[i].x === goalX && straightPath[i].y === goalY)) {
+            if (blockInfo.blocked && !blockInfo.isFriendly) {
+                blocked = true;
+                break;
+            }
         }
-        // 地形チェック
-        if (mapSystem) {
+
+        // 地形チェック - mapSystem.getMoveCostを使用して統一的に判定
+        if (mapSystem && mapSystem.getMoveCost) {
+            const prevX = straightPath[i - 1].x;
+            const prevY = straightPath[i - 1].y;
+            const currX = straightPath[i].x;
+            const currY = straightPath[i].y;
+            const moveCost = mapSystem.getMoveCost(
+                { x: prevX, y: prevY },
+                { x: currX, y: currY },
+                canFly
+            );
+            // 無限コスト（山岳、高低差超過など）はブロック
+            if (moveCost === Infinity || moveCost >= 999) {
+                blocked = true;
+                break;
+            }
+        }
+        // 従来の配列判定によるフォールバック
+        else if (mapSystem) {
             let tile = null;
             if (mapSystem.getTile) tile = mapSystem.getTile(straightPath[i].x, straightPath[i].y);
             else if (Array.isArray(mapSystem) && mapSystem[straightPath[i].y]) tile = mapSystem[straightPath[i].y][straightPath[i].x];
@@ -342,25 +366,6 @@ export function findPath(startX, startY, goalX, goalY, units, movingUnit, mapSys
             if (tile && TERRAIN_TYPES[tile.type] && !TERRAIN_TYPES[tile.type].passable) {
                 blocked = true;
                 break;
-            }
-
-            // 高低差チェック（降りる場合も段差2まで制限）
-            const canFly = movingUnit && (movingUnit.canFly || movingUnit.type === 'FLYING');
-            if (!canFly && mapSystem.getMoveCost && mapSystem.getHeight) {
-                // 前の位置から現在の位置への移動コストを確認
-                const prevX = straightPath[i - 1].x;
-                const prevY = straightPath[i - 1].y;
-                const currX = straightPath[i].x;
-                const currY = straightPath[i].y;
-                const moveCost = mapSystem.getMoveCost(
-                    { x: prevX, y: prevY },
-                    { x: currX, y: currY },
-                    false
-                );
-                if (moveCost === Infinity || moveCost >= 999) {
-                    blocked = true;
-                    break;
-                }
             }
         }
     }
@@ -380,16 +385,22 @@ export function findPath(startX, startY, goalX, goalY, units, movingUnit, mapSys
     fScore.set(key(startX, startY), getDistRaw(startX, startY, goalX, goalY));
 
     let iterations = 0;
-    const maxIterations = 1000;
+    const maxIterations = 10000; // 大きなマップや複雑な障害物に対応
 
     while (openSet.length > 0 && iterations < maxIterations) {
         iterations++;
 
-        // fScoreが最小のノードを取得
-        openSet.sort((a, b) =>
-            (fScore.get(key(a.x, a.y)) || Infinity) - (fScore.get(key(b.x, b.y)) || Infinity)
-        );
-        const current = openSet.shift();
+        // fScoreが最小のノードを線形探索で取得（ソートより高速）
+        let minIndex = 0;
+        let minFScore = fScore.get(key(openSet[0].x, openSet[0].y)) || Infinity;
+        for (let i = 1; i < openSet.length; i++) {
+            const currentFScore = fScore.get(key(openSet[i].x, openSet[i].y)) || Infinity;
+            if (currentFScore < minFScore) {
+                minFScore = currentFScore;
+                minIndex = i;
+            }
+        }
+        const current = openSet.splice(minIndex, 1)[0];
         const currentKey = key(current.x, current.y);
 
         // ゴールに到達
