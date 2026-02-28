@@ -25,7 +25,7 @@ import { StageLoader } from './stage-loader.js?v=123';
 import { createSceneManager, SCENES } from './scene-manager.js?v=123';
 import { mapRepository } from './map-repository.js?v=123';
 import { createTurnManager } from './managers/turn-manager.js?v=123';
-import { EventManager } from './managers/event-manager.js?v=123';
+import { EventManager } from './managers/dialogue-manager.js?v=124';
 
 // Sub-modules
 import { InputController } from './game/input-controller.js?v=123';
