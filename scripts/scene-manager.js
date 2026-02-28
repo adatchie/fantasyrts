@@ -72,8 +72,12 @@ class SceneManager {
             this.turnManager = createTurnManager(this.game);
 
             // Override onGameEnd to transition to result scene
-            const originalTriggerEndGame = this.turnManager.triggerEndGame.bind(this.turnManager);
-            this.turnManager.triggerEndGame = (winnerSide, loserName) => {
+            this.turnManager.triggerEndGame = async (winnerSide, loserName) => {
+                // Ensure eventManager processes clear/victory custom events prior to screen change
+                if (this.game.eventManager) {
+                    await this.game.eventManager.triggerClearEvent(winnerSide);
+                }
+
                 const isPlayerWin = (winnerSide === playerSide);
                 const result = isPlayerWin ? 'VICTORY' : 'DEFEAT';
 

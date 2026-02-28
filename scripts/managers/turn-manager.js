@@ -35,6 +35,10 @@ export class TurnManager {
      * @param {Function} dependencies.updateHUD - Function to update HUD display
      * @param {Object} dependencies.renderingEngine - 3D Rendering Engine (Optional - used for legacy marker support if needed)
      */
+    /**
+     * @param {Object} dependencies - Required dependencies
+     * ... [omitted similar JSDocs]
+     */
     constructor(dependencies) {
         this.combatSystem = dependencies.combatSystem;
         this.aiSystem = dependencies.aiSystem;
@@ -46,6 +50,9 @@ export class TurnManager {
         this.getPlayerSide = dependencies.getPlayerSide;
         this.getGameState = dependencies.getGameState;
         this.setGameState = dependencies.setGameState;
+        this.getTurnCount = dependencies.getTurnCount;
+        this.incrementTurnCount = dependencies.incrementTurnCount;
+        this.triggerPhaseEvent = dependencies.triggerPhaseEvent;
         this.getWarlordPlotUsed = dependencies.getWarlordPlotUsed;
         this.setWarlordPlotUsed = dependencies.setWarlordPlotUsed;
 

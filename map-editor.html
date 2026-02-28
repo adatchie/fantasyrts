@@ -557,7 +557,7 @@
             border: 1px solid #555;
             background: #222;
             cursor: pointer;
-            object-fit: cover;
+            object-fit: contain;
         }
 
         .portrait-grid {
@@ -585,7 +585,7 @@
         .portrait-grid-item img {
             width: 100%;
             height: 100%;
-            object-fit: cover;
+            object-fit: contain;
         }
     </style>
     <script type="importmap">
@@ -1528,6 +1528,41 @@
                 // 初期化
                 if (!map.events) {
                     map.events = [];
+                } else if (!Array.isArray(map.events) && typeof map.events === 'object') {
+                    // オブジェクト形式（旧形式）だった場合は、エディター互換の配列形式に正規化する
+                    let normalizedEvents = [];
+
+                    if (map.events.onStart && Array.isArray(map.events.onStart)) {
+                        normalizedEvents.push({
+                            id: 'ev_start_' + Date.now(),
+                            type: 'onStart',
+                            name: '開始時イベント',
+                            dialogue: [...map.events.onStart]
+                        });
+                    }
+
+                    if (map.events.onPhase && Array.isArray(map.events.onPhase)) {
+                        map.events.onPhase.forEach((ev, idx) => {
+                            normalizedEvents.push({
+                                id: ev.id || `ev_phase_${Date.now()}_${idx}`,
+                                type: 'onPhase',
+                                name: `フェーズイベント ${idx + 1}`,
+                                condition: ev.condition,
+                                dialogue: [...ev.dialogue]
+                            });
+                        });
+                    }
+
+                    if (map.events.onClear && Array.isArray(map.events.onClear)) {
+                        normalizedEvents.push({
+                            id: 'ev_clear_' + Date.now(),
+                            type: 'onClear',
+                            name: 'クリア時イベント',
+                            dialogue: [...map.events.onClear]
+                        });
+                    }
+
+                    map.events = normalizedEvents;
                 }
 
                 this.currentEditingEventId = null;
@@ -1653,9 +1688,22 @@
                 document.getElementById('event-name').value = ev.name || '';
                 document.getElementById('event-trigger-type').value = ev.type || 'onStart';
 
+                // Backward compatibility normalization sequence for old buggy "conditions" format
+                if (ev.conditions && !ev.condition) {
+                    ev.condition = {};
+                    if (ev.conditions.turn !== undefined) {
+                        ev.condition.type = 'turn';
+                        ev.condition.value = ev.conditions.turn;
+                    } else if (ev.conditions.unitDefeated !== undefined) {
+                        ev.condition.type = 'unitDefeated';
+                        ev.condition.value = ev.conditions.unitDefeated;
+                    }
+                    delete ev.conditions;
+                }
+
                 // Conditions
-                document.getElementById('event-condition-value').value = ev.conditions?.turn || '';
-                document.getElementById('event-condition-type').value = ev.conditions?.unitDefeated ? 'unitDefeated' : 'turn';
+                document.getElementById('event-condition-value').value = ev.condition?.value || '';
+                document.getElementById('event-condition-type').value = ev.condition?.type || 'turn';
 
                 this.updateEventFormVisibility(ev.type);
 
@@ -1680,15 +1728,15 @@
                 ev.name = document.getElementById('event-name').value.trim();
                 ev.type = document.getElementById('event-trigger-type').value;
 
-                ev.conditions = {};
+                ev.condition = {};
                 if (ev.type === 'onPhase') {
                     const condType = document.getElementById('event-condition-type').value;
+                    ev.condition.type = condType;
                     if (condType === 'turn') {
-                        const turn = parseInt(document.getElementById('event-condition-value').value, 10);
-                        if (!isNaN(turn)) ev.conditions.turn = turn;
+                        const turnNum = parseInt(document.getElementById('event-condition-value').value, 10);
+                        ev.condition.value = isNaN(turnNum) ? 1 : turnNum;
                     } else if (condType === 'unitDefeated') {
-                        const unitId = document.getElementById('event-condition-value').value.trim();
-                        if (unitId) ev.conditions.unitDefeated = unitId;
+                        ev.condition.value = document.getElementById('event-condition-value').value.trim();
                     }
                 }
 
@@ -1699,6 +1747,7 @@
                     const speaker = el.querySelector('.dl-speaker').value.trim();
                     const text = el.querySelector('.dl-text').value;
                     const position = el.querySelector('.dl-position').value;
+                    const clearVal = el.querySelector('.dl-clear').value;
 
                     // 顔グラフィックは、imgタグのsrcからファイル名を抽出して保存する方針にする
                     const portraitImg = el.querySelector('.portrait-preview');
@@ -1708,12 +1757,16 @@
                     }
 
                     if (speaker || text) { // 空でなければ追加
-                        dialogueLines.push({
+                        const lineData = {
                             speaker: speaker,
                             text: text,
                             position: position,
                             portrait: portrait
-                        });
+                        };
+                        if (clearVal !== 'none') {
+                            lineData.clear = clearVal;
+                        }
+                        dialogueLines.push(lineData);
                     }
                 });
 
@@ -1780,16 +1833,22 @@
                         <input type="text" class="input-base dl-speaker" placeholder="話者名" value="${speaker}" style="margin-bottom: 5px;">
                         <textarea class="input-base dl-text" placeholder="セリフテキスト" rows="2" style="font-size: 13px;">${text}</textarea>
                     </div>
-                    <div style="display: flex; flex-direction: column; align-items: center; gap: 5px; width: 60px;">
+                    <div style="display: flex; flex-direction: column; align-items: center; gap: 5px; width: 65px;">
                         <div class="dl-portrait" title="顔グラフィックを選択">
                             <img class="portrait-preview" src="${portraitSrc}" alt="" data-filename="${portrait}" style="display: ${portraitSrc ? 'block' : 'none'};">
                             <span class="portrait-placeholder" style="display: ${portraitSrc ? 'none' : 'block'};">+</span>
                         </div>
-                        <select class="input-base dl-position" style="padding: 2px; font-size: 11px;">
+                        <select class="input-base dl-position" title="表示位置" style="padding: 2px; font-size: 11px; width:100%;">
                             <option value="bottom" ${position === 'bottom' ? 'selected' : ''}>下側</option>
                             <option value="top" ${position === 'top' ? 'selected' : ''}>上側</option>
                         </select>
-                        <button class="btn-secondary dl-remove">削除</button>
+                        <select class="input-base dl-clear" title="消去指定" style="padding: 2px; font-size: 11px; width:100%;">
+                            <option value="none" ${!data?.clear || data?.clear === 'none' ? 'selected' : ''}>消去無</option>
+                            <option value="top" ${data?.clear === 'top' ? 'selected' : ''}>上消去</option>
+                            <option value="bottom" ${data?.clear === 'bottom' ? 'selected' : ''}>下消去</option>
+                            <option value="both" ${data?.clear === 'both' ? 'selected' : ''}>両消去</option>
+                        </select>
+                        <button class="btn-secondary dl-remove" style="width:100%; padding:2px;">削除</button>
                     </div>
                 `;
 
