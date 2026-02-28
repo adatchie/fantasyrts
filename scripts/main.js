@@ -13,25 +13,25 @@
 
 import { WARLORDS } from './constants.js';
 // TUTORIAL_PLAIN_DATA import removed: JSON統一化によりfetch経由で読み込む
-import { AudioEngine } from './audio.js';
-import { MapSystem } from './map.js?v=118';
-import { RenderingEngine3D } from './rendering3d.js?v=122';
-import { CombatSystem } from './combat.js?v=119';
-import { AISystem } from './ai.js?v=118';
-import { UnitManager } from './unit-manager.js?v=118';
-import { hexToPixel } from './pathfinding.js';
-import { BuildingEditor } from './editor/building-editor.js';
-import { StageLoader } from './stage-loader.js';
-import { createSceneManager, SCENES } from './scene-manager.js?v=118';
-import { mapRepository } from './map-repository.js';
-import { createTurnManager } from './managers/turn-manager.js';
-import { EventManager } from './managers/event-manager.js';
+import { AudioEngine } from './audio.js?v=123';
+import { MapSystem } from './map.js?v=123';
+import { RenderingEngine3D } from './rendering3d.js?v=123';
+import { CombatSystem } from './combat.js?v=123';
+import { AISystem } from './ai.js?v=123';
+import { UnitManager } from './unit-manager.js?v=123';
+import { hexToPixel } from './pathfinding.js?v=123';
+import { BuildingEditor } from './editor/building-editor.js?v=123';
+import { StageLoader } from './stage-loader.js?v=123';
+import { createSceneManager, SCENES } from './scene-manager.js?v=123';
+import { mapRepository } from './map-repository.js?v=123';
+import { createTurnManager } from './managers/turn-manager.js?v=123';
+import { EventManager } from './managers/event-manager.js?v=123';
 
 // Sub-modules
-import { InputController } from './game/input-controller.js';
-import { UIManager } from './game/ui-manager.js';
-import { UnitSpawner } from './game/unit-spawner.js';
-import { BuildingPlacementController } from './game/building-placement.js';
+import { InputController } from './game/input-controller.js?v=123';
+import { UIManager } from './game/ui-manager.js?v=123';
+import { UnitSpawner } from './game/unit-spawner.js?v=123';
+import { BuildingPlacementController } from './game/building-placement.js?v=123';
 
 // Main Game Logic
 console.log("%c FIXED VERSION LOADED: v118 Arrow Orientation & Height Provider Fix", "background: #00ff00; color: black; font-size: 16px; font-weight: bold; padding: 4px; border: 2px solid green;");
