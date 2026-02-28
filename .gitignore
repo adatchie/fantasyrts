@@ -9,3 +9,5 @@ tmpclaude-*
 .agent/_archived/
 memo.txt
 nul
+Gradle/
+claude-mem/
