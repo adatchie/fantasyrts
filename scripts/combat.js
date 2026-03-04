@@ -270,10 +270,10 @@ export class CombatSystem {
             const targetZ = this.mapSystem.getHeight(target.x, target.y);
             const heightDiff = Math.abs(targetZ - unitZ);
             // 段差3以上（48 world units以上）なら近接攻撃不可
-            const MAX_MELEE_HEIGHT_DIFF = 48; // 3グリッド分
-            if (heightDiff > MAX_MELEE_HEIGHT_DIFF) {
+            const MAX_MELEE_HEIGHT_DIFF = 3 * TILE_HEIGHT; // 3グリッド分 = 48
+            if (heightDiff >= MAX_MELEE_HEIGHT_DIFF) {
                 canMeleeAttack = false;
-                // 高すぎる敵には近づく必要がある
+                // 高すぎて近接攻撃が届かない
             }
         }
 
@@ -282,6 +282,11 @@ export class CombatSystem {
             unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
             this.speak(unit, 'ATTACK');
             await this.combat(unit, target, allUnits, map);
+        } else if (dist <= reach && !canMeleeAttack && !canRangedAttack) {
+            // 近接専用ユニットが射程内だが高低差が大きく攻撃不可
+            unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
+            this.spawnText({ q: unit.x, r: unit.y }, "届かない!", '#888', 40);
+            await this.wait(400);
         } else if (canUseBow(dist)) {
             // 弓攻撃射程内（最小射程以上、最大射程まで）なら遠距離攻撃
             unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
@@ -364,97 +369,6 @@ export class CombatSystem {
                 await this.rangedCombat(unit, target, map, allUnits);
             }
         }
-    }
-
-    /**
-     * 遠距離攻撃を実行（旧版 — 後方定義により上書きされるデッドコード）
-     * @param {Object} att - 攻撃者
-     * @param {Object} def - 防御者
-     * @param {Array} map - マップデータ
-     * @param {Array} allUnits - 全ユニット配列
-     */
-    async rangedCombat(att, def, map, allUnits = []) {
-        att.dir = getFacingAngle(att.x, att.y, def.x, def.y);
-
-        // 攻撃アニメーションをトリガー (必須)
-        if (this.renderingEngine && this.renderingEngine.triggerUnitAttackAnimation) {
-            this.renderingEngine.triggerUnitAttackAnimation(att.id, def.id);
-        }
-
-        // 攻撃予備動作待ち
-        await this.wait(300);
-
-        // ... targetZ calc ...
-        // const TILE_HEIGHT = 16; // Use imported constant
-        let attZ = (map[att.y]?.[att.x]?.z || 0) * TILE_HEIGHT;
-        let defZ = (map[def.y]?.[def.x]?.z || 0) * TILE_HEIGHT;
-        if (this.mapSystem) {
-            attZ = Math.max(attZ, this.mapSystem.getHeight(att.x, att.y));
-            defZ = Math.max(defZ, this.mapSystem.getHeight(def.x, def.y));
-        }
-
-        // ... height check ...
-        const heightDiff = defZ - attZ;
-        const TILE_HEIGHT_CHECK = TILE_HEIGHT;
-        const MAX_HEIGHT_GRIDS = 3;
-        const MAX_HEIGHT_DIFF = MAX_HEIGHT_GRIDS * TILE_HEIGHT_CHECK;
-
-        if (heightDiff > MAX_HEIGHT_DIFF) {
-            this.spawnText({ q: att.x, r: att.y }, "届かない!", '#888', 40);
-            await this.wait(300);
-            return;
-        }
-
-        // ユニットタイプに応じた攻撃演出
-        const typeInfo = UNIT_TYPES[att.type] || UNIT_TYPES.INFANTRY;
-        const rangeType = typeInfo.rangeType || 'bowArc';
-
-        if (rangeType === 'aoe') {
-            // 魔術師：魔法弾またはエフェクト
-            this.audioEngine.sfxMagicAtk && this.audioEngine.sfxMagicAtk();
-            // TODO: マジックエフェクト実装。とりあえず矢ではなくビームか何か
-            if (this.renderingEngine && this.renderingEngine.add3DEffect) {
-                // 魔法陣など?
-                this.renderingEngine.add3DEffect('MAGIC_CAST', att);
-            }
-            // 魔法弾飛ばす
-            if (this.renderingEngine && this.renderingEngine.spawnMagicProjectile) {
-                await this.renderingEngine.spawnMagicProjectile(att, def); // 要実装
-            } else {
-                // フォールバック: ビーム
-                this.addEffect('BEAM', { q: att.x, r: att.y }, { q: def.x, r: def.y }, '#AA00FF');
-                await this.wait(200);
-            }
-
-        } else if (rangeType === 'breath') {
-            // ドラゴン：ブレス
-            this.audioEngine.sfxBreath && this.audioEngine.sfxBreath();
-            if (this.renderingEngine && this.renderingEngine.add3DEffect) {
-                this.renderingEngine.add3DEffect('BREATH', att, def);
-            }
-            await this.wait(500);
-
-        } else {
-            // 弓・銃・大砲
-            // 遮蔽チェック
-            const blockInfo = this.isArrowPathBlocked(att, def, map);
-
-            // 矢のアニメーションを発射
-            if (this.renderingEngine && this.renderingEngine.spawnArrowAnimation) {
-                // 銃の場合は弾丸速度などを変えたいが、とりあえず矢で統一
-                await this.renderingEngine.spawnArrowAnimation(att, def, blockInfo);
-            }
-
-            if (blockInfo.blocked) {
-                this.spawnText({ q: blockInfo.blockPos.x, r: blockInfo.blockPos.y }, "遮蔽!", '#888', 40);
-                await this.wait(300);
-                return;
-            }
-
-            // ヒットSE
-            this.audioEngine.sfxHit();
-        }
-        // ---------------------------------------------------------
     }
 
     /**
@@ -1428,28 +1342,58 @@ export class CombatSystem {
             defZ = Math.max(defZ, this.mapSystem.getHeight(def.x, def.y));
         }
 
-        // 高さ差による射程制限：ターゲットが攻撃者より高すぎる場合は攻撃不可
-        // mapSystem.getHeight()はワールドユニットで返す（256単位の建物高さ）
-        // 3グリッド分の高さ差を制限とする
-        const MAX_HEIGHT_GRIDS = 3; // 最大3グリッドまで届く
-        const MAX_HEIGHT_DIFF = MAX_HEIGHT_GRIDS * TILE_HEIGHT; // 48ワールドユニット
-
         // ワールドユニットでの高さ差を計算
         const heightDiff = defZ - attZ;
 
-        if (heightDiff > MAX_HEIGHT_DIFF) {
-            // ターゲットが高すぎて到達できない
-            this.spawnText({ q: att.x, r: att.y }, "届かない!", '#888', 40);
-            await this.wait(300);
-            return;
-        }
-
-        // ユニットタイプに応じた攻撃演出
+        // ユニットタイプに応じた攻撃演出を先に判定
         const typeInfo = UNIT_TYPES[att.type] || UNIT_TYPES.INFANTRY;
         const rangeType = typeInfo.rangeType || 'bowArc';
 
+        // -------------------------------------------------------
+        // 高さ制限チェック（ユニットタイプ別）
+        // - 魔法 (aoe): 高さ制限なし（魔法は高低差を無視して発動）
+        // - 回復 (heal): 高さ制限なし（回復魔法は高低差を無視して発動）
+        // - 弓/銃/砲 (bowArc, longArc, siege): 弧の高さに基づく制限
+        //   弓の軌道の弧の頂点よりもターゲットが高い場合は届かない
+        // -------------------------------------------------------
+        const isPhysicalProjectile = ['bowArc', 'longArc', 'siege'].includes(rangeType);
+
+        if (isPhysicalProjectile && heightDiff > 0) {
+            // 弓・銃・砲の高さ制限: 弧の高さに基づいて判定
+            // 距離に応じた弧の高さを計算（isArrowPathBlockedと同じロジック）
+            const dist = getDistRaw(att.x, att.y, def.x, def.y);
+            const maxRange = 12;
+            const distFactor = 1 - Math.min(dist / maxRange, 1);
+            const baseArcHeight = (1 + 6 * distFactor) * TILE_HEIGHT;
+
+            // 弧の頂点高さ = 攻撃者の高さ + 弧の高さ
+            // ターゲットが弧の頂点より上にいる場合は届かない
+            if (heightDiff > baseArcHeight) {
+                // 矢を弧の頂点まで飛ばしてから「届かない」を表示
+                const peakT = 0.5;
+                const peakX = Math.round(att.x + (def.x - att.x) * peakT);
+                const peakY = Math.round(att.y + (def.y - att.y) * peakT);
+                const heightReachBlockInfo = {
+                    blocked: true,
+                    blockPos: { x: peakX, y: peakY, z: attZ + baseArcHeight },
+                    t: peakT,
+                    arcHeight: baseArcHeight
+                };
+
+                // 矢のアニメーション（弧の頂点で消失）
+                if (this.renderingEngine && this.renderingEngine.spawnArrowAnimation) {
+                    await this.renderingEngine.spawnArrowAnimation(att, def, heightReachBlockInfo);
+                }
+
+                // 矢が消失した地点に「届かない」メッセージ
+                this.spawnText({ q: peakX, r: peakY }, "届かない", '#888', 40);
+                await this.wait(300);
+                return;
+            }
+        }
+
         if (rangeType === 'aoe') {
-            // 魔術師：魔法弾
+            // 魔術師：魔法弾（高さ制限なし — 魔法は高低差を無視して発動）
             this.audioEngine.sfxMagicAtk && this.audioEngine.sfxMagicAtk();
             if (this.renderingEngine && this.renderingEngine.spawnMagicProjectile) {
                 await this.renderingEngine.spawnMagicProjectile(att, def, 0xAA00FF);
@@ -1465,7 +1409,7 @@ export class CombatSystem {
                 await this.wait(500);
             }
         } else if (rangeType === 'heal') {
-            // 僧侶：聖なる光(黄)
+            // 僧侶：聖なる光(黄)（高さ制限なし — 回復魔法は高低差を無視して発動）
             this.audioEngine.sfxMagicAtk && this.audioEngine.sfxMagicAtk();
             if (this.renderingEngine && this.renderingEngine.spawnMagicProjectile) {
                 await this.renderingEngine.spawnMagicProjectile(att, def, 0xFFFF88);
@@ -1485,18 +1429,7 @@ export class CombatSystem {
 
             if (blockInfo.blocked) {
                 // 矢が遮られた
-                // Z座標（高さ）を正しく反映して表示
-                const textPos = {
-                    q: blockInfo.blockPos.x,
-                    r: blockInfo.blockPos.y,
-                    height: blockInfo.blockPos.z // 高さ指定を追加（ui.js/rendering.jsでの対応が必要だが、渡す）
-                };
-                // spawnTextは本来QR座標だが、3D表示用に高さを考慮させる（renderingHelper側で対応されている前提、なければ後で修正）
-                // 一旦、blockPos.zはワールド座標なので、そのまま渡すのは難しいかも。
-                // pixelToHex等で変換するか、spawnTextが3D座標を受け取れるか？
-                // spawnTextの実装を確認していないが、既存コードに合わせて q,r を渡す。
-                // ただし、高さを表現するために、blockPosはあくまで「どのタイルで止まったか」を示す。
-                this.spawnText(textPos, "遮蔽!", '#888', 40);
+                this.spawnText({ q: blockInfo.blockPos.x, r: blockInfo.blockPos.y }, "遮蔽!", '#888', 40);
                 await this.wait(300);
                 return;
             }

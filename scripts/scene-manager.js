@@ -821,65 +821,54 @@ class DeploymentScene {
 
             this.placedUnits.clear();
 
-            if (this.deploymentZones.length > 0) {
-                units.forEach((unit, idx) => {
-                    if (idx < this.deploymentZones.length) {
-                        const zone = this.deploymentZones[idx];
-                        this.placedUnits.set(unit.id, { x: zone.x, y: zone.y });
+            // フォールバック配置ゾーン（deploymentZonesが不足した場合に使用）
+            let fallbackZone = { x: 0, y: 20, width: 10, height: 10 };
+            if (customMap && customMap.zones && customMap.zones.playerDeployment) {
+                fallbackZone = customMap.zones.playerDeployment;
+            } else if (stage && stage.deploymentZone) {
+                fallbackZone = stage.deploymentZone;
+            }
+            const mapW = (customMap && customMap.terrain) ? customMap.terrain.width : (stage ? stage.mapSize?.width : 30) || 30;
+            const mapH = (customMap && customMap.terrain) ? customMap.terrain.height : (stage ? stage.mapSize?.height : 30) || 30;
 
-                        const item = document.querySelector(`.deploy-unit-item[data-unit-id="${unit.id}"]`);
-                        if (item) {
-                            item.classList.remove('selecting');
-                            item.classList.add('placed');
-                            const statusEl = item.querySelector('.place-status');
-                            if (statusEl) statusEl.textContent = `(${zone.x}, ${zone.y})`;
-                        }
+            units.forEach((unit, idx) => {
+                let x, y;
 
-                        this.manager.game.renderingEngine.addDeploymentMarker(zone.x, zone.y);
-                    }
-                });
-            } else {
-                let zone = { x: 0, y: 20, width: 10, height: 10 };
-
-                if (customMap && customMap.zones && customMap.zones.playerDeployment) {
-                    zone = customMap.zones.playerDeployment;
-                } else if (stage && stage.deploymentZone) {
-                    zone = stage.deploymentZone;
-                }
-
-                const mapW = (customMap && customMap.terrain) ? customMap.terrain.width : (stage ? stage.mapSize?.width : 30) || 30;
-                const mapH = (customMap && customMap.terrain) ? customMap.terrain.height : (stage ? stage.mapSize?.height : 30) || 30;
-
-                let idx = 0;
-                units.forEach(unit => {
+                if (idx < this.deploymentZones.length) {
+                    // 配置ゾーン内に配置
+                    const zone = this.deploymentZones[idx];
+                    x = zone.x;
+                    y = zone.y;
+                } else {
+                    // 配置ゾーンが不足 → フォールバックで計算配置
                     const col = idx % 4;
                     const row = Math.floor(idx / 4);
-                    const offsetX = col * 2 + 1;
-                    const offsetY = row * 2 + 1;
-
-                    let x = zone.x + offsetX;
-                    let y = zone.y + offsetY;
-
+                    x = fallbackZone.x + col * 2 + 1;
+                    y = fallbackZone.y + row * 2 + 1;
                     if (x >= mapW) x = mapW - 1;
                     if (y >= mapH) y = mapH - 1;
                     if (x < 0) x = 0;
                     if (y < 0) y = 0;
+                }
 
-                    this.placedUnits.set(unit.id, { x, y });
+                this.placedUnits.set(unit.id, { x, y });
 
-                    const item = document.querySelector(`.deploy-unit-item[data-unit-id="${unit.id}"]`);
-                    if (item) {
-                        item.classList.remove('selecting');
-                        item.classList.add('placed');
-                        const statusEl = item.querySelector('.place-status');
-                        if (statusEl) statusEl.textContent = `(${x}, ${y})`;
+                const item = document.querySelector(`.deploy-unit-item[data-unit-id="${unit.id}"]`);
+                if (item) {
+                    item.classList.remove('selecting');
+                    item.classList.add('placed');
+                    const statusEl = item.querySelector('.place-status');
+                    if (statusEl) statusEl.textContent = `(${x}, ${y})`;
+                }
+
+                try {
+                    if (this.manager.game.renderingEngine?.addDeploymentMarker) {
+                        this.manager.game.renderingEngine.addDeploymentMarker(x, y);
                     }
-
-                    this.manager.game.renderingEngine.addDeploymentMarker(x, y);
-
-                    idx++;
-                });
-            }
+                } catch (markerErr) {
+                    console.warn('[DeploymentScene] addDeploymentMarker failed:', markerErr);
+                }
+            });
 
             const countEl = document.getElementById('placed-count');
             if (countEl) countEl.textContent = this.placedUnits.size.toString();
@@ -894,7 +883,8 @@ class DeploymentScene {
                 item.classList.remove('selecting');
             });
         } catch (e) {
-            alert("自動配置中にエラーが発生しました。");
+            console.error('[DeploymentScene] autoPlaceUnits error:', e);
+            alert("自動配置中にエラーが発生しました: " + e.message);
         }
     }
     selectUnit(unitId) {

@@ -680,6 +680,7 @@ h3 {
     right: 0;
     padding: 24px;
     pointer-events: auto;
+    z-index: 60;
 }
 
 .deploy-panel {
