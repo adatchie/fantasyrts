@@ -1444,6 +1444,80 @@ export class RenderingEngine3D {
                     anim.active = false;
                 }
 
+                // 剣スプライトのアニメーション
+                const swordSprite = mesh.getObjectByName('swordSprite');
+                if (swordSprite) {
+                    if (anim.active && (anim.phase === 'windup' || anim.phase === 'attack')) {
+                        swordSprite.visible = true;
+
+                        // Zバッファ（奥行き）による正しいソートに任せるため、renderOrderはユニットボディと同じ100に統一
+                        swordSprite.renderOrder = 100;
+                        if (unit.dir === 2 || unit.dir === 3) {
+                            swordSprite.position.z = 3; // unitSprite(Z=4)より奥
+                        } else {
+                            swordSprite.position.z = 5; // unitSprite(Z=4)より手前
+                        }
+
+                        // ユニットサイズ倍率を適用して実際の手の座標を算出
+                        const baseUnitSize = anim.unitSize || window.gameState?.units?.find(u=>u.id===unit.id)?.size || 1;
+                        const sizeScale = baseUnitSize === 4 ? 1.8 : baseUnitSize === 2 ? 1.3 : 1.0;
+                        const logicalSize = 30 * 0.6 * sizeScale; // HEX_SIZE(30)相当のベースサイズ
+
+                        // 各方向ごとの手の位置オフセットと、刃を向ける基本角度を定義
+                        // logicalSize を基準とした相対位置 (0: 足元, 1: 頭頂部付近)
+                        // baseAngle: 0=上, -PI/2=右, -PI=下, PI/2=左 (3D空間のZ軸回転)
+                        const handPositions = {
+                            0: { x: 0.4, y: 0.8, baseAngle: -3 * Math.PI / 4 }, // front_right (右下): 刃は右下方向へ
+                            1: { x: -0.4, y: 0.8, baseAngle: 3 * Math.PI / 4 }, // front_left (左下): 刃は左下方向へ
+                            2: { x: -0.3, y: 1.1, baseAngle: Math.PI / 4 },     // back_left (左上): 刃は左上方向へ
+                            3: { x: 0.3, y: 1.1, baseAngle: -Math.PI / 4 }      // back_right (右上): 刃は右上方向へ
+                        };
+
+                        const config = handPositions[unit.dir] || handPositions[0];
+                        const handOffsetX = config.x * logicalSize;
+                        const handOffsetY = config.y * logicalSize;
+                        let baseAngle = config.baseAngle;
+
+                        // 剣の振り: PlaneGeometryをZ軸回転させる。
+                        // Sprite等と違い、Meshが垂直に立っているためカメラの俯瞰角度によって物理的なアイソメトリックの歪み（パース）が自動的に適用される！
+                        const SWING_TOTAL = Math.PI * 2 / 3; // 120度
+                        const SWING_START = baseAngle + SWING_TOTAL / 2; // 振りかぶり位置
+
+                        let currentAngle = 0;
+
+                        if (t < 0.2) {
+                            // windupフェーズ
+                            const windupT = t / 0.2;
+                            currentAngle = baseAngle + SWING_TOTAL / 2 * windupT;
+                        } else if (t < 0.5) {
+                            // attackフェーズ: ease-outで振り下ろす
+                            const attackT = (t - 0.2) / 0.3;
+                            const easeT = 1 - Math.pow(1 - attackT, 3);
+                            currentAngle = SWING_START - SWING_TOTAL * easeT;
+                        } else {
+                            // フェードアウト
+                            const fadeT = (t - 0.5) / 0.5;
+                            currentAngle = SWING_START - SWING_TOTAL;
+                            swordSprite.material.opacity = 1.0 - fadeT;
+                        }
+
+                        // MeshのZ軸回転を更新（Spriteではないのでmaterial.rotationではない）
+                        swordSprite.rotation.z = currentAngle;
+                        
+                        // 位置は常に手の座標に固定（Geometry作成時にピボットが柄の最下部に設定済み）
+                        swordSprite.position.x = handOffsetX;
+                        swordSprite.position.y = handOffsetY;
+
+                        // 大きさはMesh化によりGeometry側で固定されているためScale計算は不要
+                        swordSprite.scale.set(1, 1, 1);
+
+                    } else {
+                        swordSprite.visible = false;
+                        swordSprite.material.opacity = 1.0;
+                        swordSprite.scale.set(1, 1, 1);
+                    }
+                }
+
                 // 座標移動は廃止（スプライト切り替えのみで表現）
             }
 
@@ -1962,6 +2036,39 @@ export class RenderingEngine3D {
         hitBox.position.y = size;
         group.add(hitBox);
 
+        // 6. Sword Sprite (for infantry and cavalry attacks)
+        if (unit.type === 'INFANTRY' || unit.type === 'CAVALRY') {
+            const swordTexture = new THREE.TextureLoader().load('assets/sprites/sword.png');
+            swordTexture.colorSpace = THREE.SRGBColorSpace;
+            const swordMat = new THREE.MeshBasicMaterial({
+                map: swordTexture,
+                transparent: true,
+                side: THREE.DoubleSide,
+                alphaTest: 0.5,
+                depthWrite: true,
+                depthTest: true
+            });
+            // サイズをユニットに合わせる。MeshとしてPlaneGeometryを利用し、常にキャラクターと同じXYZ空間に立てる
+            const swordSize = size * 1.5;
+            const swordGeo = new THREE.PlaneGeometry(swordSize, swordSize);
+            // Translateを利用し、Geometryの原点ピボットを「底部中央（＝柄）」にずらす。これによりposition操作だけで手元に追従する
+            swordGeo.translate(0, swordSize / 2, 0);
+
+            // SpriteからMeshへ変更（カメラの俯瞰角度のパースを自然に受けるため）
+            const swordMesh = new THREE.Mesh(swordGeo, swordMat);
+            
+            // 初期状態は非表示
+            swordMesh.visible = false;
+            // 変数名はswordSpriteのままだが、実体はMesh
+            swordMesh.name = 'swordSprite'; 
+
+            // Z=5に置くことで、ユニットのPlane(Z=4)より常に手前側に描画される判定を確保
+            swordMesh.position.set(0, size * 1.2, 5);
+            swordMesh.renderOrder = 100; // ユニットと同じrenderOrderにしてZソートを働かせる
+
+            group.add(swordMesh);
+        }
+
         // 情報オーバーレイ初期作成
         this.createUnitInfoOverlay(group, unit);
 
@@ -2084,17 +2191,21 @@ export class RenderingEngine3D {
                 active: true,
                 progress: 0,
                 duration: 50, // 約850ms（60fpsで50フレーム）
-                phase: 'windup'
+                phase: 'windup',
+                targetDir: worldDir,
+                unitSide: attacker.side || 'EAST',
+                unitSize: attacker.size || 1
             };
         } else if (!attackerMesh) {
             console.warn(`[Animation] Attacker Mesh not found for ${attackerId}`);
         }
 
-        // 攻撃アニメーション完了後にフラグを解除
+        // 攻撃アニメーション完了後にフラグを解除（速度倍率を考慮）
+        const speedMultiplier = (window.game && window.game.actionSpeed) ? window.game.actionSpeed : 1.0;
+        const animDurationMs = (50 / (60 * speedMultiplier)) * 1000;
         setTimeout(() => {
             attacker.isAttacking = false;
-            // console.log(`[Animation] Attack Ended for Unit ${attackerId}`); // Verbose
-        }, 900);
+        }, animDurationMs + 50);
     }
 
     /**

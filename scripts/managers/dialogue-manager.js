@@ -219,6 +219,12 @@ export class EventManager {
 
         this.layer.classList.add('active'); // activeにしてクリックを拾うようにする
 
+        // 会話中はHUD要素を隠す（action-btnはz-index:9999のfixed要素で会話レイヤーより前面に出るため）
+        const actionBtn = document.getElementById('action-btn');
+        const speedControl = document.getElementById('speed-control');
+        if (actionBtn) { this._prevActionBtnDisplay = actionBtn.style.display; actionBtn.style.display = 'none'; }
+        if (speedControl) { this._prevSpeedControlDisplay = speedControl.style.display; speedControl.style.display = 'none'; }
+
         // 以前のゲーム状態を保存し、EVENTステートにする（裏でゲームが進まないようにする）
         this.previousGameState = this.game.gameState;
         this.game.gameState = 'EVENT';
@@ -321,6 +327,12 @@ export class EventManager {
 
         setTimeout(() => {
             this.layer.classList.remove('active');
+
+            // 会話終了後にHUD要素を復元
+            const actionBtn = document.getElementById('action-btn');
+            const speedControl = document.getElementById('speed-control');
+            if (actionBtn) actionBtn.style.display = this._prevActionBtnDisplay || 'block';
+            if (speedControl) speedControl.style.display = this._prevSpeedControlDisplay || 'flex';
 
             this.currentDialogue = null;
             this._isAnimating = false;

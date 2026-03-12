@@ -926,6 +926,51 @@ h3 {
     font-size: 20px;
 }
 
+/* 戦闘開始確認ダイアログ（同ウィンドウ内） */
+.deploy-confirm-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 500;
+    pointer-events: auto;
+}
+
+.deploy-confirm-dialog {
+    background: linear-gradient(135deg, rgba(20, 30, 50, 0.98), rgba(10, 15, 30, 0.98));
+    border: 2px solid rgba(100, 150, 220, 0.6);
+    border-radius: 12px;
+    padding: 32px 48px;
+    text-align: center;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), 0 0 20px rgba(74, 124, 255, 0.15);
+    min-width: 280px;
+}
+
+.deploy-confirm-message {
+    font-size: 18px;
+    color: #e0e8ff;
+    margin: 0 0 24px 0;
+    font-weight: bold;
+}
+
+.deploy-confirm-buttons {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+}
+
+.deploy-confirm-buttons .btn-primary,
+.deploy-confirm-buttons .btn-secondary {
+    min-width: 100px;
+    padding: 10px 24px;
+    font-size: 15px;
+}
+
 /* マップ選択の追加スタイル */
 .map-item.completed {
     border-color: rgba(100, 200, 100, 0.5);

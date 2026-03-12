@@ -761,6 +761,15 @@ class DeploymentScene {
                     </div>
                 </div>
             </div>
+            <div class="deploy-confirm-overlay" id="deploy-confirm-overlay" style="display:none;">
+                <div class="deploy-confirm-dialog">
+                    <p class="deploy-confirm-message">戦闘を開始しますか？</p>
+                    <div class="deploy-confirm-buttons">
+                        <button class="btn-primary" id="btn-confirm-yes">はい</button>
+                        <button class="btn-secondary" id="btn-confirm-no">いいえ</button>
+                    </div>
+                </div>
+            </div>
         `;
 
         this.manager.uiContainer.appendChild(deploy);
@@ -778,38 +787,50 @@ class DeploymentScene {
         });
 
         document.getElementById('btn-start-battle')?.addEventListener('click', () => {
-            if (confirm('戦闘を開始しますか？')) {
-                if (this.placedUnits.size === deployedUnits.length) {
-                    // Validate unit placements before starting battle
-                    const placements = Array.from(this.placedUnits.entries()).map(([unitId, pos]) => ({
-                        unitId: parseInt(unitId),
-                        x: pos.x,
-                        y: pos.y
-                    }));
-                    const validation = validatePlacements(placements);
-                    if (!validation.valid) {
-                        console.error('[DeploymentScene] Placement validation failed:', validation.errors);
-                        alert(`ユニット配置にエラーがあります:\n${validation.errors.join('\n')}`);
+            // 同ウィンドウ内の確認ダイアログを表示
+            const overlay = document.getElementById('deploy-confirm-overlay');
+            if (overlay) overlay.style.display = 'flex';
+        });
+
+        document.getElementById('btn-confirm-no')?.addEventListener('click', () => {
+            const overlay = document.getElementById('deploy-confirm-overlay');
+            if (overlay) overlay.style.display = 'none';
+        });
+
+        document.getElementById('btn-confirm-yes')?.addEventListener('click', () => {
+            const overlay = document.getElementById('deploy-confirm-overlay');
+            if (overlay) overlay.style.display = 'none';
+
+            if (this.placedUnits.size === deployedUnits.length) {
+                // Validate unit placements before starting battle
+                const placements = Array.from(this.placedUnits.entries()).map(([unitId, pos]) => ({
+                    unitId: parseInt(unitId),
+                    x: pos.x,
+                    y: pos.y
+                }));
+                const validation = validatePlacements(placements);
+                if (!validation.valid) {
+                    console.error('[DeploymentScene] Placement validation failed:', validation.errors);
+                    alert(`ユニット配置にエラーがあります:\n${validation.errors.join('\n')}`);
+                    return;
+                }
+
+                // Validate individual unit data
+                const deployedUnitsData = gameProgress.getDeployedUnits();
+                for (const unit of deployedUnitsData) {
+                    const unitValidation = validateUnitData(unit);
+                    if (!unitValidation.valid) {
+                        console.error(`[DeploymentScene] Unit validation failed for ${unit.id}:`, unitValidation.errors);
+                        alert(`ユニットデータにエラーがあります (${unit.name}):\n${unitValidation.errors.join('\n')}`);
                         return;
                     }
-
-                    // Validate individual unit data
-                    const deployedUnitsData = gameProgress.getDeployedUnits();
-                    for (const unit of deployedUnitsData) {
-                        const unitValidation = validateUnitData(unit);
-                        if (!unitValidation.valid) {
-                            console.error(`[DeploymentScene] Unit validation failed for ${unit.id}:`, unitValidation.errors);
-                            alert(`ユニットデータにエラーがあります (${unit.name}):\n${unitValidation.errors.join('\n')}`);
-                            return;
-                        }
-                    }
-
-                    if (this.manager.game.renderingEngine?.clearDeploymentHighlight) {
-                        this.manager.game.renderingEngine.clearDeploymentHighlight();
-                    }
-                    this.manager.setGameData('unitPlacements', Array.from(this.placedUnits.entries()));
-                    this.manager.transition(SCENES.BATTLE);
                 }
+
+                if (this.manager.game.renderingEngine?.clearDeploymentHighlight) {
+                    this.manager.game.renderingEngine.clearDeploymentHighlight();
+                }
+                this.manager.setGameData('unitPlacements', Array.from(this.placedUnits.entries()));
+                this.manager.transition(SCENES.BATTLE);
             }
         });
 

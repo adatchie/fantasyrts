@@ -11,3 +11,5 @@ memo.txt
 nul
 Gradle/
 claude-mem/
+tmp_*.txt
+scripts/tmp_git.txt
