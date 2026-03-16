@@ -1,6 +1,6 @@
 /**
  * SEKIGAHARA RTS - Combat System
- * 戦闘�E琁E��ユニット行動
+ * 戦闘処理とユニット行動
  */
 
 import { getDist, getDistRaw, getFacingAngle, findPath, getDistAttack } from './pathfinding.js';
@@ -15,8 +15,8 @@ export class CombatSystem {
         this.audioEngine = audioEngine;
         this.activeEffects = [];
         this.activeBubbles = [];
-        this.playerSide = 'EAST'; // チE��ォルト値
-        this.unitManager = unitManager; // 陣形チェチE��用
+        this.playerSide = 'EAST'; // デフォルト値
+        this.unitManager = unitManager; // 陣形チェック用
     }
 
     setPlayerSide(side) {
@@ -40,7 +40,7 @@ export class CombatSystem {
     }
 
     /**
-     * 現在のアクション速度を取征E
+     * 現在のアクション速度を取得
      * @returns {number} 速度倍率 (1.0, 1.5, 2.0)
      */
     getActionSpeed() {
@@ -48,19 +48,19 @@ export class CombatSystem {
     }
 
     /**
-     * ユニット�E行動を�E琁E
+     * ユニットの行動を処理
      */
     async processUnit(unit, allUnits, map, warlordPlotUsed = {}) {
         if (!unit.order) return;
 
-        // アクチE��ブ�Eーカーを表示
+        // アクティブマーカーを表示
         const re = this.renderingEngine || (window.game && window.game.renderingEngine);
         if (re && re.showActiveMarker) {
             re.showActiveMarker(unit);
         }
 
         try {
-            // 本陣ユニット�E場合、�E力による強制陣形変更をチェチE��
+            // 本陣ユニットの場合、兵力による強制陣形変更をチェック
             if (unit.unitType === UNIT_TYPE_HEADQUARTERS && this.unitManager) {
                 const forceChange = checkForcedFormationChange(unit.soldiers, unit.formation);
                 if (forceChange.needsChange) {
@@ -81,25 +81,25 @@ export class CombatSystem {
                 await this.processMove(unit, allUnits, map);
             }
         } finally {
-            // アクチE��ブ�Eーカーを非表示
+            // アクティブマーカーを非表示
             const re2 = this.renderingEngine || (window.game && window.game.renderingEngine);
             if (re2 && re2.hideActiveMarker) {
                 re2.hideActiveMarker();
             }
         }
 
-        // 行動完亁E��ラグを設定（行動フェイズで行動済みとして静止させる！E
+        // 行動完了フラグを設定（行動フェイズで行動済みとして静止させる）
         unit.hasActed = true;
     }
 
     /**
-     * 調略を�E琁E
-     * マルチユニットシスチE��: 1武封Eターン1回�Eみ
+     * 調略を処理
+     * マルチユニットシステム: 1武将1ターン1回のみ
      */
     async processPlot(unit, target, allUnits, warlordPlotUsed = {}, map) {
-        // こ�E武封E��すでに調略を使用済みかチェチE��
+        // この武将がすでに調略を使用済みかチェック
         if (warlordPlotUsed[unit.warlordId]) {
-            // 調略をスキチE�Eして移動に刁E��替ぁE
+            // 調略をスキップして移動に切り替え
             unit.order = { type: 'MOVE', targetHex: { x: target.x, y: target.y } };
             await this.processMove(unit, allUnits, map);
             return;
@@ -107,7 +107,7 @@ export class CombatSystem {
 
         const dist = getDistAttack(unit, target);
 
-        // 調略封E��E5) + 陣形解除距離(3)
+        // 調略射程(5) + 陣形解除距離(3)
         const engagementDist = 8.0;
 
         if (dist <= 5) {
@@ -116,10 +116,10 @@ export class CombatSystem {
             this.speak(target, 'PLOT_REC');
             await this.spawnEffect('WAVE', unit, target);
 
-            // エフェクトを見せるため�EウェイチE
+            // エフェクトを見せるためのウェイト
             await this.wait(400);
 
-            // 戦況による調略成功玁E
+            // 戦況による調略成功率
             const eTotal = allUnits.filter(u => u.side === 'EAST' && !u.dead)
                 .reduce((a, c) => a + c.soldiers, 0);
             const wTotal = allUnits.filter(u => u.side === 'WEST' && !u.dead)
@@ -133,7 +133,7 @@ export class CombatSystem {
             if (target.loyalty > 95) chance = 1;
 
             if (Math.random() * 100 < chance) {
-                // マルチユニットシスチE��: 対象武封E�E全ユニットを寝返らせる
+                // マルチユニットシステム: 対象武将の全ユニットを寝返らせる
                 const targetWarlordId = target.warlordId;
                 const targetWarlordUnits = allUnits.filter(u => u.warlordId === targetWarlordId);
 
@@ -142,7 +142,7 @@ export class CombatSystem {
                     warlordUnit.loyalty = 100;
                     warlordUnit.order = null; // 命令をクリア
 
-                    // 本陣ユニット�Eみ画像を更新�E�ED用�E�E
+                    // 本陣ユニットのみ画像を更新（2D用）
                     if (warlordUnit.imgCanvas) {
                         warlordUnit.imgCanvas = generatePortrait(warlordUnit, warlordUnit.side);
                     }
@@ -153,10 +153,10 @@ export class CombatSystem {
                     }
                 });
 
-                this.spawnText({ q: target.x, r: target.y }, "寝返り!", "#0f0", 60);
+                this.spawnText({ q: target.x, r: target.y }, "寝返り！", "#0f0", 60);
                 this.audioEngine.sfxArrangementSuccess(); // 調略成功SE
 
-                // 画面中央にフローメチE��ージを表示�E�潰走演�Eと同様！E
+                // 画面中央にフローメッセージを表示（潰走演出と同様）
                 const defectionMsg = (unit.side === this.playerSide)
                     ? `${target.warlordName}が味方についた模様！`
                     : `${target.warlordName}が敵に寝返った模様！`;
@@ -182,13 +182,13 @@ export class CombatSystem {
                 this.audioEngine.sfxArrangementFail(); // 調略失敗SE
             }
 
-            // 調略使用フラグを立てる（武封E��位！E
+            // 調略使用フラグを立てる（武将単位）
             warlordPlotUsed[unit.warlordId] = true;
 
             unit.order = null;
             await this.wait(400);
         } else if (dist > engagementDist) {
-            // まだ遠ぁE��合�E陣形を維持して移勁E
+            // まだ遠い場合は陣形を維持して移動
             const originalOrder = unit.order;
             unit.order = {
                 type: 'MOVE',
@@ -210,70 +210,70 @@ export class CombatSystem {
     }
 
     /**
-     * 攻撁E��処琁E
+     * 攻撃を処理
      */
     /**
-     * 攻撁E��処琁E
+     * 攻撃を処理
      */
     async processAttack(unit, target, allUnits, map, reach) {
         let hasAttackedThisPhase = false;
-        // スクエアグリチE��に伴ぁE��距離判定を厳格化（チェビシェフ距離を使用�E�E
+        // スクエアグリッドに伴い、距離判定を厳格化（チェビシェフ距離を使用）
         const dist = getDistAttack(unit, target);
 
-        // 接敵するまでは陣形で近づぁE
-        // reach + 3.0 くらぁE��では陣形で整然と近づき、そこから個別に襲ぁE��かるイメージ
+        // 接敵するまでは陣形で近づく
+        // reach + 3.0 くらいまでは陣形で整然と近づき、そこから個別に襲いかかるイメージ
         const engagementDist = reach + 3.0;
 
-        // ユニットが遠距離攻撁E��能かチェチE��
-        // unit.type は兵種�E�ENFANTRY, ARCHER等）、unit.unitType は役割�E�EORMAL, HEADQUARTERS�E�E
+        // ユニットが遠距離攻撃可能かチェック
+        // unit.type は兵種（INFANTRY, ARCHER等）、unit.unitType は役割（NORMAL, HEADQUARTERS）
         const unitCombatType = unit.type || 'INFANTRY';
         const typeInfo = UNIT_TYPES[unitCombatType] || UNIT_TYPES.INFANTRY;
         const rangeType = typeInfo.rangeType || 'melee';
 
-        // 遠距離攻撁E��能なユニットタイチE
+        // 遠距離攻撃可能なユニットタイプ
         const canRangedAttack = ['bowArc', 'longArc', 'siege', 'aoe', 'breath', 'heal'].includes(rangeType);
 
-        // 弓攻撁E�E封E��（基本封E��E、E��さによる補正はダメージのみ適用�E�E
+        // 弓攻撃の射程（基本射程8、高さによる補正はダメージのみ適用）
         let bowBaseRange = 8;
-        // マジチE��/ブレス/大砲は封E��が異なめE
+        // マジック/ブレス/大砲は射程が異なる
         if (rangeType === 'aoe') bowBaseRange = 6;
         if (rangeType === 'breath') bowBaseRange = 4;
         if (rangeType === 'siege') bowBaseRange = 12;
         if (rangeType === 'heal') bowBaseRange = 5;
 
-        const bowMinRange = 2; // 最小封E��E�E�Eマスは封E��外！E
+        const bowMinRange = 2; // 最小射程2（1マスは射程外）
 
-        // 高い位置にぁE��弓�Eの封E��拡張�E�移動できなぁE��合�E救済措置�E�E
+        // 高い位置にいる弓兵の射程拡張（移動できない場合の救済措置）
         let extendedBowRange = bowBaseRange;
         if (canRangedAttack && this.mapSystem) {
             const unitZ = this.mapSystem.getHeight(unit.x, unit.y);
             const targetZ = this.mapSystem.getHeight(target.x, target.y);
             const heightDiff = unitZ - targetZ;
-            // 自刁E��相手より高い場合、E段差ごとに封E��E1�E�最大+4まで�E�E
+            // 自分が相手より高い場合、1段差ごとに射程+1（最大+4まで）
             if (heightDiff > 0) {
                 const heightInGrids = Math.floor(heightDiff / TILE_HEIGHT);
                 extendedBowRange = Math.min(bowBaseRange + heightInGrids, bowBaseRange + 4);
             }
         }
 
-        // 弓が使える距離かどぁE��判宁E
+        // 弓が使える距離かどうか判定
         const canUseBow = canRangedAttack ? (d) => d >= bowMinRange && d <= extendedBowRange : () => false;
 
-        // 弓�EチE��チE���E�各判定ごとに出力！E
+        // 弓兵デバッグ（各判定ごとに出力）
         if (canRangedAttack && target) {
-            // 弓�EチE��チE��ログ�E�忁E��な場合�E有効化！E
+            // 弓兵デバッグログ（必要な場合は有効化）
             // console.log('[ARCHER] ' + unit.name + ' dist=' + dist + ' reach=' + reach + ' canRangedAttack=' + canRangedAttack + ' canUseBow=' + canUseBow(dist) + ' inMelee=' + (dist <= reach));
         }
 
-        // 高さ制限チェチE���E�近接攻撁E���E�E
-        // 城壁上�E敵には近接攻撁E��可。段差2�E�E2 world units�E�までは近接攻撁E��能
+        // 高さ制限チェック（近接攻撃時）
+        // 城壁上の敵には近接攻撃不可。段差2（32 world units）までは近接攻撃可能
         let canMeleeAttack = true;
         if (dist <= reach && this.mapSystem) {
             const unitZ = this.mapSystem.getHeight(unit.x, unit.y);
             const targetZ = this.mapSystem.getHeight(target.x, target.y);
             const heightDiff = Math.abs(targetZ - unitZ);
-            // 段差2以上！E2 world units = 2 * TILE_HEIGHT�E�なら近接攻撁E��可
-            // これにより城壁E��通常40+world units�E�上�E敵に地上から直接攻撁E��きなくなめE
+            // 段差2以上（32 world units = 2 * TILE_HEIGHT）なら近接攻撃不可
+            // これにより城壁（通常40+world units）上の敵に地上から直接攻撃できなくなる
             const MAX_MELEE_HEIGHT_DIFF = 2 * TILE_HEIGHT; // 32 world units
             if (heightDiff > MAX_MELEE_HEIGHT_DIFF) {
                 canMeleeAttack = false;
@@ -281,27 +281,27 @@ export class CombatSystem {
         }
 
         if (dist <= reach && canMeleeAttack) {
-            // 攻撁E��E���Eなら近接攻撁E��衁E
+            // 攻撃射程内なら近接攻撃実行
             unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
             this.speak(unit, 'ATTACK');
             await this.combat(unit, target, allUnits, map);
             hasAttackedThisPhase = true;
         } else if (canUseBow(dist)) {
-            // 弓攻撁E��E���E�E�最小封E��以上、最大封E��まで�E�なら遠距離攻撁E
+            // 弓攻撃射程内（最小射程以上、最大射程まで）なら遠距離攻撃
             unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
             await this.rangedCombat(unit, target, map, allUnits);
             hasAttackedThisPhase = true;
         } else if (canRangedAttack && dist <= extendedBowRange) {
-            // 弓�Eが拡張封E���EにぁE��場合�E移動せずに攻撁E
+            // 弓兵が拡張射程内にいる場合は移動せずに攻撃
             unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
             await this.rangedCombat(unit, target, map, allUnits);
             hasAttackedThisPhase = true;
         } else if (canRangedAttack && this.mapSystem) {
-            // 弓�Eが高い位置にぁE��場合、移動を諦めてそ�E場から攻撁E
+            // 弓兵が高い位置にいる場合、移動を諦めてその場から攻撃
             const unitZ = this.mapSystem.getHeight(unit.x, unit.y);
             const targetZ = this.mapSystem.getHeight(target.x, target.y);
             const heightDiff = unitZ - targetZ;
-            // 自刁E��2段差趁E��い場合�E移動せずに攻撁E��城壁対応！E
+            // 自分が2段差超高い場合は移動せずに攻撃（城壁対応）
             if (heightDiff > 2 * TILE_HEIGHT) {
                 unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
                 await this.rangedCombat(unit, target, map, allUnits);
@@ -311,71 +311,71 @@ export class CombatSystem {
         }
 
         if (dist > engagementDist || (dist <= reach && !canMeleeAttack)) {
-            // 遠ぁE��合、また�E近接攻撁E��きなぁE��さ差がある場合�E移勁E
-            // 弓封E���Eなら�Eに弓を撁E��
+            // 遠い場合、または近接攻撃できない高さ差がある場合は移動
+            // 弓射程内なら先に弓を撃つ
             if (!hasAttackedThisPhase && canUseBow(dist)) {
                 unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
                 await this.rangedCombat(unit, target, map, allUnits);
                 hasAttackedThisPhase = true;
-                // 遠距離ユニット�E封E���Eなら移動不要E��封E��のみで行動終亁E��E
+                // 遠距離ユニットは射程内なら移動不要（射撃のみで行動終了）
                 if (canRangedAttack) {
                     return;
                 }
-                // 近接ユニット�E弓攻撁E��、まだ距離があれ�E陣形で近づぁE
+                // 近接ユニットは弓攻撃後、まだ距離があれば陣形で近づく
             }
 
-            // 陣形を維持して移勁E
-            // 一時的にMOVE命令のフリをしてprocessMoveを呼ぶ�E�ただしターゲチE��は維持E��E
-            // processMoveは冁E��で陣形位置を計算して移動すめE
+            // 陣形を維持して移動
+            // 一時的にMOVE命令のフリをしてprocessMoveを呼ぶ（ただしターゲットは維持）
+            // processMoveは内部で陣形位置を計算して移動する
 
-            // 重要E processMoveは unit.order.targetHex を参照するので、一時的にセチE��する
+            // 重要: processMoveは unit.order.targetHex を参照するので、一時的にセットする
             const originalOrder = unit.order;
             unit.order = {
                 type: 'MOVE',
                 targetHex: { x: target.x, y: target.y },
-                // 允E�EターゲチE��惁E��を保持して、E��形計算時の本陣の向き決定などに使ぁE
+                // 元のターゲット情報を保持して、陣形計算時の本陣の向き決定などに使う
                 originalTargetId: target.id
             };
 
             await this.processMove(unit, allUnits, map);
 
-            // 移動後に攻撁E��能かチェチE���E�特に弓�E用�E�E
+            // 移動後に攻撃可能かチェック（特に弓兵用）
             const newDist = getDistAttack(unit, target);
             if (!hasAttackedThisPhase && newDist <= reach) {
-                // 近接攻撁E��E���E
+                // 近接攻撃射程内
                 unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
                 this.speak(unit, 'ATTACK');
                 await this.combat(unit, target, allUnits, map);
                 hasAttackedThisPhase = true;
             } else if (!hasAttackedThisPhase && canUseBow(newDist)) {
-                // 弓封E���Eなら遠距離攻撁E
+                // 弓射程内なら遠距離攻撃
                 unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
                 await this.rangedCombat(unit, target, map, allUnits);
                 hasAttackedThisPhase = true;
             }
 
-            // 命令を�Eに戻す（次ターンも攻撁E��継続するためE��E
-            // processMove冁E��目皁E��に着くとorderがnullになることがある�Eで注愁E
+            // 命令を元に戻す（次ターンも攻撃を継続するため）
+            // processMove内で目的地に着くとorderがnullになることがあるので注意
             if (unit.order === null && getDistAttack(unit, target) > reach) {
-                // まだ届いてぁE��ぁE�EにMove完亁E��ぁE��nullになった場合、攻撁E��令を復帰させめE
+                // まだ届いていないのにMove完了扱いでnullになった場合、攻撃命令を復帰させる
                 unit.order = originalOrder;
             } else {
-                // まだ移動中なら、次のターンも攻撁E��令として処琁E��たいので復帰
+                // まだ移動中なら、次のターンも攻撃命令として処理したいので復帰
                 unit.order = originalOrder;
             }
         } else {
-            // 接敵距離に入った場吁E
+            // 接敵距離に入った場合
             if (canRangedAttack && canUseBow(dist)) {
-                // 遠距離ユニット�E封E���Eなら封E��のみ�E�突撃しなぁE��E
+                // 遠距離ユニットは射程内なら射撃のみ（突撃しない）
                 if (!hasAttackedThisPhase) {
                     unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
                     await this.rangedCombat(unit, target, map, allUnits);
                     hasAttackedThisPhase = true;
                 }
             } else {
-                // 近接ユニット�E従来通り突撃
+                // 近接ユニットは従来通り突撃
                 const moved = await this.moveUnitStep(unit, target, allUnits, map);
-                // 移動後に再チェチE��
+                // 移動後に再チェック
                 const newDist = getDistAttack(unit, target);
                 if (!hasAttackedThisPhase && newDist <= reach) {
                     unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
@@ -383,7 +383,7 @@ export class CombatSystem {
                     await this.combat(unit, target, allUnits, map);
                     hasAttackedThisPhase = true;
                 } else if (!hasAttackedThisPhase && canUseBow(newDist)) {
-                    // 移動後に弓封E���Eなら遠距離攻撁E
+                    // 移動後に弓射程内なら遠距離攻撃
                     unit.dir = getFacingAngle(unit.x, unit.y, target.x, target.y);
                     await this.rangedCombat(unit, target, map, allUnits);
                     hasAttackedThisPhase = true;
@@ -393,21 +393,21 @@ export class CombatSystem {
     }
 
     /**
-     * 遠距離攻撁E��実行（旧牁E E後方定義により上書きされるチE��ドコード！E
-     * @param {Object} att - 攻撁E��E
-     * @param {Object} def - 防御老E
+     * 遠距離攻撃を実行（旧版 — 後方定義により上書きされるデッドコード）
+     * @param {Object} att - 攻撃者
+     * @param {Object} def - 防御者
      * @param {Array} map - マップデータ
-     * @param {Array} allUnits - 全ユニット�E刁E
+     * @param {Array} allUnits - 全ユニット配列
      */
     async rangedCombat(att, def, map, allUnits = []) {
         att.dir = getFacingAngle(att.x, att.y, def.x, def.y);
 
-        // 攻撁E��ニメーションをトリガー (忁E��E
+        // 攻撃アニメーションをトリガー (必須)
         if (this.renderingEngine && this.renderingEngine.triggerUnitAttackAnimation) {
             this.renderingEngine.triggerUnitAttackAnimation(att.id, def.id);
         }
 
-        // 攻撁E��備動作征E��
+        // 攻撃予備動作待ち
         await this.wait(300);
 
         // ... targetZ calc ...
@@ -419,39 +419,39 @@ export class CombatSystem {
             defZ = Math.max(defZ, this.mapSystem.getHeight(def.x, def.y));
         }
 
-        // 高さ差チェチE��: 段差2�E�E2 world units�E�を趁E��る場合�E攻撁E��可
+        // 高さ差チェック: 段差2（32 world units）を超える場合は攻撃不可
         const heightDiff = defZ - attZ;
         const MAX_HEIGHT_DIFF = 2 * TILE_HEIGHT; // 32 world units
 
         if (heightDiff > MAX_HEIGHT_DIFF) {
-            this.spawnText({ q: att.x, r: att.y }, "届かない", '#888', 40);
+            this.spawnText({ q: att.x, r: att.y }, "届かない!", '#888', 40);
             await this.wait(300);
             return;
         }
 
-        // ユニットタイプに応じた攻撁E���E
+        // ユニットタイプに応じた攻撃演出
         const typeInfo = UNIT_TYPES[att.type] || UNIT_TYPES.INFANTRY;
         const rangeType = typeInfo.rangeType || 'bowArc';
 
         if (rangeType === 'aoe') {
-            // 魔術師�E�魔法弾また�EエフェクチE
+            // 魔術師：魔法弾またはエフェクト
             this.audioEngine.sfxMagicAtk && this.audioEngine.sfxMagicAtk();
-            // TODO: マジチE��エフェクト実裁E��とりあえず矢ではなくビームか何か
+            // TODO: マジックエフェクト実装。とりあえず矢ではなくビームか何か
             if (this.renderingEngine && this.renderingEngine.add3DEffect) {
                 // 魔法陣など?
                 this.renderingEngine.add3DEffect('MAGIC_CAST', att);
             }
-            // 魔法弾飛�EぁE
+            // 魔法弾飛ばす
             if (this.renderingEngine && this.renderingEngine.spawnMagicProjectile) {
-                await this.renderingEngine.spawnMagicProjectile(att, def); // 要実裁E
+                await this.renderingEngine.spawnMagicProjectile(att, def); // 要実装
             } else {
-                // フォールバック: ビ�Eム
+                // フォールバック: ビーム
                 this.addEffect('BEAM', { q: att.x, r: att.y }, { q: def.x, r: def.y }, '#AA00FF');
                 await this.wait(200);
             }
 
         } else if (rangeType === 'breath') {
-            // ドラゴン�E�ブレス
+            // ドラゴン：ブレス
             this.audioEngine.sfxBreath && this.audioEngine.sfxBreath();
             if (this.renderingEngine && this.renderingEngine.add3DEffect) {
                 this.renderingEngine.add3DEffect('BREATH', att, def);
@@ -459,13 +459,13 @@ export class CombatSystem {
             await this.wait(500);
 
         } else {
-            // 弓�E銁E�E大砲
-            // 遮蔽チェチE��
+            // 弓・銃・大砲
+            // 遮蔽チェック
             const blockInfo = this.isArrowPathBlocked(att, def, map);
 
-            // 矢のアニメーションを発封E
+            // 矢のアニメーションを発射
             if (this.renderingEngine && this.renderingEngine.spawnArrowAnimation) {
-                // 銁E�E場合�E弾丸速度などを変えたいが、とりあえず矢で統一
+                // 銃の場合は弾丸速度などを変えたいが、とりあえず矢で統一
                 await this.renderingEngine.spawnArrowAnimation(att, def, blockInfo);
             }
 
@@ -475,53 +475,46 @@ export class CombatSystem {
                 return;
             }
 
-            // ヒッチEE
+            // ヒットSE
             this.audioEngine.sfxHit();
         }
         // ---------------------------------------------------------
     }
 
     /**
-     * 移動を処琁E
-     * 本陣の場合�E陣形制限をチェチE��
+     * 移動を処理
+     * 本陣の場合は陣形制限をチェック
      */
     async processMove(unit, allUnits, map) {
         let dest = unit.order.targetHex;
 
         // ---------------------------------------------------------
-        // 陣形移動ロジチE�� (配下ユニット�E場吁E
+        // 陣形移動ロジック (配下ユニットの場合)
         // ---------------------------------------------------------
         if (unit.unitType !== UNIT_TYPE_HEADQUARTERS) {
-            // 本陣を探ぁE
+            // 本陣を探す
             const hq = allUnits.find(u => u.warlordId === unit.warlordId && u.unitType === UNIT_TYPE_HEADQUARTERS && !u.dead);
 
             if (hq && hq.formation) {
-                // 配下ユニットリストを取得（�E刁E��含む、ID頁E��ソートして一貫性を保つ�E�E
+                // 配下ユニットリストを取得（自分を含む、ID順でソートして一貫性を保つ）
                 const subordinates = allUnits
                     .filter(u => u.warlordId === unit.warlordId && u.unitType !== UNIT_TYPE_HEADQUARTERS && !u.dead)
                     .sort((a, b) => a.id - b.id);
 
-                // 本陣の向きを決定（移動中なら移動方向、そぁE��なければ現在の向き�E�E
+                // 本陣の向きを決定（移動中なら移動方向、そうでなければ現在の向き）
                 let baseDir = hq.dir;
                 if (hq.order && hq.order.targetHex) {
-                    // 移動目標がある場合�Eそちらを向く
+                    // 移動目標がある場合はそちらを向く
                     baseDir = getFacingAngle(hq.x, hq.y, hq.order.targetHex.x, hq.order.targetHex.y);
                 }
 
-                // 陣形ターゲチE��を計算（本陣の現在位置を基準、地形老E�E�E�E
+                // 陣形ターゲットを計算（本陣の現在位置を基準、地形考慮）
                 const targets = calculateFormationTargets({ ...hq, dir: baseDir }, subordinates, this.mapSystem);
 
                 if (targets && targets.has(unit.id)) {
                     const formDest = targets.get(unit.id);
-                    const hasAttackTarget = !!(unit.order && unit.order.originalTargetId !== undefined);
-                    const enemyNearbyForFormation = allUnits.some(other =>
-                        other.side !== unit.side &&
-                        !other.dead &&
-                        getDistAttack(unit, other) <= 4
-                    );
-
-                    // 非交戦時は陣形を優先し、敵が近い時だけ戦闘移動を優先する
-                    if (dest.id === undefined && (!hasAttackTarget || !enemyNearbyForFormation)) {
+                    // 簡易的に、ターゲットが敵ユニットでない（単なる移動）なら陣形位置を優先
+                    if (dest.id === undefined) {
                         dest = formDest;
                     }
                 }
@@ -531,11 +524,11 @@ export class CombatSystem {
         if (getDistRaw(unit.x, unit.y, dest.x, dest.y) === 0) {
             unit.order = null;
         } else {
-            // 本陣の場合、E�E下�E追従を征E���E�足並みを揃える�E��E琁E
-            // ただし、戦闘時に敵ユニットに向かって移動する場合！Eest.idがある）�E征E��しなぁE
-            const isCombatMove = (dest.id !== undefined) || (unit.order && unit.order.originalTargetId !== undefined);
+            // 本陣の場合、配下の追従を待つ（足並みを揃える）処理
+            // ただし、戦闘時に敵ユニットに向かって移動する場合（dest.idがある）は待機しない
+            const isCombatMove = (dest.id !== undefined);
             if (unit.unitType === UNIT_TYPE_HEADQUARTERS && this.unitManager && !isCombatMove) {
-                // 1. 緊急回避チェチE���E�近くに敵がいる場合�Eなり�Eり構わず動ぁE
+                // 1. 緊急回避チェック：近くに敵がいる場合はなりふり構わず動く
                 let enemyNearby = false;
                 for (const other of allUnits) {
                     if (other.side !== unit.side && !other.dead && getDistRaw(unit.x, unit.y, other.x, other.y) <= 2) {
@@ -549,15 +542,15 @@ export class CombatSystem {
                         .filter(u => !u.dead && u.unitType !== UNIT_TYPE_HEADQUARTERS);
 
                     if (subordinates.length > 0) {
-                        // 周囲6HEX以冁E��ぁE��配下をカウント（地形による遁E��を老E�Eして緩和！E
+                        // 周囲6HEX以内にいる配下をカウント（地形による遅れを考慮して緩和）
                         const nearbySubordinates = subordinates.filter(u => getDistRaw(unit.x, unit.y, u.x, u.y) <= 6);
                         const ratio = nearbySubordinates.length / subordinates.length;
 
-                        // 配下�E50%以上が近くにぁE��ぁE��ら、移動を征E��E
+                        // 配下の50%以上が近くにいないなら、移動を待機
                         if (ratio < 0.5) {
                             this.spawnText({ q: unit.x, r: unit.y }, "軍待ち...", "#aaa", 40);
-                            await this.wait(200); // 少しだけウェイトを入れて雰囲気を出ぁE
-                            return; // 移動スキチE�E
+                            await this.wait(200); // 少しだけウェイトを入れて雰囲気を出す
+                            return; // 移動スキップ
                         }
                     }
                 }
@@ -568,8 +561,8 @@ export class CombatSystem {
     }
 
     /**
-     * ユニットを移動（パスファインチE��ング使用�E�E
-     * 匁E��移動をサポ�EチE
+     * ユニットを移動（パスファインディング使用）
+     * 包囲移動をサポート
      */
     async moveUnitStep(unit, dest, allUnits, map) {
         let targetQ = dest.x;
@@ -795,7 +788,7 @@ export class CombatSystem {
     async combat(att, def, allUnits, map) {
         att.dir = getFacingAngle(att.x, att.y, def.x, def.y);
 
-        // 匁E��攻撁E�E判宁E
+        // 包囲攻撃の判定
         const siegers = allUnits.filter(u =>
             u.side === att.side &&
             !u.dead &&
@@ -803,34 +796,34 @@ export class CombatSystem {
             getDist(u, def) <= (u.size + def.size) / 2 + 1
         );
 
-        // 鬨の声�E�戦闘開始SE�E�E
+        // 鬨の声（戦闘開始SE）
         this.audioEngine.sfxBattleCry();
 
-        // 攻撁E�Eから防御側への攻撁E��E
+        // 攻撃側から防御側への攻撃線
         this.addEffect('BEAM', { q: att.x, r: att.y }, { q: def.x, r: def.y }, '#ffaa00');
 
         // 陣営色を取得するローカル関数
         const getSideColor = (side) => {
-            if (side === 'EAST') return 0x6666FF; // 青（少し明るめE��E
+            if (side === 'EAST') return 0x6666FF; // 青（少し明るめ）
             if (side === 'WEST') return 0xFF4444; // 赤
             return 0xAAAAAA;
         };
 
-        // 攻撁E��ニットを少し光らせる
+        // 攻撃ユニットを少し光らせる
         this.addEffect('UNIT_FLASH', { unitId: att.id, color: getSideColor(att.side), duration: 10 });
 
         siegers.forEach(s => {
             const siegeColor = getSideColor(s.side);
             this.addEffect('BEAM', { q: s.x, r: s.y }, { q: def.x, r: def.y }, '#ffaa00');
-            // 匁E��参加ユニット�EHEXを点滁E��せる
+            // 包囲参加ユニットのHEXを点滅させる
             this.addEffect('HEX_FLASH', { q: s.x, r: s.y, color: siegeColor });
-            // ユニット�E体も少し光らせる
+            // ユニット自体も少し光らせる
             this.addEffect('UNIT_FLASH', { unitId: s.id, color: siegeColor, duration: 30 });
         });
 
-        // 戦闘エフェクチE 土�Eと火花を追加
+        // 戦闘エフェクト: 土煙と火花を追加
         this.addEffect('DUST', { q: def.x, r: def.y }, null, null);
-        // 攻撁E��ニメーション�E�突撃�E�E
+        // 攻撃アニメーション（突撃）
         if (this.renderingEngine && this.renderingEngine.triggerUnitAttackAnimation) {
             this.renderingEngine.triggerUnitAttackAnimation(att.id, def.id);
             siegers.forEach(s => {
@@ -838,22 +831,22 @@ export class CombatSystem {
             });
         }
 
-        // 突撃の予備動作時間（少し征E��てからエフェクト！E
+        // 突撃の予備動作時間（少し待ってからエフェクト）
         await this.wait(150);
 
-        this.spawnSparks(att, def); // 攻撁E�Eと防御側の間に火花
+        this.spawnSparks(att, def); // 攻撃側と防御側の間に火花
 
         this.audioEngine.sfxHit();
         await this.wait(300);
 
-        // 地形ボ�Eナス�E�建物の高さを老E�E�E�E
-        // 単位を世界単位！Eorld units�E�で統一
+        // 地形ボーナス（建物の高さを考慮）
+        // 単位を世界単位（world units）で統一
 
-        let hAtt = (map[att.y]?.[att.x]?.z || 0) * TILE_HEIGHT; // グリチE��単位�E世界単佁E
-        let hDef = (map[def.y]?.[def.x]?.z || 0) * TILE_HEIGHT; // グリチE��単位�E世界単佁E
+        let hAtt = (map[att.y]?.[att.x]?.z || 0) * TILE_HEIGHT; // グリッド単位→世界単位
+        let hDef = (map[def.y]?.[def.x]?.z || 0) * TILE_HEIGHT; // グリッド単位→世界単位
 
-        // mapSystemがある場合�E建物の高さも老E�E�E�キャチE��ュ付き�E�E
-        // どちらも世界単位なので正しく比輁E��きる
+        // mapSystemがある場合は建物の高さも考慮（キャッシュ付き）
+        // どちらも世界単位なので正しく比較できる
         if (this.mapSystem) {
             hAtt = Math.max(hAtt, this.mapSystem.getHeight(att.x, att.y));
             hDef = Math.max(hDef, this.mapSystem.getHeight(def.x, def.y));
@@ -861,7 +854,7 @@ export class CombatSystem {
 
         let mod = 1.0 + (hAtt > hDef ? 0.3 : 0) + (siegers.length * 0.2);
 
-        // 方向�Eーナス
+        // 方向ボーナス
         let dirDiff = Math.abs(att.dir - def.dir);
         if (dirDiff > 3) dirDiff = 6 - dirDiff;
 
@@ -869,33 +862,33 @@ export class CombatSystem {
         let dirMsg = "";
         if (dirDiff === 0) {
             dirMod = 2.0;
-            dirMsg = "背面攻撁E";
+            dirMsg = "背面攻撃!";
         } else if (dirDiff !== 3) {
             dirMod = 1.5;
-            dirMsg = "側面攻撁E";
+            dirMsg = "側面攻撃!";
         }
 
         if (dirMsg) this.spawnText({ q: def.x, r: def.y }, dirMsg, "#ffff00", 40);
 
-        // 陣形によるスチE�Eタス修正
+        // 陣形によるステータス修正
         const attFormation = getFormationModifiers(att.formation);
         const defFormation = getFormationModifiers(def.formation);
         const finalAtkStat = att.atk + attFormation.atk;
         const finalDefStat = def.def + defFormation.def;
 
-        // 入力値の検証�E�EaN発生源�E特定用�E�E
+        // 入力値の検証（NaN発生源の特定用）
         if (typeof att.atk !== 'number' || typeof att.soldiers !== 'number' ||
             typeof def.def !== 'number' || typeof def.soldiers !== 'number') {
             // Invalid unit data - skip with safe defaults
         }
 
-        // ダメージ計算（陣形修正を適用�E�E
-        // 安�Eな兵士数�E�負やNaNを防止�E�E
+        // ダメージ計算（陣形修正を適用）
+        // 安全な兵士数（負やNaNを防止）
         const safeSoldiers = (typeof att.soldiers === 'number' && att.soldiers > 0) ? att.soldiers : 1;
         let dmgToDef = Math.floor((Math.sqrt(safeSoldiers) * finalAtkStat * mod * dirMod) / (finalDefStat / 15));
         if (!Number.isFinite(dmgToDef) || dmgToDef < 10) dmgToDef = 10;
 
-        // ダメージ適用�E�被攻撁E�Eのみ�E�E
+        // ダメージ適用（被攻撃側のみ）
         def.soldiers -= dmgToDef;
         this.spawnText({ q: def.x, r: def.y }, `-${dmgToDef}`, '#ff3333', 60);
         this.speak(def, 'DAMAGED');
@@ -905,50 +898,50 @@ export class CombatSystem {
             this.renderingEngine.triggerDamageAnimation(def.id);
         }
 
-        // 3Dレンダラー側のユニット情報を更新�E��E士数ゲージなど�E�E
+        // 3Dレンダラー側のユニット情報を更新（兵士数ゲージなど）
         if (this.renderingEngine && this.renderingEngine.updateUnitInfo) {
-            // ユニットメチE��ュを取得して更新
+            // ユニットメッシュを取得して更新
             const attMesh = this.renderingEngine.unitMeshes.get(att.id);
             const defMesh = this.renderingEngine.unitMeshes.get(def.id);
             if (attMesh) this.renderingEngine.updateUnitInfo(attMesh, att);
             if (defMesh) this.renderingEngine.updateUnitInfo(defMesh, def);
         }
 
-        // 死亡判定！EaNの場合も死亡として扱ぁE��E
+        // 死亡判定（NaNの場合も死亡として扱う）
         if (def.soldiers <= 0 || isNaN(def.soldiers)) {
             def.soldiers = 0;
             def.dead = true;
-            // 死亡アニメーションをトリガー�E�フェードアウト付き�E�E
+            // 死亡アニメーションをトリガー（フェードアウト付き）
             if (this.renderingEngine && this.renderingEngine.triggerDeathAnimation) {
                 this.renderingEngine.triggerDeathAnimation(def.id);
             }
             await this.dramaticDeath(def, att.side);
         }
-        // 注: 攻撁E�Eはダメージを受けなぁE��め、死亡判定�E不要E
+        // 注: 攻撃側はダメージを受けないため、死亡判定は不要
 
         // ---------------------------------------------------------
-        // 騎�E押し�Eし！EAVALRY: canPushBack === true�E�E
-        // 攻撁E��向に防御側めEマス押し戻ぁE
+        // 騎兵押し出し（CAVALRY: canPushBack === true）
+        // 攻撃方向に防御側を1マス押し戻す
         // ---------------------------------------------------------
         const attTypeInfo = UNIT_TYPES[att.type] || UNIT_TYPES.INFANTRY;
         if (attTypeInfo.canPushBack && !def.dead) {
-            // 攻撁E��E��ら防御老E��の方向�Eクトルを計箁E
+            // 攻撃者から防御者への方向ベクトルを計算
             const pushDx = Math.sign(def.x - att.x);
             const pushDy = Math.sign(def.y - att.y);
-            // 方向が算�EできなぁE��合（同じ�Eスに屁E��等）�EスキチE�E
+            // 方向が算出できない場合（同じマスに居る等）はスキップ
             if (pushDx !== 0 || pushDy !== 0) {
                 const newX = def.x + pushDx;
                 const newY = def.y + pushDy;
 
-                // 押し�Eし�Eが有効かチェチE��
+                // 押し出し先が有効かチェック
                 let canPush = true;
 
-                // マップ篁E��チェチE��
+                // マップ範囲チェック
                 if (newX < 0 || newY < 0 || !map[newY] || !map[newY][newX]) {
                     canPush = false;
                 }
 
-                // 他�Eユニットが占有してぁE��ぁE��チェチE��
+                // 他のユニットが占有していないかチェック
                 if (canPush && allUnits) {
                     const occupied = allUnits.find(u =>
                         !u.dead && u.id !== def.id && u.x === newX && u.y === newY
@@ -956,7 +949,7 @@ export class CombatSystem {
                     if (occupied) canPush = false;
                 }
 
-                // 高低差チェチE���E�段差2まで = 32 world units�E�E
+                // 高低差チェック（段差2まで = 32 world units）
                 if (canPush && this.mapSystem) {
                     const currentZ = this.mapSystem.getHeight(def.x, def.y);
                     const targetZ = this.mapSystem.getHeight(newX, newY);
@@ -984,17 +977,17 @@ export class CombatSystem {
     }
 
     /**
-     * 劁E��な死亡演�E
-     * @param {Object} unit - 討ち取られたユニッチE
-     * @param {string} killerSide - 討ち取った�Eの陣営
+     * 劇的な死亡演出
+     * @param {Object} unit - 討ち取られたユニット
+     * @param {string} killerSide - 討ち取った側の陣営
      */
     async dramaticDeath(unit, killerSide) {
-        // 本陣かどぁE��を判宁E
+        // 本陣かどうかを判定
         const isHeadquarters = (unit.unitType === 'HEADQUARTERS');
 
-        // 討ち取った�EによってSEを変更
+        // 討ち取った側によってSEを変更
         if (killerSide === this.playerSide) {
-            // 敵を討ち取った！シャキーン�E�E
+            // 敵を討ち取った！シャキーン！
             this.audioEngine.sfxVictorySlash();
         } else {
             // 味方が討ち取られた…ズバッ
@@ -1007,49 +1000,49 @@ export class CombatSystem {
         flash.style.opacity = 0.5;
         setTimeout(() => flash.style.opacity = 0, 150);
 
-        // メチE��ージを本陣と配下部隊で区別
+        // メッセージを本陣と配下部隊で区別
         let msg, color;
 
         if (isHeadquarters) {
-            // 総大封E��宁E
+            // 総大将判定
             const isCommander = (unit.name === "徳川家康" || unit.name === "石田三成");
 
             if (unit.side !== this.playerSide) {
-                // 敵本陣の場合、討ち死にか敗走かをランダムで決宁E
-                // 封E��皁E��は士気などが関わる予宁E
+                // 敵本陣の場合、討ち死にか敗走かをランダムで決定
+                // 将来的には士気などが関わる予定
                 if (Math.random() < 0.5) {
-                    // パターンA: 敗走�E�撤退�E�E
+                    // パターンA: 敗走（撤退）
                     if (isCommander) {
-                        msg = `敵総大将${unit.name}、戦場より撤退！`;
+                        msg = `敵総大将・${unit.name}、戦場より撤退！`;
                     } else {
                         msg = `${unit.name}、戦場より撤退！`;
                     }
                     color = '#ffa500'; // オレンジ色
 
-                    // 顔グラフィチE��のカチE��イン表示
+                    // 顔グラフィックのカットイン表示
                     if (unit.face) {
                         this.showWarlordCutIn(unit, 'ROUT');
                     }
                 } else {
                     // パターンB: 討ち死に
                     if (isCommander) {
-                        msg = `敵総大将${unit.name}、討ち取ったり！`;
+                        msg = `敵総大将・${unit.name}、討ち取ったり！`;
                     } else {
                         msg = `敵将${unit.name}、討ち取ったり！`;
                     }
                     color = '#ff0';
 
-                    // 顔グラフィチE��のカチE��イン表示�E�討ち死に用�E�E
+                    // 顔グラフィックのカットイン表示（討ち死に用）
                     if (unit.face) {
                         this.showWarlordCutIn(unit, 'DEATH');
                     }
                 }
             } else {
-                // 味方本陣の場吁E
+                // 味方本陣の場合
                 if (Math.random() < 0.5) {
                     // 敗走
                     if (isCommander) {
-                        msg = `総大将${unit.name}、戦場より撤退！`;
+                        msg = `総大将・${unit.name}、戦場より撤退！`;
                     } else {
                         msg = `${unit.name}、戦場より撤退！`;
                     }
@@ -1067,14 +1060,14 @@ export class CombatSystem {
                 }
             }
         } else {
-            // 配下部隁E 「撃破/壊滁E��メチE��ージ
+            // 配下部隊: 「撃破/壊滅」メッセージ
             msg = (unit.side === this.playerSide) ?
-                `${unit.warlordName}配下の部隊、壊滅！` :
+                `${unit.warlordName}配下の部隊、壊滅…` :
                 `${unit.warlordName}配下の部隊、撃破！`;
             color = (unit.side === this.playerSide) ? '#aaa' : '#ffa500';
         }
 
-        // チE��スト表示
+        // テキスト表示
         const div = document.createElement('div');
         div.className = 'vic-title';
         div.innerText = msg;
@@ -1086,7 +1079,7 @@ export class CombatSystem {
         div.style.zIndex = 150;
         div.style.pointerEvents = 'none';
         div.style.whiteSpace = 'nowrap';
-        // チE��ストシャドウめE��ォントサイズを強匁E
+        // テキストシャドウやフォントサイズを強化
         div.style.fontSize = isHeadquarters ? '36px' : '24px';
         div.style.textShadow = '2px 2px 4px #000';
 
@@ -1097,14 +1090,14 @@ export class CombatSystem {
     }
 
     /**
-     * 武封E�EカチE��インを表示�E�敗走時など�E�E
+     * 武将のカットインを表示（敗走時など）
      * @param {Object} unit
      * @param {string} type 'ROUT' | 'DEATH'
      */
     showWarlordCutIn(unit, type) {
         const container = document.getElementById('game-container');
 
-        // 画像要素作�E
+        // 画像要素作成
         const img = document.createElement('img');
         img.src = `portraits/${unit.face}`;
         img.style.position = 'absolute';
@@ -1112,25 +1105,25 @@ export class CombatSystem {
         img.style.left = '50%';
         img.style.transform = 'translate(-50%, -50%) scale(0.5)';
         img.style.maxHeight = '60%';
-        img.style.zIndex = 140; // チE��スチE150)の後ろ
+        img.style.zIndex = 140; // テキスト(150)の後ろ
         img.style.opacity = '0';
         img.style.transition = 'all 0.5s ease-out';
         img.style.pointerEvents = 'none';
 
         container.appendChild(img);
 
-        // アニメーション開姁E
+        // アニメーション開始
         requestAnimationFrame(() => {
             img.style.opacity = '1';
             img.style.transform = 'translate(-50%, -50%) scale(1.0)';
         });
 
         if (type === 'DEATH') {
-            // 討ち死に演�E: ランダムで3パターンから選抁E
+            // 討ち死に演出: ランダムで3パターンから選択
             const variation = Math.floor(Math.random() * 3) + 1;
 
             setTimeout(() => {
-                // まず�E共通でモノクロ匁E
+                // まずは共通でモノクロ化
                 img.style.filter = 'grayscale(100%) contrast(1.2) brightness(0.8)';
                 img.style.transition = 'filter 1.0s ease, transform 0.2s';
 
@@ -1138,37 +1131,37 @@ export class CombatSystem {
                 img.style.transform = 'translate(-50%, -50%) scale(1.05)';
                 setTimeout(() => img.style.transform = 'translate(-50%, -50%) scale(1.0)', 100);
 
-                // 吁E���Eへ刁E��E
+                // 各演出へ分岐
                 setTimeout(() => {
                     if (variation === 1) {
-                        // 演�E1: 散る（既存！E
+                        // 演出1: 散る（既存）
                         img.style.transition = 'all 1.5s ease-out';
                         img.style.opacity = '0';
                         img.style.transform = 'translate(-50%, -50%) scale(1.5)';
-                        img.style.filter = 'grayscale(100%) blur(10px)'; // ぼめE��て消えめE
+                        img.style.filter = 'grayscale(100%) blur(10px)'; // ぼやけて消える
 
                         setTimeout(() => img.remove(), 1500);
 
                     } else if (variation === 2) {
-                        // 演�E2: 両断�E�左右に割れて上下にズレる！E
+                        // 演出2: 両断（左右に割れて上下にズレる）
 
-                        // 画像を褁E��して左右を作�E
-                        // 左半�E
+                        // 画像を複製して左右を作成
+                        // 左半分
                         const left = img.cloneNode();
                         left.style.clipPath = 'polygon(0% 0%, 50% 0%, 50% 100%, 0% 100%)';
                         left.style.transition = 'all 1.2s ease-in';
                         container.appendChild(left);
 
-                        // 右半�E
+                        // 右半分
                         const right = img.cloneNode();
                         right.style.clipPath = 'polygon(50% 0%, 100% 0%, 100% 100%, 50% 100%)';
                         right.style.transition = 'all 1.2s ease-in';
                         container.appendChild(right);
 
-                        // 允E��像�E隠ぁE
+                        // 元画像は隠す
                         img.style.display = 'none';
 
-                        // アニメーション実行（左上�E右下へスライドしながらフェードアウト！E
+                        // アニメーション実行（左上・右下へスライドしながらフェードアウト）
                         requestAnimationFrame(() => {
                             left.style.transform = 'translate(-50%, calc(-50% - 100px)) scale(1.0)'; // 左は上へ
                             left.style.opacity = '0';
@@ -1184,20 +1177,20 @@ export class CombatSystem {
                         }, 1200);
 
                     } else if (variation === 3) {
-                        // 演�E3: 血し�Eき（赤黒いエフェクト！E
+                        // 演出3: 血しぶき（赤黒いエフェクト）
 
-                        // ベ�Eス画像を赤黒く変化させめE
-                        // grayscale -> sepia -> hue-rotate(赤系) -> saturate(濁E��) -> brightness(暗く)
+                        // ベース画像を赤黒く変化させる
+                        // grayscale -> sepia -> hue-rotate(赤系) -> saturate(濃く) -> brightness(暗く)
                         img.style.transition = 'all 0.5s ease-in';
                         img.style.filter = 'grayscale(100%) sepia(100%) hue-rotate(-50deg) saturate(500%) contrast(1.5) brightness(0.4)';
                         img.style.transform = 'translate(-50%, -50%) scale(1.02)';
 
-                        // 血のオーバ�Eレイを追加
+                        // 血のオーバーレイを追加
                         const bloodOverlay = document.createElement('div');
                         bloodOverlay.style.position = 'absolute';
                         bloodOverlay.style.top = '50%';
                         bloodOverlay.style.left = '50%';
-                        // 画像サイズを正確に取得する�Eは難しいので、画面中央に大きめの冁E��グラチE�Eションを�EぁE
+                        // 画像サイズを正確に取得するのは難しいので、画面中央に大きめの円形グラデーションを出す
                         bloodOverlay.style.width = '600px';
                         bloodOverlay.style.height = '600px';
                         bloodOverlay.style.transform = 'translate(-50%, -50%)';
@@ -1214,7 +1207,7 @@ export class CombatSystem {
                             bloodOverlay.style.opacity = '1';
                         });
 
-                        // フェードアウチE
+                        // フェードアウト
                         setTimeout(() => {
                             img.style.transition = 'all 1.5s ease-out';
                             img.style.opacity = '0';
@@ -1227,12 +1220,12 @@ export class CombatSystem {
                             }, 1500);
                         }, 1000);
                     }
-                }, 1200); // モノクロを見てる時閁E
+                }, 1200); // モノクロを見てる時間
 
-            }, 800); // 最初�E表示時間
+            }, 800); // 最初の表示時間
 
         } else {
-            // 敗走演�E: 表示 -> フレームアウチEor フェードアウチE
+            // 敗走演出: 表示 -> フレームアウト or フェードアウト
             setTimeout(() => {
                 img.style.opacity = '0';
                 img.style.transform = 'translate(-50%, -50%) scale(0.8)'; // 奥に引っ込む感じ
@@ -1241,7 +1234,7 @@ export class CombatSystem {
         }
     }
 
-    // ユーチE��リチE��関数
+    // ユーティリティ関数
     speak(unit, type, force = false) {
         if (!unit) return; // Null check
         if (!force && Math.random() > 0.4) return;
@@ -1256,7 +1249,7 @@ export class CombatSystem {
             });
         }
 
-        // 3D版�E unit.x/unit.y を直接使用、ED版�E unit.pos を使用
+        // 3D版は unit.x/unit.y を直接使用、2D版は unit.pos を使用
         const posX = unit.pos?.x ?? unit.x ?? 0;
         const posY = unit.pos?.y ?? unit.y ?? 0;
         this.activeBubbles.push({
@@ -1269,7 +1262,7 @@ export class CombatSystem {
 
     showFormation(unit, formationName) {
         this.spawnText({ q: unit.x, r: unit.y }, formationName, "#00FFFF", 40);
-        this.speak(unit, 'FORMATION'); // 陣形変更時�Eセリフがあれば
+        this.speak(unit, 'FORMATION'); // 陣形変更時のセリフがあれば
     }
 
     addEffect(type, start, end, color) {
@@ -1306,7 +1299,7 @@ export class CombatSystem {
     }
 
     wait(ms) {
-        // 速度倍率を適用 (速度が高いほど征E��時間が短くなめE
+        // 速度倍率を適用 (速度が高いほど待機時間が短くなる)
         const speedMultiplier = this.getActionSpeed();
         const adjustedMs = ms / speedMultiplier;
         return new Promise(resolve => setTimeout(resolve, adjustedMs));
@@ -1318,10 +1311,10 @@ export class CombatSystem {
             if (e.type === 'FLOAT_TEXT') {
                 e.y -= 0.5;
             } else if (e.type === 'SPARK') {
-                // 火花の物琁E��算（ほとんど動かなぁE��さな閁E���E�E
+                // 火花の物理演算（ほとんど動かない小さな閃き）
                 e.x += e.vx;
                 e.y += e.vy;
-                e.vx *= 0.85; // 強ぁE��気抵抗ですぐに減衰
+                e.vx *= 0.85; // 強い空気抵抗ですぐに減衰
                 e.vy *= 0.85;
             }
         });
@@ -1332,101 +1325,101 @@ export class CombatSystem {
     }
 
     // =====================================
-    // 弓攻撁E��スチE�� (Bow Attack System)
+    // 弓攻撃システム (Bow Attack System)
     // =====================================
 
     /**
-     * 弓�E有効封E��を計算（高低差による変動�E�E
-     * @param {number} attackerZ - 攻撁E��E�E高さ
+     * 弓の有効射程を計算（高低差による変動）
+     * @param {number} attackerZ - 攻撃者の高さ
      * @param {number} targetZ - 対象の高さ
-     * @param {number} baseRange - 基本封E��（デフォルチE�E�E
-     * @returns {number} 有効封E��E
+     * @param {number} baseRange - 基本射程（デフォルト5）
+     * @returns {number} 有効射程
      */
     calculateBowRange(attackerZ, targetZ, baseRange = 5) {
         const heightDiff = attackerZ - targetZ;
-        // 高所からは封E��が伸び、低所からは封E��が縮む
-        // 最封E、最大 baseRange + 3
+        // 高所からは射程が伸び、低所からは射程が縮む
+        // 最小1、最大 baseRange + 3
         return Math.max(1, Math.min(baseRange + 3, baseRange + heightDiff));
     }
 
     /**
-     * 矢の軌道が障害物で遮られるかチェチE��
-     * タクチE��クスオウガ風の軌道シスチE��を採用�E�E
-     * - 近距離封E���E�高い弧の軌道�E�障害物をクリアしやすい�E�E
-     * - 遠距離封E���E�低い弧の軌道�E�障害物に阻まれやすい�E�E
-     * @param {Object} from - 発封E�EユニッチE
-     * @param {Object} to - 対象ユニッチE
+     * 矢の軌道が障害物で遮られるかチェック
+     * タクティクスオウガ風の軌道システムを採用：
+     * - 近距離射撃：高い弧の軌道（障害物をクリアしやすい）
+     * - 遠距離射撃：低い弧の軌道（障害物に阻まれやすい）
+     * @param {Object} from - 発射元ユニット
+     * @param {Object} to - 対象ユニット
      * @param {Array} map - マップデータ
-     * @returns {{blocked: boolean, blockPos: {x,y,z}|null, arcHeight: number}} 遮蔽惁E��と弧の高さ
+     * @returns {{blocked: boolean, blockPos: {x,y,z}|null, arcHeight: number}} 遮蔽情報と弧の高さ
      */
     isArrowPathBlocked(from, to, map) {
-        // 放物線�E頂点を計箁E
+        // 放物線の頂点を計算
         const dist = getDistRaw(from.x, from.y, to.x, to.y);
 
-        // 高さは世界単位で統一�E�EILE_HEIGHT = 16�E�E
+        // 高さは世界単位で統一（TILE_HEIGHT = 16）
 
         let fromZ = (map[from.y]?.[from.x]?.z || 0) * TILE_HEIGHT;
         let toZ = (map[to.y]?.[to.x]?.z || 0) * TILE_HEIGHT;
 
-        // mapSystemがある場合�E建物の高さも老E�E�E�キャチE��ュ付き�E�E
+        // mapSystemがある場合は建物の高さも考慮（キャッシュ付き）
         if (this.mapSystem) {
             fromZ = Math.max(fromZ, this.mapSystem.getHeight(from.x, from.y));
             toZ = Math.max(toZ, this.mapSystem.getHeight(to.x, to.y));
         }
 
-        // 高低差に基づく弧の高さを計箁E
+        // 高低差に基づく弧の高さを計算
         const heightDiff = toZ - fromZ;
         const isShootingUp = heightDiff > 0;
 
         const maxRange = 12;
         const distFactor = 1 - Math.min(dist / maxRange, 1);
 
-        // 基本弧の高さ�E�世界単位で計算！E
-        // 以前�E計算式�E高すぎたので修正: (15 + 65 * distFactor) -> (2 + 10 * distFactor)
-        // 1グリチE��距離あたりではなく、より物琁E��な見た目を重要E
+        // 基本弧の高さ（世界単位で計算）
+        // 以前の計算式は高すぎたので修正: (15 + 65 * distFactor) -> (2 + 10 * distFactor)
+        // 1グリッド距離あたりではなく、より物理的な見た目を重視
         const baseArcHeight = (1 + 6 * distFactor) * TILE_HEIGHT;
 
         let arcHeight = baseArcHeight;
         if (isShootingUp) {
-            // 見上げるとき�E少し弧を高くしなぁE��刺さらなぁE��、以前�E +heightDiff*2 は過剰
+            // 見上げるときは少し弧を高くしないと刺さらないが、以前の +heightDiff*2 は過剰
             arcHeight = baseArcHeight + heightDiff * 0.5;
         }
 
-        // 軌道上�E吁E��リチE��をチェチE��
-        const steps = Math.ceil(dist * 2); // スチE��プ数を増やして精度向丁E
+        // 軌道上の各グリッドをチェック
+        const steps = Math.ceil(dist * 2); // ステップ数を増やして精度向上
         for (let i = 1; i <= steps; i++) {
             const t = i / steps;
             const checkX = Math.round(from.x + (to.x - from.x) * t);
             const checkY = Math.round(from.y + (to.y - from.y) * t);
 
-            // マップ篁E��チェチE��
+            // マップ範囲チェック
             if (!map[checkY] || !map[checkY][checkX]) continue;
 
             let tileZ = (map[checkY][checkX].z || 0) * TILE_HEIGHT;
 
-            // 経路上�EグリチE��でも建物の高さを老E�E
+            // 経路上のグリッドでも建物の高さを考慮
             if (this.mapSystem) {
                 tileZ = Math.max(tileZ, this.mapSystem.getHeight(checkX, checkY));
             }
 
-            // 放物線上�E高さを計算（パラボラ�E�E
+            // 放物線上の高さを計算（パラボラ）
             const arcZ = fromZ + (toZ - fromZ) * t + 4 * arcHeight * t * (1 - t);
 
-            // 障害物チェチE���E�ターゲチE��より低い位置にある障害物はブロチE��
-            // 判定�Eージンを少し設ける�E�E4�E�E
+            // 障害物チェック：ターゲットより低い位置にある障害物はブロック
+            // 判定マージンを少し設ける（+4）
             if (tileZ > arcZ + 4) {
-                // 衝突E��E
-                // 衝突地点のZは、arrowの高さ(arcZ)ではなく障害物の表面(tileZ)でもなく、E
-                // 見た目皁E��は「刺さった場所、E arcZ を返すべき、E
+                // 衝突！
+                // 衝突地点のZは、arrowの高さ(arcZ)ではなく障害物の表面(tileZ)でもなく、
+                // 見た目的には「刺さった場所」= arcZ を返すべき。
                 return {
                     blocked: true,
-                    blockPos: { x: checkX, y: checkY, z: arcZ }, // 表示用座樁E
-                    t: t, // 進行割吁E
+                    blockPos: { x: checkX, y: checkY, z: arcZ }, // 表示用座標
+                    t: t, // 進行割合
                     arcHeight: arcHeight
                 };
             }
 
-            // 低所から高所へ撁E��場合、E��中に壁があるとブロチE��
+            // 低所から高所へ撃つ場合、途中に壁があるとブロック
             if (isShootingUp && tileZ > fromZ + TILE_HEIGHT && tileZ < toZ && tileZ > arcZ) {
                 return {
                     blocked: true,
@@ -1444,11 +1437,11 @@ export class CombatSystem {
 
 
     /**
-     * 遠距離攻撁E��実衁E
-     * @param {Object} att - 攻撁E��E
-     * @param {Object} def - 防御老E
+     * 遠距離攻撃を実行
+     * @param {Object} att - 攻撃者
+     * @param {Object} def - 防御者
      * @param {Array} map - マップデータ
-     * @param {Array} allUnits - 全ユニット�E列！EoE/ブレス篁E��ダメージ用�E�E
+     * @param {Array} allUnits - 全ユニット配列（AoE/ブレス範囲ダメージ用）
      */
     async rangedCombat(att, def, map, allUnits = []) {
         att.dir = getFacingAngle(att.x, att.y, def.x, def.y);
@@ -1456,46 +1449,46 @@ export class CombatSystem {
         // Debug Log
         // console.log(`[Combat] rangedCombat start.`);
 
-        // 攻撁E��ニメーションをトリガー (忁E��E
+        // 攻撃アニメーションをトリガー (必須)
         if (this.renderingEngine && this.renderingEngine.triggerUnitAttackAnimation) {
             this.renderingEngine.triggerUnitAttackAnimation(att.id, def.id);
         }
 
-        // 攻撁E��備動作征E��
+        // 攻撃予備動作待ち
         await this.wait(300);
 
-        // 単位を世界単位！Eorld units�E�で統一
+        // 単位を世界単位（world units）で統一
 
-        let attZ = (map[att.y]?.[att.x]?.z || 0) * TILE_HEIGHT; // グリチE��単位�E世界単佁E
-        let defZ = (map[def.y]?.[def.x]?.z || 0) * TILE_HEIGHT; // グリチE��単位�E世界単佁E
+        let attZ = (map[att.y]?.[att.x]?.z || 0) * TILE_HEIGHT; // グリッド単位→世界単位
+        let defZ = (map[def.y]?.[def.x]?.z || 0) * TILE_HEIGHT; // グリッド単位→世界単位
 
-        // mapSystemがある場合�E建物の高さも老E�E�E�キャチE��ュ付き�E�E
-        // どちらも世界単位なので正しく比輁E��きる
+        // mapSystemがある場合は建物の高さも考慮（キャッシュ付き）
+        // どちらも世界単位なので正しく比較できる
         if (this.mapSystem) {
             attZ = Math.max(attZ, this.mapSystem.getHeight(att.x, att.y));
             defZ = Math.max(defZ, this.mapSystem.getHeight(def.x, def.y));
         }
 
-        // 高さ差による封E��制限：ターゲチE��が攻撁E��E��り高すぎる場合�E攻撁E��可
-        // 段差2�E�E2 world units�E�を趁E��る場合�E遠距離攻撁E��可�E�城壁対応！E
+        // 高さ差による射程制限：ターゲットが攻撃者より高すぎる場合は攻撃不可
+        // 段差2（32 world units）を超える場合は遠距離攻撃不可（城壁対応）
         const MAX_RANGED_HEIGHT_DIFF = 2 * TILE_HEIGHT; // 32 world units
 
-        // ワールドユニットでの高さ差を計箁E
+        // ワールドユニットでの高さ差を計算
         const heightDiff = defZ - attZ;
 
         if (heightDiff > MAX_RANGED_HEIGHT_DIFF) {
-            // ターゲチE��が高すぎて到達できなぁE
-            this.spawnText({ q: att.x, r: att.y }, "届かない", '#888', 40);
+            // ターゲットが高すぎて到達できない
+            this.spawnText({ q: att.x, r: att.y }, "届かない!", '#888', 40);
             await this.wait(300);
             return;
         }
 
-        // ユニットタイプに応じた攻撁E���E
+        // ユニットタイプに応じた攻撃演出
         const typeInfo = UNIT_TYPES[att.type] || UNIT_TYPES.INFANTRY;
         const rangeType = typeInfo.rangeType || 'bowArc';
 
         if (rangeType === 'aoe') {
-            // 魔術師�E�魔法弾
+            // 魔術師：魔法弾
             this.audioEngine.sfxMagicAtk && this.audioEngine.sfxMagicAtk();
             if (this.renderingEngine && this.renderingEngine.spawnMagicProjectile) {
                 await this.renderingEngine.spawnMagicProjectile(att, def, 0xAA00FF);
@@ -1503,7 +1496,7 @@ export class CombatSystem {
                 await this.wait(500);
             }
         } else if (rangeType === 'breath') {
-            // ドラゴン�E�ブレス(赤)
+            // ドラゴン：ブレス(赤)
             this.audioEngine.sfxBreath && this.audioEngine.sfxBreath();
             if (this.renderingEngine && this.renderingEngine.spawnMagicProjectile) {
                 await this.renderingEngine.spawnMagicProjectile(att, def, 0xFF4400);
@@ -1511,7 +1504,7 @@ export class CombatSystem {
                 await this.wait(500);
             }
         } else if (rangeType === 'heal') {
-            // 僧侶�E�聖なる�E(黁E
+            // 僧侶：聖なる光(黄)
             this.audioEngine.sfxMagicAtk && this.audioEngine.sfxMagicAtk();
             if (this.renderingEngine && this.renderingEngine.spawnMagicProjectile) {
                 await this.renderingEngine.spawnMagicProjectile(att, def, 0xFFFF88);
@@ -1520,54 +1513,54 @@ export class CombatSystem {
             }
 
         } else {
-            // 弓�E銁E�E大砲
-            // 遮蔽チェチE��
+            // 弓・銃・大砲
+            // 遮蔽チェック
             const blockInfo = this.isArrowPathBlocked(att, def, map);
 
-            // 矢のアニメーションを発封E
+            // 矢のアニメーションを発射
             if (this.renderingEngine && this.renderingEngine.spawnArrowAnimation) {
                 await this.renderingEngine.spawnArrowAnimation(att, def, blockInfo);
             }
 
             if (blockInfo.blocked) {
-                // 矢が�EられぁE
-                // Z座標（高さ�E�を正しく反映して表示
+                // 矢が遮られた
+                // Z座標（高さ）を正しく反映して表示
                 const textPos = {
                     q: blockInfo.blockPos.x,
                     r: blockInfo.blockPos.y,
-                    height: blockInfo.blockPos.z // 高さ持E��を追加�E�Ei.js/rendering.jsでの対応が忁E��だが、渡す！E
+                    height: blockInfo.blockPos.z // 高さ指定を追加（ui.js/rendering.jsでの対応が必要だが、渡す）
                 };
-                // spawnTextは本来QR座標だが、ED表示用に高さを老E�Eさせる！EenderingHelper側で対応されてぁE��前提、なければ後で修正�E�E
-                // 一旦、blockPos.zはワールド座標なので、そのまま渡す�Eは難しいかも、E
-                // pixelToHex等で変換するか、spawnTextぁED座標を受け取れるか�E�E
-                // spawnTextの実裁E��確認してぁE��ぁE��、既存コードに合わせて q,r を渡す、E
-                // ただし、E��さを表現するために、blockPosはあくまで「どのタイルで止まったか」を示す、E
+                // spawnTextは本来QR座標だが、3D表示用に高さを考慮させる（renderingHelper側で対応されている前提、なければ後で修正）
+                // 一旦、blockPos.zはワールド座標なので、そのまま渡すのは難しいかも。
+                // pixelToHex等で変換するか、spawnTextが3D座標を受け取れるか？
+                // spawnTextの実装を確認していないが、既存コードに合わせて q,r を渡す。
+                // ただし、高さを表現するために、blockPosはあくまで「どのタイルで止まったか」を示す。
                 this.spawnText(textPos, "遮蔽!", '#888', 40);
                 await this.wait(300);
                 return;
             }
 
-            // ヒッチEE
+            // ヒットSE
             this.audioEngine.sfxHit();
         }
 
-        // 高低差によるダメージ倍率�E�EeightDiffは上で計算済み: defZ - attZ�E�E
+        // 高低差によるダメージ倍率（heightDiffは上で計算済み: defZ - attZ）
         let heightMod = 1.0;
-        const attackHeightDiff = -heightDiff; // 攻撁E��E�Eから見た高低差�E�正=高い位置から攻撁E��E
+        const attackHeightDiff = -heightDiff; // 攻撃者側から見た高低差（正=高い位置から攻撃）
         if (attackHeightDiff > 0) {
             heightMod = 1.0 + (attackHeightDiff * 0.15); // 高所から: +15%/段
         } else if (attackHeightDiff < 0) {
-            heightMod = Math.max(0.5, 1.0 + (attackHeightDiff * 0.15)); // 低所から: -15%/段 (最佁E0%)
+            heightMod = Math.max(0.5, 1.0 + (attackHeightDiff * 0.15)); // 低所から: -15%/段 (最低50%)
         }
 
-        // 陣形によるスチE�Eタス修正
+        // 陣形によるステータス修正
         const attFormation = getFormationModifiers(att.formation);
         const defFormation = getFormationModifiers(def.formation);
         const finalAtkStat = att.atk + attFormation.atk;
         const finalDefStat = def.def + defFormation.def;
 
-        // 距離によるダメージ減衰�E�遠ぁE��ど威力低下！E
-        // 4マスまでは減衰なし、それ以陁Eマスごとに-5%
+        // 距離によるダメージ減衰（遠いほど威力低下）
+        // 4マスまでは減衰なし、それ以降1マスごとに-5%
         // ただし最低保証50%
         const dist = getDistRaw(att.x, att.y, def.x, def.y);
         let distMod = 1.0;
@@ -1575,25 +1568,25 @@ export class CombatSystem {
             distMod = Math.max(0.5, 1.0 - (dist - 4) * 0.05);
         }
 
-        // ダメージ・回復計箁E
+        // ダメージ・回復計算
         const safeSoldiers = (typeof att.soldiers === 'number' && att.soldiers > 0) ? att.soldiers : 1;
 
         if (rangeType === 'heal') {
-            // 回復計箁E(攻撁E��の半�E程度を基準に)
-            // 回復は自身の攻撁E��依存、相手�E防御関係なぁE
+            // 回復計算 (攻撃力の半分程度を基準に)
+            // 回復は自身の攻撃力依存、相手の防御関係なし
             let healAmount = Math.floor((Math.sqrt(safeSoldiers) * finalAtkStat * heightMod * distMod * 0.5));
             if (healAmount < 1) healAmount = 1;
 
             // 回復適用
             const oldSoldiers = def.soldiers;
             def.soldiers += healAmount;
-            if (def.soldiers > def.maxSoldiers) def.soldiers = def.maxSoldiers; // 最大値キャチE�E�E�あれ�E�E�E
-            // ※ここでは簡易的に允E�E兵数を最大と見なせなぁE��め、キャチE�E処琁E�E別途忁E��だが、E
-            // とりあえず UNIT_TYPES から baseHp を取得するか、あるいは無制限にするか、E
-            // 今回はシンプルに加算�Eみ�E�上限なし、また�EチE�Eタ構造依存！E
+            if (def.soldiers > def.maxSoldiers) def.soldiers = def.maxSoldiers; // 最大値キャップ（あれば）
+            // ※ここでは簡易的に元の兵数を最大と見なせないため、キャップ処理は別途必要だが、
+            // とりあえず UNIT_TYPES から baseHp を取得するか、あるいは無制限にするか。
+            // 今回はシンプルに加算のみ（上限なし、またはデータ構造依存）
 
             this.spawnText({ q: def.x, r: def.y }, `+${healAmount}`, '#00ff00', 60);
-            // this.speak(def, 'HEALED'); // ボイスがあれ�E
+            // this.speak(def, 'HEALED'); // ボイスがあれば
 
             // 3Dレンダラー側のユニット情報を更新
             if (this.renderingEngine && this.renderingEngine.updateUnitInfo) {
@@ -1603,11 +1596,11 @@ export class CombatSystem {
             return;
         }
 
-        // 攻撁E��メージ計算（近接より低め、ただし反撁E��し！E
+        // 攻撃ダメージ計算（近接より低め、ただし反撃なし）
         let dmgToDef = Math.floor((Math.sqrt(safeSoldiers) * finalAtkStat * heightMod * distMod * 0.7) / (finalDefStat / 15));
         if (!Number.isFinite(dmgToDef) || dmgToDef < 5) dmgToDef = 5;
 
-        // ダメージ適用�E�反撁E��し！E
+        // ダメージ適用（反撃なし）
         def.soldiers -= dmgToDef;
         this.spawnText({ q: def.x, r: def.y }, `-${dmgToDef}`, '#ff6600', 60);
         this.speak(def, 'DAMAGED');
@@ -1623,7 +1616,7 @@ export class CombatSystem {
             if (defMesh) this.renderingEngine.updateUnitInfo(defMesh, def);
         }
 
-        // 死亡判宁E
+        // 死亡判定
         if (def.soldiers <= 0 || isNaN(def.soldiers)) {
             def.soldiers = 0;
             def.dead = true;
@@ -1634,8 +1627,8 @@ export class CombatSystem {
         }
 
         // ---------------------------------------------------------
-        // AoEスプラチE��ュダメージ�E�魔術師: isAoe === true�E�E
-        // 着弾点の周囲8マスにぁE��敵ユニットにめE0%のダメージを与えめE
+        // AoEスプラッシュダメージ（魔術師: isAoe === true）
+        // 着弾点の周囲8マスにいる敵ユニットにも50%のダメージを与える
         // ---------------------------------------------------------
         if (typeInfo.isAoe && allUnits && allUnits.length > 0) {
             const splashDmg = Math.max(3, Math.floor(dmgToDef * 0.5));
@@ -1673,8 +1666,8 @@ export class CombatSystem {
         }
 
         // ---------------------------------------------------------
-        // ブレス扁E��ダメージ�E�ドラゴン/竜騎�E: rangeType === 'breath'�E�E
-        // attack-patterns.jsのbreathパターンを回転させ、篁E��冁E�E全敵にダメージ
+        // ブレス扇状ダメージ（ドラゴン/竜騎兵: rangeType === 'breath'）
+        // attack-patterns.jsのbreathパターンを回転させ、範囲内の全敵にダメージ
         // ---------------------------------------------------------
         if (rangeType === 'breath' && allUnits && allUnits.length > 0) {
             const breathPattern = ATTACK_PATTERNS.breath;
@@ -1684,7 +1677,7 @@ export class CombatSystem {
                 for (const { dx, dy } of rotated) {
                     const tx = att.x + dx;
                     const ty = att.y + dy;
-                    // メインターゲチE��は既にダメージ済みなのでスキチE�E
+                    // メインターゲットは既にダメージ済みなのでスキップ
                     if (tx === def.x && ty === def.y) continue;
                     const breathTarget = allUnits.find(u =>
                         !u.dead && u.side !== att.side && u.x === tx && u.y === ty
@@ -1715,5 +1708,3 @@ export class CombatSystem {
         await this.wait(200);
     }
 }
-
-

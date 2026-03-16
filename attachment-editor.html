@@ -1,0 +1,1629 @@
+﻿<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Attachment Editor (Simple)</title>
+  <style>
+    :root {
+      --bg: #1b1b1b;
+      --panel: #242424;
+      --text: #e6e6e6;
+      --muted: #b0b0b0;
+      --accent: #d9a441;
+      --line: #3a3a3a;
+    }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Helvetica Neue", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .wrap {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 12px;
+      padding: 12px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .panel h2 {
+      margin: 0 0 8px 0;
+      font-size: 16px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    input, select, button, textarea {
+      width: 100%;
+      box-sizing: border-box;
+      background: #151515;
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      font-size: 13px;
+    }
+    button {
+      cursor: pointer;
+      background: #2b2b2b;
+    }
+    button.primary {
+      background: var(--accent);
+      color: #121212;
+      border-color: #a77d2e;
+      font-weight: 600;
+    }
+    .row { margin-bottom: 10px; }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .canvas-wrap {
+      background: #111;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px;
+    }
+    #frameCanvas {
+      image-rendering: pixelated;
+      background: #0f0f0f;
+      border: 1px solid #2a2a2a;
+    }
+    .small {
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .inline { display: flex; gap: 8px; }
+    .inline > * { flex: 1; }
+    .list {
+      max-height: 200px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 6px;
+      background: #161616;
+    }
+    .list div { font-size: 12px; padding: 2px 0; }
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .check-row input[type="checkbox"] {
+      width: auto;
+      margin: 0;
+    }
+    .point-row {
+      display: grid;
+      grid-template-columns: 58px 1fr;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .point-fields {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+    }
+    .point-label {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    #swing3dCanvas {
+      width: 100%;
+      max-width: 420px;
+      image-rendering: pixelated;
+      background: #0f0f0f;
+      border: 1px solid #2a2a2a;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel">
+      <h2>スプライト設定</h2>
+      <div class="row">
+        <label>スプライトシート（相対パス）</label>
+        <input id="spritePath" value="sprites/soldier/soldier.png" />
+      </div>
+      <div class="row grid">
+        <div>
+          <label>列（Cols）</label>
+          <input id="cols" type="number" value="7" />
+        </div>
+        <div>
+          <label>行（Rows）</label>
+          <input id="rows" type="number" value="4" />
+        </div>
+      </div>
+      <div class="row grid">
+        <div>
+          <label>フレーム番号（自動）</label>
+          <input id="frameIndex" type="number" value="0" readonly />
+        </div>
+        <div>
+          <label>拡大率</label>
+          <input id="scale" type="number" value="6" />
+        </div>
+      </div>
+      <div class="row grid">
+        <div>
+          <label>余白 (px)</label>
+          <input id="framePad" type="number" value="12" />
+        </div>
+        <div>
+          <label>プリセット</label>
+          <input id="presetFrames" value="15,17,18,19,22,24,25,26" />
+        </div>
+      </div>
+      <h2>武器設定</h2>
+      <div class="row grid">
+        <div>
+          <label>回転軸 X (0..1)</label>
+          <input id="weaponPivotX" type="number" step="0.001" value="0.5" />
+        </div>
+        <div>
+          <label>回転軸 Y (0..1)</label>
+          <input id="weaponPivotY" type="number" step="0.001" value="1.0" />
+        </div>
+      </div>
+      <div class="row">
+        <label>武器画像（相対パス）</label>
+        <input id="weaponSpritePath" value="assets/sprites/sword.png" />
+      </div>
+      <div class="row">
+        <label>回転軸プレビュー（クリックで設定）</label>
+        <canvas id="weaponCanvas" width="200" height="200" style="border:1px solid #2a2a2a; background:#0f0f0f; image-rendering:pixelated;"></canvas>
+        <div id="weaponPivotStatus" class="small">柄の位置をクリックまたはドラッグすると回転軸が更新されます。</div>
+      </div>
+      <div class="row grid">
+        <div>
+          <label>武器スケール</label>
+          <input id="weaponScale" type="number" step="0.05" value="1.0" />
+        </div>
+        <div>
+          <label>重ね不透明度</label>
+          <input id="weaponOpacity" type="number" step="0.05" value="0.9" />
+        </div>
+      </div>
+      <div class="row grid">
+        <button id="loadWeaponBtn">武器画像を再読込</button>
+        <button id="toggleWeaponOverlayBtn">武器の表示切替</button>
+      </div>
+      <h2>回転・スイング</h2>
+      <div class="row">
+        <label>回転基準（全体補正）</label>
+        <div class="small">フレームの角度に対して全体へ足す補正値。</div>
+        <input id="weaponAngleOffset" type="number" step="0.1" value="0" />
+      </div>
+      <div class="row">
+        <label>スイング（振り幅）</label>
+        <div class="grid">
+          <div>
+            <label>開始角 (deg)</label>
+            <input id="weaponSwingStart" type="number" step="0.1" value="-20" />
+          </div>
+          <div>
+            <label>終了角 (deg)</label>
+            <input id="weaponSwingEnd" type="number" step="0.1" value="40" />
+          </div>
+        </div>
+        <div class="grid">
+          <div>
+            <label>開始T (0..1)</label>
+            <input id="weaponSwingStartT" type="number" step="0.01" value="0.2" />
+          </div>
+          <div>
+            <label>終了T (0..1)</label>
+            <input id="weaponSwingEndT" type="number" step="0.01" value="0.5" />
+          </div>
+        </div>
+      </div>
+      <div class="row">
+        <label>プレビュー（今の時点）</label>
+        <div class="small">再生していない時はこのTの角度が表示されます。</div>
+        <input id="weaponSwingPreviewT" type="number" step="0.01" value="0.35" />
+      </div>
+      <div class="row grid">
+        <div>
+          <label>イージング</label>
+          <select id="weaponSwingEasing">
+            <option value="linear">linear</option>
+            <option value="easeOutCubic">easeOutCubic</option>
+          </select>
+        </div>
+        <div>
+          <label>スイング再生</label>
+          <button id="toggleSwingPreviewBtn">Play/Stop</button>
+        </div>
+      </div>
+      <div class="row grid">
+        <div>
+          <label>ゴースト開始</label>
+          <input id="ghostStart" type="checkbox" checked />
+        </div>
+        <div>
+          <label>ゴースト終了</label>
+          <input id="ghostEnd" type="checkbox" checked />
+        </div>
+      </div>
+      <h2>3Dスイング</h2>
+      <div class="row check-row">
+        <input id="swing3dEnabled" type="checkbox" />
+        <label for="swing3dEnabled" style="margin:0;">3Dスイングを有効化</label>
+      </div>
+      <div class="row">
+        <div class="small">手元を原点にした簡易ビューです。ドラッグでXY、Shift+ドラッグでZを動かします。</div>
+      </div>
+      <div class="row">
+        <canvas id="swing3dCanvas" width="420" height="240"></canvas>
+      </div>
+      <div id="swing3dStatus" class="small">点1=構え、点2=当てにいく途中、点3=戻り。白い球は今のプレビュー位置です。</div>
+      <div class="row grid">
+        <div>
+          <label>位置補間</label>
+          <select id="swing3dPosInterp">
+            <option value="catmullRom">catmullRom</option>
+            <option value="linear">linear</option>
+          </select>
+        </div>
+        <div>
+          <label>回転補間</label>
+          <select id="swing3dRotInterp">
+            <option value="slerp">slerp</option>
+            <option value="linear">linear</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <label>表示モード</label>
+        <select id="swing3dDisplayMode">
+          <option value="path">軌道</option>
+          <option value="weapon">武器</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>直接編集する姿勢</label>
+        <div class="inline">
+          <button id="swingPoseStartBtn" type="button">開始</button>
+          <button id="swingPoseMidBtn" type="button">中間</button>
+          <button id="swingPoseEndBtn" type="button">終了</button>
+        </div>
+      </div>
+      <div class="row grid">
+        <div>
+          <label>選択姿勢の回転 (deg)</label>
+          <input id="swingPoseRotY" type="number" step="1" value="0" />
+        </div>
+        <div>
+          <label>選択姿勢の奥行き Z</label>
+          <input id="swingPoseZ" type="number" step="0.01" value="0" />
+        </div>
+      </div>
+      <div id="swingPoseStatus" class="small">開始/中間/終了を選んで、フレーム表示の剣をドラッグします。</div>
+      <div class="row">
+        <button id="resetSwing3dBtn">3点を初期化</button>
+      </div>
+      <div id="swing3dPoints"></div>
+      <div class="row grid">
+        <button id="prevFrameBtn">前のフレーム</button>
+        <button id="nextFrameBtn">次のフレーム</button>
+      </div>
+      <div class="row">
+        <label>アニメーションプリセット</label>
+        <div class="inline">
+          <button id="presetAttack1">攻撃1 (17)</button>
+          <button id="presetAttack2">攻撃2 (17,19)</button>
+        </div>
+        <div class="small">フレーム番号を切り替えて確認します。</div>
+      </div>
+      <div class="row">
+        <button id="presetCycleBtn">プリセットを順送り</button>
+      </div>
+      <div class="row">
+        <label>アニメーション</label>
+        <select id="animSelect"></select>
+      </div>
+      <div class="row">
+        <label>向き</label>
+        <input id="backFacing" type="checkbox" />
+        <div class="small">Back をONにすると後ろ向き（+7）を編集します。</div>
+      </div>
+      <div class="row">
+        <label>アニメーションのフレーム</label>
+        <input id="animIndices" readonly />
+      </div>
+      <div class="row grid">
+        <div>
+          <label>アニメ内フレーム</label>
+          <input id="animFrameIndex" type="number" value="0" />
+        </div>
+        <div>
+          <label>アニメ再生</label>
+          <button id="toggleAnimPreviewBtn">Play/Stop</button>
+        </div>
+      </div>
+      <div class="row">
+        <button id="loadBtn" class="primary">スプライト読込</button>
+      </div>
+      <div class="row">
+        <div id="status" class="small">status: init</div>
+      </div>
+
+      <h2>アタッチ設定</h2>
+      <div class="row">
+        <label>アタッチ種別</label>
+        <select id="attachType">
+          <option value="hand">hand</option>
+          <option value="weapon">weapon</option>
+          <option value="effect">effect</option>
+        </select>
+      </div>
+      <div class="row grid">
+        <div>
+          <label>X (0..1)</label>
+          <input id="attachX" type="number" step="0.001" />
+        </div>
+        <div>
+          <label>Y (0..1)</label>
+          <input id="attachY" type="number" step="0.001" />
+        </div>
+      </div>
+      <div class="row">
+        <label>角度 (deg)</label>
+        <input id="attachAngle" type="number" step="0.1" />
+      </div>
+      <div class="row">
+        <label>レイヤー</label>
+        <select id="attachLayer">
+          <option value="front">前面（sprite上）</option>
+          <option value="back">背面（sprite下）</option>
+        </select>
+      </div>
+      <div class="row grid">
+        <button id="applyBtn">このフレームに反映</button>
+        <button id="copyPrevBtn">前フレームからコピー</button>
+      </div>
+
+      <h2>出力</h2>
+      <div class="row">
+        <button id="loadJsonBtn">JSONを読込</button>
+      </div>
+      <div class="row">
+        <button id="downloadBtn" class="primary">JSONを保存</button>
+      </div>
+      <div class="row">
+        <textarea id="output" rows="8" readonly></textarea>
+      </div>
+      <div class="small">フレームをクリックするとアタッチ位置を設定します。</div>
+    </div>
+
+    <div class="panel">
+      <h2>フレーム表示</h2>
+      <div class="canvas-wrap">
+        <canvas id="frameCanvas" width="320" height="320"></canvas>
+      </div>
+      <div class="row"></div>
+      <h2>設定済みフレーム</h2>
+      <div id="frameList" class="list"></div>
+    </div>
+  </div>
+
+<script>
+(async () => {
+  const fallbackAnimations = {
+    idle: { indices: [0], speed: 1000, loop: false },
+    ready: { indices: [1, 2], speed: 300, loop: true },
+    walk: { indices: [1, 2], speed: 200, loop: true },
+    attack: { indices: [17, 19], speed: 150, loop: true },
+    shoot: { indices: [18], speed: 1000, loop: false },
+    attack1: { indices: [17], speed: 150, loop: false },
+    attack2: { indices: [17, 19], speed: 100, loop: false },
+    damage: { indices: [3], speed: 300, loop: false },
+    death: { indices: [14], speed: 500, loop: false },
+    defence: { indices: [4], speed: 300, loop: false },
+    victory: { indices: [6, 5], speed: 500, loop: true },
+    magic: { indices: [15], speed: 300, loop: true },
+    talk: { indices: [16], speed: 200, loop: true }
+  };
+  let ANIMATIONS = fallbackAnimations;
+  try {
+    const mod = await import('./scripts/sprite-config.js');
+    if (mod && mod.ANIMATIONS) ANIMATIONS = mod.ANIMATIONS;
+  } catch (e) {
+    console.warn('[AttachmentEditor] Failed to import sprite-config.js, using fallback ANIMATIONS.', e);
+  }
+  const spritePath = document.getElementById('spritePath');
+  const colsEl = document.getElementById('cols');
+  const rowsEl = document.getElementById('rows');
+  const frameIndexEl = document.getElementById('frameIndex');
+  const scaleEl = document.getElementById('scale');
+  const framePadEl = document.getElementById('framePad');
+  const presetFramesEl = document.getElementById('presetFrames');
+  const weaponPivotXEl = document.getElementById('weaponPivotX');
+  const weaponPivotYEl = document.getElementById('weaponPivotY');
+  const weaponAngleOffsetEl = document.getElementById('weaponAngleOffset');
+  const weaponSwingStartEl = document.getElementById('weaponSwingStart');
+  const weaponSwingEndEl = document.getElementById('weaponSwingEnd');
+  const weaponSwingStartTEl = document.getElementById('weaponSwingStartT');
+  const weaponSwingEndTEl = document.getElementById('weaponSwingEndT');
+  const weaponSwingPreviewTEl = document.getElementById('weaponSwingPreviewT');
+  const weaponSwingEasingEl = document.getElementById('weaponSwingEasing');
+  const swing3dEnabledEl = document.getElementById('swing3dEnabled');
+  const swing3dPosInterpEl = document.getElementById('swing3dPosInterp');
+  const swing3dRotInterpEl = document.getElementById('swing3dRotInterp');
+  const swing3dDisplayModeEl = document.getElementById('swing3dDisplayMode');
+  const swingPoseStartBtn = document.getElementById('swingPoseStartBtn');
+  const swingPoseMidBtn = document.getElementById('swingPoseMidBtn');
+  const swingPoseEndBtn = document.getElementById('swingPoseEndBtn');
+  const swingPoseRotYEl = document.getElementById('swingPoseRotY');
+  const swingPoseZEl = document.getElementById('swingPoseZ');
+  const swingPoseStatusEl = document.getElementById('swingPoseStatus');
+  const resetSwing3dBtn = document.getElementById('resetSwing3dBtn');
+  const swing3dStatusEl = document.getElementById('swing3dStatus');
+  const swing3dPointsEl = document.getElementById('swing3dPoints');
+  const swing3dCanvas = document.getElementById('swing3dCanvas');
+  const swing3dCtx = swing3dCanvas.getContext('2d');
+  const toggleSwingPreviewBtn = document.getElementById('toggleSwingPreviewBtn');
+  const ghostStartEl = document.getElementById('ghostStart');
+  const ghostEndEl = document.getElementById('ghostEnd');
+  const weaponSpritePathEl = document.getElementById('weaponSpritePath');
+  const weaponScaleEl = document.getElementById('weaponScale');
+  const weaponOpacityEl = document.getElementById('weaponOpacity');
+  const weaponPivotStatusEl = document.getElementById('weaponPivotStatus');
+  const weaponCanvas = document.getElementById('weaponCanvas');
+  const weaponCtx = weaponCanvas.getContext('2d');
+  const animSelectEl = document.getElementById('animSelect');
+  const backFacingEl = document.getElementById('backFacing');
+  const animFrameIndexEl = document.getElementById('animFrameIndex');
+  const toggleAnimPreviewBtn = document.getElementById('toggleAnimPreviewBtn');
+  const animIndicesEl = document.getElementById('animIndices');
+  const statusEl = document.getElementById('status');
+  const attachTypeEl = document.getElementById('attachType');
+  const attachXEl = document.getElementById('attachX');
+  const attachYEl = document.getElementById('attachY');
+  const attachAngleEl = document.getElementById('attachAngle');
+  const attachLayerEl = document.getElementById('attachLayer');
+  const outputEl = document.getElementById('output');
+  const loadJsonBtn = document.getElementById('loadJsonBtn');
+  const frameListEl = document.getElementById('frameList');
+  const canvas = document.getElementById('frameCanvas');
+  const ctx = canvas.getContext('2d');
+
+  let image = new Image();
+  let weaponImage = new Image();
+  let sheetLoaded = false;
+  let weaponLoaded = false;
+  let weaponOverlayEnabled = true;
+  let swingPreviewActive = false;
+  let swingPreviewStart = 0;
+  let animPreviewActive = false;
+  let animPreviewStart = 0;
+  let lastError = '';
+  let weaponPreview = { x: 0, y: 0, scale: 1, w: 0, h: 0 };
+  let weaponPivotDrag = false;
+  let swing3dDrag = null;
+  let selectedSwingPointIndex = 0;
+  let frameSwingDrag = false;
+  let data = {
+    sprite: '',
+    cols: 0,
+    rows: 0,
+    weaponPivot: { x: 0.5, y: 1.0 },
+    weaponAngleOffset: 0,
+    weaponSwing: {
+      startDeg: -20,
+      endDeg: 40,
+      startT: 0.2,
+      endT: 0.5,
+      easing: 'easeOutCubic'
+    },
+    weapons: {},
+    units: {},
+    frames: {}
+  };
+
+  function createDefaultSwing3d() {
+    return {
+      enabled: false,
+      durationT: 1.0,
+      positionSpace: 'hand',
+      rotationSpace: 'hand',
+      points: [
+        { t: 0.0, pos: [0.0, 0.0, 0.0], rot: [0, -20, 0] },
+        { t: 0.4, pos: [0.12, 0.04, 0.0], rot: [0, 40, 0] },
+        { t: 1.0, pos: [0.0, 0.0, 0.0], rot: [0, -10, 0] }
+      ],
+      interp: {
+        pos: 'catmullRom',
+        rot: 'slerp',
+        easing: 'easeOutCubic'
+      }
+    };
+  }
+
+  function ensureDataShape() {
+    if (!data.weapons) data.weapons = {};
+    if (!data.units) data.units = {};
+    if (!data.units.DEFAULT) data.units.DEFAULT = { weaponId: 'default_weapon' };
+    if (!data.weapons.default_weapon) {
+      data.weapons.default_weapon = {
+        pivot: { ...(data.weaponPivot || { x: 0.5, y: 1.0 }) },
+        angleOffset: data.weaponAngleOffset || 0,
+        scale: parseFloat(weaponScaleEl?.value || '1') || 1,
+        sprite: weaponSpritePathEl?.value || 'assets/sprites/sword.png',
+        swing2d: { ...(data.weaponSwing || { startDeg: -20, endDeg: 40, startT: 0.2, endT: 0.5, easing: 'easeOutCubic' }) },
+        swing3d: createDefaultSwing3d()
+      };
+    }
+    const weaponDef = data.weapons.default_weapon;
+    if (!weaponDef.pivot) weaponDef.pivot = { ...(data.weaponPivot || { x: 0.5, y: 1.0 }) };
+    if (weaponDef.angleOffset === undefined) weaponDef.angleOffset = data.weaponAngleOffset || 0;
+    if (!weaponDef.sprite) weaponDef.sprite = weaponSpritePathEl?.value || 'assets/sprites/sword.png';
+    if (!weaponDef.swing2d) weaponDef.swing2d = { ...(data.weaponSwing || { startDeg: -20, endDeg: 40, startT: 0.2, endT: 0.5, easing: 'easeOutCubic' }) };
+    if (!weaponDef.swing3d) weaponDef.swing3d = createDefaultSwing3d();
+    if (!weaponDef.swing3d.points || weaponDef.swing3d.points.length < 3) {
+      weaponDef.swing3d.points = createDefaultSwing3d().points;
+    }
+    if (!weaponDef.swing3d.interp) weaponDef.swing3d.interp = { pos: 'catmullRom', rot: 'slerp', easing: 'easeOutCubic' };
+
+    // Keep legacy fields in sync so the current runtime does not break.
+    data.weaponPivot = { ...weaponDef.pivot };
+    data.weaponAngleOffset = weaponDef.angleOffset;
+    data.weaponSwing = { ...weaponDef.swing2d };
+    return weaponDef;
+  }
+
+  function getActiveWeaponDef() {
+    const weaponDef = ensureDataShape();
+    weaponDef.sprite = weaponSpritePathEl.value || weaponDef.sprite || 'assets/sprites/sword.png';
+    weaponDef.scale = parseFloat(weaponScaleEl.value || '1') || 1;
+    return weaponDef;
+  }
+
+  function syncLegacyToWeaponDef() {
+    const weaponDef = getActiveWeaponDef();
+    weaponDef.pivot = { x: data.weaponPivot.x, y: data.weaponPivot.y };
+    weaponDef.angleOffset = data.weaponAngleOffset;
+    weaponDef.swing2d = { ...data.weaponSwing };
+  }
+
+  function syncWeaponDefToLegacy() {
+    const weaponDef = getActiveWeaponDef();
+    data.weaponPivot = { ...weaponDef.pivot };
+    data.weaponAngleOffset = weaponDef.angleOffset;
+    data.weaponSwing = { ...weaponDef.swing2d };
+  }
+
+  function getFrameSize() {
+    const cols = Math.max(1, parseInt(colsEl.value, 10) || 1);
+    const rows = Math.max(1, parseInt(rowsEl.value, 10) || 1);
+    return { fw: image.width / cols, fh: image.height / rows };
+  }
+
+  function getFrameRect(index) {
+    const cols = Math.max(1, parseInt(colsEl.value, 10) || 1);
+    const { fw, fh } = getFrameSize();
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    return { sx: col * fw, sy: row * fh, fw, fh };
+  }
+
+  function setStatus(msg) {
+    if (statusEl) statusEl.textContent = msg;
+  }
+
+  function getPreviewT() {
+    return swingPreviewActive
+      ? ((performance.now() - swingPreviewStart) % 1000) / 1000
+      : Math.max(0, Math.min(1, parseFloat(weaponSwingPreviewTEl.value || '0')));
+  }
+
+  function lerp(a, b, t) {
+    return a + (b - a) * t;
+  }
+
+  function easeValue(t, easing) {
+    if (easing === 'easeOutCubic') return 1 - Math.pow(1 - t, 3);
+    return t;
+  }
+
+  function getSwing3dPointAtT(tValue) {
+    const weaponDef = getActiveWeaponDef();
+    const swing3d = weaponDef.swing3d;
+    if (!swing3d || !swing3d.points || swing3d.points.length === 0) return null;
+    const points = [...swing3d.points].sort((a, b) => a.t - b.t);
+    if (tValue <= points[0].t) return points[0];
+    if (tValue >= points[points.length - 1].t) return points[points.length - 1];
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i];
+      const b = points[i + 1];
+      if (tValue >= a.t && tValue <= b.t) {
+        const localT = (tValue - a.t) / Math.max(0.0001, b.t - a.t);
+        const eased = easeValue(localT, swing3d.interp?.easing || 'easeOutCubic');
+        return {
+          t: tValue,
+          pos: [
+            lerp(a.pos[0], b.pos[0], eased),
+            lerp(a.pos[1], b.pos[1], eased),
+            lerp(a.pos[2], b.pos[2], eased)
+          ],
+          rot: [
+            lerp(a.rot[0], b.rot[0], eased),
+            lerp(a.rot[1], b.rot[1], eased),
+            lerp(a.rot[2], b.rot[2], eased)
+          ]
+        };
+      }
+    }
+    return points[points.length - 1];
+  }
+
+  function projectSwingPoint(point) {
+    const centerX = swing3dCanvas.width * 0.5;
+    const centerY = swing3dCanvas.height * 0.7;
+    const unitScale = 120;
+    const depthScale = 46;
+    const x = centerX + point.pos[0] * unitScale;
+    const y = centerY - point.pos[1] * unitScale - point.pos[2] * depthScale;
+    return { x, y };
+  }
+
+  function getSortedSwingPoints() {
+    const weaponDef = getActiveWeaponDef();
+    return [...weaponDef.swing3d.points].sort((a, b) => a.t - b.t);
+  }
+
+  function getSelectedSwingPoint() {
+    const points = getSortedSwingPoints();
+    if (selectedSwingPointIndex >= points.length) selectedSwingPointIndex = points.length - 1;
+    if (selectedSwingPointIndex < 0) selectedSwingPointIndex = 0;
+    return points[selectedSwingPointIndex] || null;
+  }
+
+  function syncSwingPoseControls() {
+    const point = getSelectedSwingPoint();
+    const labels = ['開始', '中間', '終了'];
+    [swingPoseStartBtn, swingPoseMidBtn, swingPoseEndBtn].forEach((btn, idx) => {
+      btn.style.borderColor = idx === selectedSwingPointIndex ? '#d9a441' : '#3a3a3a';
+      btn.style.background = idx === selectedSwingPointIndex ? '#3a2b13' : '#2b2b2b';
+    });
+    if (!point) return;
+    swingPoseRotYEl.value = (point.rot?.[1] || 0).toFixed(0);
+    swingPoseZEl.value = point.pos[2].toFixed(2);
+    if (swingPoseStatusEl) {
+      swingPoseStatusEl.textContent = `${labels[selectedSwingPointIndex] || '姿勢'}を直接編集中。フレーム表示上の剣をドラッグで位置、下の数値で回転と奥行きを調整します。`;
+    }
+  }
+
+  function unprojectSwingPoint(screenX, screenY, zValue) {
+    const centerX = swing3dCanvas.width * 0.5;
+    const centerY = swing3dCanvas.height * 0.7;
+    const unitScale = 120;
+    const depthScale = 46;
+    return {
+      x: (screenX - centerX) / unitScale,
+      y: (centerY - screenY - zValue * depthScale) / unitScale
+    };
+  }
+
+  function getSwingDisplayAngleDeg(point) {
+    if (!point || !point.rot) return data.weaponAngleOffset || 0;
+    return (point.rot[1] || 0) + (data.weaponAngleOffset || 0);
+  }
+
+  function drawSwing3dWeapon(point, alpha = 1, highlight = false) {
+    if (!weaponLoaded || !point) return;
+    const projected = projectSwingPoint(point);
+    const pivotX = data.weaponPivot?.x ?? 0.5;
+    const pivotY = data.weaponPivot?.y ?? 1.0;
+    const baseScale = Math.min(72 / weaponImage.width, 72 / weaponImage.height);
+    const drawScale = baseScale * (parseFloat(weaponScaleEl.value || '1') || 1);
+    const drawW = weaponImage.width * drawScale;
+    const drawH = weaponImage.height * drawScale;
+    const px = pivotX * drawW;
+    const py = pivotY * drawH;
+    const angleRad = getSwingDisplayAngleDeg(point) * Math.PI / 180;
+
+    swing3dCtx.save();
+    swing3dCtx.globalAlpha = alpha;
+    swing3dCtx.translate(projected.x, projected.y);
+    swing3dCtx.rotate(angleRad);
+    swing3dCtx.translate(-px, -py);
+    swing3dCtx.drawImage(weaponImage, 0, 0, drawW, drawH);
+    if (highlight) {
+      swing3dCtx.strokeStyle = '#ffffff';
+      swing3dCtx.lineWidth = 2;
+      swing3dCtx.strokeRect(0, 0, drawW, drawH);
+    }
+    swing3dCtx.restore();
+  }
+
+  function getFrameSwingOverlayState(frame, drawW, drawH, pad) {
+    if (!frame || !frame.weapon) return null;
+    const point = getSelectedSwingPoint();
+    if (!point) return null;
+    const anchorX = frame.weapon.x * drawW + pad;
+    const anchorY = frame.weapon.y * drawH + pad;
+    const offsetScaleX = drawW * 0.35;
+    const offsetScaleY = drawH * 0.35;
+    return {
+      point,
+      anchorX,
+      anchorY,
+      x: anchorX + point.pos[0] * offsetScaleX,
+      y: anchorY - point.pos[1] * offsetScaleY - point.pos[2] * drawH * 0.15,
+      angleDeg: getSwingDisplayAngleDeg(point),
+      offsetScaleX,
+      offsetScaleY
+    };
+  }
+
+  function renderSwing3dEditor() {
+    const weaponDef = getActiveWeaponDef();
+    const swing3d = weaponDef.swing3d;
+    swing3dCtx.clearRect(0, 0, swing3dCanvas.width, swing3dCanvas.height);
+    swing3dCtx.fillStyle = '#101010';
+    swing3dCtx.fillRect(0, 0, swing3dCanvas.width, swing3dCanvas.height);
+
+    const centerX = swing3dCanvas.width * 0.5;
+    const centerY = swing3dCanvas.height * 0.7;
+    swing3dCtx.strokeStyle = '#2f2f2f';
+    swing3dCtx.lineWidth = 1;
+    swing3dCtx.beginPath();
+    swing3dCtx.moveTo(0, centerY);
+    swing3dCtx.lineTo(swing3dCanvas.width, centerY);
+    swing3dCtx.moveTo(centerX, 0);
+    swing3dCtx.lineTo(centerX, swing3dCanvas.height);
+    swing3dCtx.stroke();
+
+    swing3dCtx.fillStyle = '#ffffff';
+    swing3dCtx.beginPath();
+    swing3dCtx.arc(centerX, centerY, 4, 0, Math.PI * 2);
+    swing3dCtx.fill();
+
+    if (!swing3dEnabledEl.checked) {
+      swing3dCtx.fillStyle = '#999';
+      swing3dCtx.font = '12px ui-sans-serif, system-ui, sans-serif';
+      swing3dCtx.fillText('3DスイングはOFFです', 12, 18);
+      if (swing3dStatusEl) {
+        swing3dStatusEl.textContent = '点1=構え、点2=当てにいく途中、点3=戻り。ONにすると点をドラッグ編集できます。';
+      }
+      return;
+    }
+
+    const points = [...swing3d.points].sort((a, b) => a.t - b.t);
+    if (selectedSwingPointIndex >= points.length) selectedSwingPointIndex = points.length - 1;
+    if (selectedSwingPointIndex < 0) selectedSwingPointIndex = 0;
+    const displayMode = swing3dDisplayModeEl.value || 'path';
+    swing3dCtx.strokeStyle = '#76d7ea';
+    swing3dCtx.lineWidth = 2;
+    swing3dCtx.beginPath();
+    points.forEach((point, idx) => {
+      const p = projectSwingPoint(point);
+      if (idx === 0) swing3dCtx.moveTo(p.x, p.y);
+      else swing3dCtx.lineTo(p.x, p.y);
+    });
+    swing3dCtx.stroke();
+
+    if (displayMode === 'weapon') {
+      points.forEach((point, idx) => {
+        drawSwing3dWeapon(point, idx === selectedSwingPointIndex ? 0.95 : 0.45, idx === selectedSwingPointIndex);
+      });
+    }
+
+    const previewPoint = getSwing3dPointAtT(getPreviewT());
+    if (previewPoint) {
+      const p = projectSwingPoint(previewPoint);
+      if (displayMode === 'weapon') {
+        drawSwing3dWeapon(previewPoint, 1, false);
+      } else {
+        swing3dCtx.fillStyle = '#ffffff';
+        swing3dCtx.beginPath();
+        swing3dCtx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+        swing3dCtx.fill();
+      }
+    }
+
+    const colors = ['#5ec5ff', '#ffd34d', '#ff7676', '#6ee7a7', '#c084fc'];
+    points.forEach((point, idx) => {
+      const p = projectSwingPoint(point);
+      swing3dCtx.fillStyle = colors[idx % colors.length];
+      swing3dCtx.beginPath();
+      swing3dCtx.arc(p.x, p.y, idx === selectedSwingPointIndex ? 8 : 6, 0, Math.PI * 2);
+      swing3dCtx.fill();
+      if (idx === selectedSwingPointIndex) {
+        swing3dCtx.strokeStyle = '#ffffff';
+        swing3dCtx.lineWidth = 2;
+        swing3dCtx.beginPath();
+        swing3dCtx.arc(p.x, p.y, 11, 0, Math.PI * 2);
+        swing3dCtx.stroke();
+      }
+      swing3dCtx.fillStyle = '#d0d0d0';
+      swing3dCtx.font = '11px ui-sans-serif, system-ui, sans-serif';
+      swing3dCtx.fillText(`点${idx + 1} t=${point.t.toFixed(2)} z=${point.pos[2].toFixed(2)} ry=${(point.rot?.[1] || 0).toFixed(0)}`, p.x + 9, p.y - 8);
+    });
+    swing3dCtx.fillStyle = '#9aa0a6';
+    swing3dCtx.font = '11px ui-sans-serif, system-ui, sans-serif';
+    swing3dCtx.fillText('← 左右(X)', 12, swing3dCanvas.height - 12);
+    swing3dCtx.fillText('上がる(Y) ↑', centerX + 8, 16);
+    swing3dCtx.fillText('Shift+ドラッグ: 奥行き(Z)', swing3dCanvas.width - 150, 16);
+    const selectedPoint = points[selectedSwingPointIndex];
+    if (swing3dStatusEl && selectedPoint) {
+      const labels = ['構え', '当てにいく途中', '戻り'];
+      const label = labels[selectedSwingPointIndex] || `点${selectedSwingPointIndex + 1}`;
+      const previewText = displayMode === 'weapon' ? '武器画像が今のプレビュー位置です。' : '白い球は今のプレビュー位置です。';
+      swing3dStatusEl.textContent = `${label}: X=${selectedPoint.pos[0].toFixed(2)} / Y=${selectedPoint.pos[1].toFixed(2)} / Z=${selectedPoint.pos[2].toFixed(2)} / t=${selectedPoint.t.toFixed(2)} / 回転=${(selectedPoint.rot?.[1] || 0).toFixed(0)}deg。${previewText}`;
+    }
+  }
+
+  function renderSwing3dPointControls() {
+    const weaponDef = getActiveWeaponDef();
+    const swing3d = weaponDef.swing3d;
+    const points = [...swing3d.points].sort((a, b) => a.t - b.t);
+    swing3dPointsEl.innerHTML = points.map((point, index) => `
+      <div class="point-row">
+        <div class="point-label">点${index + 1}</div>
+        <div class="point-fields">
+          <input data-point-index="${index}" data-point-field="t" type="number" step="0.01" value="${point.t.toFixed(2)}" />
+          <input data-point-index="${index}" data-point-field="x" type="number" step="0.01" value="${point.pos[0].toFixed(2)}" />
+          <input data-point-index="${index}" data-point-field="y" type="number" step="0.01" value="${point.pos[1].toFixed(2)}" />
+          <input data-point-index="${index}" data-point-field="z" type="number" step="0.01" value="${point.pos[2].toFixed(2)}" />
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function syncSwing3dUiFromData() {
+    const weaponDef = getActiveWeaponDef();
+    const swing3d = weaponDef.swing3d;
+    swing3dEnabledEl.checked = !!swing3d.enabled;
+    swing3dPosInterpEl.value = swing3d.interp?.pos || 'catmullRom';
+    swing3dRotInterpEl.value = swing3d.interp?.rot || 'slerp';
+    if (!swing3dDisplayModeEl.value) swing3dDisplayModeEl.value = 'path';
+    syncSwingPoseControls();
+    renderSwing3dPointControls();
+    renderSwing3dEditor();
+  }
+
+  function setWeaponPivotFromCanvasEvent(e) {
+    if (!weaponLoaded || !weaponPreview.scale) return;
+    const weaponDef = getActiveWeaponDef();
+    const rect = weaponCanvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (weaponCanvas.width / rect.width);
+    const y = (e.clientY - rect.top) * (weaponCanvas.height / rect.height);
+    const localX = (x - weaponPreview.x) / weaponPreview.scale;
+    const localY = (y - weaponPreview.y) / weaponPreview.scale;
+    const clampedX = Math.max(0, Math.min(weaponPreview.w, localX));
+    const clampedY = Math.max(0, Math.min(weaponPreview.h, localY));
+    const px = clampedX / weaponPreview.w;
+    const py = clampedY / weaponPreview.h;
+    weaponDef.pivot = { x: px, y: py };
+    syncWeaponDefToLegacy();
+    weaponPivotXEl.value = px.toFixed(3);
+    weaponPivotYEl.value = py.toFixed(3);
+    updateOutput();
+    renderWeaponCanvas();
+    render();
+  }
+
+  function render() {
+    try {
+      const imgInfo = sheetLoaded ? `${image.width}x${image.height}` : 'not loaded';
+      const weaponInfo = weaponLoaded ? `${weaponImage.width}x${weaponImage.height}` : 'not loaded';
+      const cols = parseInt(colsEl.value, 10) || 1;
+      const rows = parseInt(rowsEl.value, 10) || 1;
+      setStatus(`status: sheet=${sheetLoaded} (${imgInfo}), weapon=${weaponLoaded} (${weaponInfo}), cols=${cols}, rows=${rows}, frame=${frameIndexEl.value}`);
+    } catch (e) {
+      lastError = e.message;
+      setStatus(`status: error ${lastError}`);
+    }
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!sheetLoaded) return;
+
+    const index = parseInt(frameIndexEl.value || '0', 10);
+    const scale = Math.max(1, parseInt(scaleEl.value, 10) || 1);
+    const pad = Math.max(0, parseInt(framePadEl.value, 10) || 0);
+    const { sx, sy, fw, fh } = getFrameRect(index);
+
+    const drawW = fw * scale;
+    const drawH = fh * scale;
+    canvas.width = Math.max(1, drawW + pad * 2);
+    canvas.height = Math.max(1, drawH + pad * 2);
+
+    ctx.imageSmoothingEnabled = false;
+    const frame = data.frames[index];
+    // (debug) background removed once sprite displays correctly.
+
+    const drawWeaponOverlay = () => {
+      if (!weaponOverlayEnabled || !weaponLoaded || !frame || !frame.weapon) return;
+      const swing3dActive = !!getActiveWeaponDef().swing3d?.enabled;
+      const overlayState = swing3dActive ? getFrameSwingOverlayState(frame, drawW, drawH, pad) : null;
+      const ax = overlayState ? overlayState.x : (frame.weapon.x * drawW + pad);
+      const ay = overlayState ? overlayState.y : (frame.weapon.y * drawH + pad);
+      const baseAngle = overlayState ? overlayState.angleDeg : ((frame.weapon.angle || 0) + (data.weaponAngleOffset || 0));
+      let swingDeg = 0;
+      if (!overlayState) {
+        const t = getPreviewT();
+        const swing = data.weaponSwing || {};
+        const startT = swing.startT ?? 0.2;
+        const endT = swing.endT ?? 0.5;
+        if (t >= startT && t <= endT) {
+          const localT = (t - startT) / Math.max(0.0001, (endT - startT));
+          let eased = localT;
+          if ((swing.easing || 'easeOutCubic') === 'easeOutCubic') {
+            eased = 1 - Math.pow(1 - localT, 3);
+          }
+          swingDeg = (swing.startDeg ?? 0) + (swing.endDeg ?? 0 - (swing.startDeg ?? 0)) * eased;
+        }
+      }
+      const angleRad = (baseAngle + swingDeg) * Math.PI / 180;
+      const pivotX = data.weaponPivot?.x ?? 0.5;
+      const pivotY = data.weaponPivot?.y ?? 1.0;
+      const scale = parseFloat(weaponScaleEl.value || '1');
+      const opacity = Math.max(0, Math.min(1, parseFloat(weaponOpacityEl.value || '1')));
+
+      const w = weaponImage.width * scale;
+      const h = weaponImage.height * scale;
+      const px = pivotX * w;
+      const py = pivotY * h;
+
+      // main preview
+      ctx.save();
+      ctx.globalAlpha = opacity;
+      ctx.translate(ax, ay);
+      ctx.rotate(angleRad);
+      ctx.translate(-px, -py);
+      ctx.drawImage(weaponImage, 0, 0, w, h);
+      ctx.restore();
+
+      if (overlayState) {
+        ctx.save();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(ax, ay, 5, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // ghost start/end positions
+      const swing = data.weaponSwing || {};
+      const startDeg = (swing.startDeg ?? 0);
+      const endDeg = (swing.endDeg ?? 0);
+      if (!overlayState && ghostStartEl.checked) {
+        const ghostAngle = (baseAngle + startDeg) * Math.PI / 180;
+        ctx.save();
+        ctx.globalAlpha = 0.3;
+        ctx.translate(ax, ay);
+        ctx.rotate(ghostAngle);
+        ctx.translate(-px, -py);
+        ctx.drawImage(weaponImage, 0, 0, w, h);
+        ctx.restore();
+      }
+      if (!overlayState && ghostEndEl.checked) {
+        const ghostAngle = (baseAngle + endDeg) * Math.PI / 180;
+        ctx.save();
+        ctx.globalAlpha = 0.3;
+        ctx.translate(ax, ay);
+        ctx.rotate(ghostAngle);
+        ctx.translate(-px, -py);
+        ctx.drawImage(weaponImage, 0, 0, w, h);
+        ctx.restore();
+      }
+    };
+
+    // Back layer weapon should render behind the sprite
+    const weaponLayer = frame?.weapon?.layer || 'front';
+    if (weaponLayer === 'back') {
+      drawWeaponOverlay();
+    }
+
+    ctx.drawImage(image, sx, sy, fw, fh, pad, pad, drawW, drawH);
+    // (debug) frame guide removed once sprite displays correctly.
+
+    // Draw attachment point
+    const type = attachTypeEl.value;
+    if (frame && frame[type]) {
+      const ax = frame[type].x * drawW + pad;
+      const ay = frame[type].y * drawH + pad;
+      const layer = frame[type].layer || 'front';
+      ctx.strokeStyle = layer === 'back' ? '#5ec5ff' : '#d9a441';
+      ctx.beginPath();
+      ctx.moveTo(ax - 6, ay);
+      ctx.lineTo(ax + 6, ay);
+      ctx.moveTo(ax, ay - 6);
+      ctx.lineTo(ax, ay + 6);
+      ctx.stroke();
+    }
+
+    if (weaponLayer === 'front') {
+      drawWeaponOverlay();
+    }
+    renderWeaponCanvas();
+    renderSwing3dEditor();
+  }
+
+  function renderWeaponCanvas() {
+    const weaponDef = getActiveWeaponDef();
+    syncWeaponDefToLegacy();
+    weaponCtx.clearRect(0, 0, weaponCanvas.width, weaponCanvas.height);
+    weaponCtx.fillStyle = '#121212';
+    weaponCtx.fillRect(0, 0, weaponCanvas.width, weaponCanvas.height);
+    if (!weaponLoaded) {
+      weaponCtx.fillStyle = '#888';
+      weaponCtx.font = '12px ui-sans-serif, system-ui, sans-serif';
+      weaponCtx.fillText('weapon not loaded', 8, 18);
+      return;
+    }
+    const scale = Math.min(
+      weaponCanvas.width / weaponImage.width,
+      weaponCanvas.height / weaponImage.height
+    );
+    const drawW = weaponImage.width * scale;
+    const drawH = weaponImage.height * scale;
+    const offsetX = (weaponCanvas.width - drawW) / 2;
+    const offsetY = (weaponCanvas.height - drawH) / 2;
+    weaponPreview = { x: offsetX, y: offsetY, scale, w: weaponImage.width, h: weaponImage.height };
+    weaponCtx.imageSmoothingEnabled = false;
+    weaponCtx.drawImage(weaponImage, offsetX, offsetY, drawW, drawH);
+
+    const px = (weaponDef.pivot?.x ?? 0.5) * drawW + offsetX;
+    const py = (weaponDef.pivot?.y ?? 1.0) * drawH + offsetY;
+    weaponCtx.strokeStyle = '#d9a441';
+    weaponCtx.lineWidth = 2;
+    weaponCtx.beginPath();
+    weaponCtx.moveTo(px - 6, py);
+    weaponCtx.lineTo(px + 6, py);
+    weaponCtx.moveTo(px, py - 6);
+    weaponCtx.lineTo(px, py + 6);
+    weaponCtx.stroke();
+    weaponCtx.fillStyle = '#5ec5ff';
+    weaponCtx.beginPath();
+    weaponCtx.arc(px, py, 3, 0, Math.PI * 2);
+    weaponCtx.fill();
+    weaponCtx.fillStyle = '#cfcfcf';
+    weaponCtx.font = '11px ui-sans-serif, system-ui, sans-serif';
+    weaponCtx.fillText('柄の付け根をクリック/ドラッグ', 8, 16);
+    if (weaponPivotStatusEl) {
+      weaponPivotStatusEl.textContent = `回転軸: X=${(weaponDef.pivot?.x ?? 0.5).toFixed(3)} / Y=${(weaponDef.pivot?.y ?? 1.0).toFixed(3)}`;
+    }
+  }
+
+  function getAnimList() {
+    return Object.keys(ANIMATIONS || {}).sort();
+  }
+
+  function setAnimOptions() {
+    const names = getAnimList();
+    animSelectEl.innerHTML = names.map(n => `<option value="${n}">${n}</option>`).join('');
+    if (names.length > 0) animSelectEl.value = 'attack1' in ANIMATIONS ? 'attack1' : names[0];
+    const anim = getCurrentAnim();
+    animIndicesEl.value = anim ? anim.indices.join(',') : '';
+  }
+
+  function getCurrentAnim() {
+    const name = animSelectEl.value;
+    return ANIMATIONS[name] || null;
+  }
+
+  function setFrameFromAnim() {
+    const anim = getCurrentAnim();
+    if (!anim) return;
+    const frameCount = anim.indices.length;
+    let frame = parseInt(animFrameIndexEl.value || '0', 10);
+    if (frame < 0) frame = 0;
+    if (frame >= frameCount) frame = frameCount - 1;
+    animFrameIndexEl.value = frame;
+    const offset = backFacingEl.checked ? 7 : 0;
+    frameIndexEl.value = anim.indices[frame] + offset;
+    animIndicesEl.value = anim.indices.map(v => v + offset).join(',');
+    loadValuesFromFrame();
+  }
+
+  function refreshList() {
+    const entries = Object.keys(data.frames)
+      .sort((a,b) => parseInt(a,10) - parseInt(b,10))
+      .map(k => {
+        const types = Object.keys(data.frames[k]).map(t => {
+          const layer = data.frames[k][t].layer || 'front';
+          return `${t}(${layer})`;
+        }).join(', ');
+        return `frame ${k}: ${types}`;
+      });
+    frameListEl.innerHTML = entries.map(t => `<div>${t}</div>`).join('');
+  }
+
+  function updateOutput() {
+    syncLegacyToWeaponDef();
+    outputEl.value = JSON.stringify(data, null, 2);
+  }
+
+  async function loadJson() {
+    try {
+      const path = 'scripts/data/attachments/soldier.json';
+      const response = await fetch(path + '?t=' + Date.now());
+      if (!response.ok) throw new Error(`Failed to load ${path}: ${response.status}`);
+      const json = await response.json();
+      data = json;
+      const weaponDef = ensureDataShape();
+      weaponPivotXEl.value = data.weaponPivot.x;
+      weaponPivotYEl.value = data.weaponPivot.y;
+      weaponAngleOffsetEl.value = data.weaponAngleOffset;
+      weaponSwingStartEl.value = data.weaponSwing.startDeg;
+      weaponSwingEndEl.value = data.weaponSwing.endDeg;
+      weaponSwingStartTEl.value = data.weaponSwing.startT;
+      weaponSwingEndTEl.value = data.weaponSwing.endT;
+      weaponSwingEasingEl.value = data.weaponSwing.easing || 'easeOutCubic';
+      weaponSpritePathEl.value = weaponDef.sprite || weaponSpritePathEl.value;
+      weaponScaleEl.value = weaponDef.scale || weaponScaleEl.value;
+      syncSwing3dUiFromData();
+      updateOutput();
+      refreshList();
+      loadValuesFromFrame();
+      renderWeaponCanvas();
+      render();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  function loadSheet() {
+    sheetLoaded = false;
+    image = new Image();
+    image.onload = () => {
+      sheetLoaded = true;
+      data.sprite = spritePath.value;
+      data.cols = parseInt(colsEl.value || '1', 10);
+      data.rows = parseInt(rowsEl.value || '1', 10);
+      const weaponDef = ensureDataShape();
+      weaponPivotXEl.value = data.weaponPivot.x;
+      weaponPivotYEl.value = data.weaponPivot.y;
+      weaponAngleOffsetEl.value = data.weaponAngleOffset;
+      weaponSwingStartEl.value = data.weaponSwing.startDeg;
+      weaponSwingEndEl.value = data.weaponSwing.endDeg;
+      weaponSwingStartTEl.value = data.weaponSwing.startT;
+      weaponSwingEndTEl.value = data.weaponSwing.endT;
+      weaponSwingEasingEl.value = data.weaponSwing.easing || 'easeOutCubic';
+      weaponSpritePathEl.value = weaponDef.sprite || weaponSpritePathEl.value;
+      weaponScaleEl.value = weaponDef.scale || weaponScaleEl.value;
+      syncSwing3dUiFromData();
+      render();
+      updateOutput();
+    };
+    image.onerror = () => {
+      setStatus('status: failed to load sprite sheet');
+      alert('Failed to load image: ' + spritePath.value);
+    };
+    image.src = spritePath.value + '?t=' + Date.now();
+  }
+
+  function loadWeaponSprite() {
+    weaponLoaded = false;
+    const weaponDef = getActiveWeaponDef();
+    weaponDef.sprite = weaponSpritePathEl.value || weaponDef.sprite;
+    weaponImage = new Image();
+    weaponImage.onload = () => {
+      weaponLoaded = true;
+      renderWeaponCanvas();
+      render();
+    };
+    weaponImage.onerror = () => {
+      lastError = 'Failed to load weapon image: ' + weaponSpritePathEl.value;
+      setStatus(`status: error ${lastError}`);
+      alert(lastError);
+    };
+    weaponImage.src = weaponSpritePathEl.value + '?t=' + Date.now();
+  }
+
+  function applyValuesToFrame() {
+    const index = parseInt(frameIndexEl.value || '0', 10);
+    const type = attachTypeEl.value;
+    const x = parseFloat(attachXEl.value || '0');
+    const y = parseFloat(attachYEl.value || '0');
+    const angle = parseFloat(attachAngleEl.value || '0');
+    const layer = attachLayerEl.value || 'front';
+    if (!data.frames[index]) data.frames[index] = {};
+    data.frames[index][type] = { x, y, angle, layer };
+    updateOutput();
+    refreshList();
+    render();
+  }
+
+  function loadValuesFromFrame() {
+    const index = parseInt(frameIndexEl.value || '0', 10);
+    const type = attachTypeEl.value;
+    const frame = data.frames[index];
+    if (frame && frame[type]) {
+      attachXEl.value = frame[type].x;
+      attachYEl.value = frame[type].y;
+      attachAngleEl.value = frame[type].angle;
+      attachLayerEl.value = frame[type].layer || 'front';
+    } else {
+      attachXEl.value = '';
+      attachYEl.value = '';
+      attachAngleEl.value = '0';
+      attachLayerEl.value = 'front';
+    }
+    render();
+  }
+
+  function copyFromPrev() {
+    const index = parseInt(frameIndexEl.value || '0', 10);
+    const type = attachTypeEl.value;
+    const prev = data.frames[index - 1];
+    if (prev && prev[type]) {
+      attachXEl.value = prev[type].x;
+      attachYEl.value = prev[type].y;
+      attachAngleEl.value = prev[type].angle;
+      applyValuesToFrame();
+    }
+  }
+
+  function setSelectedSwingPointFromFrameEvent(e) {
+    const weaponDef = getActiveWeaponDef();
+    if (!weaponDef.swing3d?.enabled) return false;
+    const index = parseInt(frameIndexEl.value || '0', 10);
+    const frame = data.frames[index];
+    if (!frame || !frame.weapon) return false;
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+    const scale = Math.max(1, parseInt(scaleEl.value, 10) || 1);
+    const pad = Math.max(0, parseInt(framePadEl.value, 10) || 0);
+    const { fw, fh } = getFrameSize();
+    const drawW = fw * scale;
+    const drawH = fh * scale;
+    const overlayState = getFrameSwingOverlayState(frame, drawW, drawH, pad);
+    if (!overlayState) return false;
+    overlayState.point.pos[0] = (x - overlayState.anchorX) / overlayState.offsetScaleX;
+    overlayState.point.pos[1] = (overlayState.anchorY - y - overlayState.point.pos[2] * drawH * 0.15) / overlayState.offsetScaleY;
+    updateOutput();
+    syncSwingPoseControls();
+    renderSwing3dPointControls();
+    render();
+    return true;
+  }
+
+  canvas.addEventListener('pointerdown', (e) => {
+    if (setSelectedSwingPointFromFrameEvent(e)) {
+      frameSwingDrag = true;
+      return;
+    }
+    frameSwingDrag = false;
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (!frameSwingDrag) return;
+    setSelectedSwingPointFromFrameEvent(e);
+  });
+
+  canvas.addEventListener('pointerup', () => {
+    frameSwingDrag = false;
+  });
+  canvas.addEventListener('pointercancel', () => {
+    frameSwingDrag = false;
+  });
+
+  canvas.addEventListener('click', (e) => {
+    if (getActiveWeaponDef().swing3d?.enabled) return;
+    if (!sheetLoaded) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const scale = Math.max(1, parseInt(scaleEl.value || '1', 10));
+    const pad = Math.max(0, parseInt(framePadEl.value || '0', 10));
+    const index = parseInt(frameIndexEl.value || '0', 10);
+    const { fw, fh } = getFrameSize();
+    const drawW = fw * scale;
+    const drawH = fh * scale;
+    const nx = (x - pad) / drawW;
+    const ny = (y - pad) / drawH;
+    if (nx < 0 || ny < 0 || nx > 1 || ny > 1) return;
+    attachXEl.value = nx.toFixed(3);
+    attachYEl.value = ny.toFixed(3);
+    applyValuesToFrame();
+  });
+
+  document.getElementById('loadBtn').addEventListener('click', loadSheet);
+  document.getElementById('loadWeaponBtn').addEventListener('click', loadWeaponSprite);
+  document.getElementById('toggleWeaponOverlayBtn').addEventListener('click', () => {
+    weaponOverlayEnabled = !weaponOverlayEnabled;
+    render();
+  });
+  document.getElementById('applyBtn').addEventListener('click', applyValuesToFrame);
+  document.getElementById('copyPrevBtn').addEventListener('click', copyFromPrev);
+  document.getElementById('prevFrameBtn').addEventListener('click', () => {
+    const idx = Math.max(0, parseInt(frameIndexEl.value || '0', 10) - 1);
+    frameIndexEl.value = idx;
+    loadValuesFromFrame();
+  });
+  document.getElementById('nextFrameBtn').addEventListener('click', () => {
+    const idx = parseInt(frameIndexEl.value || '0', 10) + 1;
+    frameIndexEl.value = idx;
+    loadValuesFromFrame();
+  });
+  document.getElementById('presetAttack1').addEventListener('click', () => {
+    frameIndexEl.value = 17 + (backFacingEl.checked ? 7 : 0);
+    loadValuesFromFrame();
+  });
+  document.getElementById('presetAttack2').addEventListener('click', () => {
+    frameIndexEl.value = 17 + (backFacingEl.checked ? 7 : 0);
+    loadValuesFromFrame();
+  });
+  document.getElementById('presetCycleBtn').addEventListener('click', () => {
+    const list = (presetFramesEl.value || '')
+      .split(',')
+      .map(s => parseInt(s.trim(), 10))
+      .filter(n => !Number.isNaN(n));
+    if (list.length === 0) return;
+    const offset = backFacingEl.checked ? 7 : 0;
+    const shifted = list.map(n => n + offset);
+    const current = parseInt(frameIndexEl.value || '0', 10);
+    const idx = shifted.indexOf(current);
+    const next = shifted[(idx + 1) % shifted.length];
+    frameIndexEl.value = next;
+    loadValuesFromFrame();
+  });
+  document.getElementById('downloadBtn').addEventListener('click', () => {
+    updateOutput();
+    const blob = new Blob([outputEl.value], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'attachments.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+  loadJsonBtn.addEventListener('click', loadJson);
+
+  frameIndexEl.addEventListener('input', loadValuesFromFrame);
+  attachTypeEl.addEventListener('change', loadValuesFromFrame);
+  attachLayerEl.addEventListener('change', applyValuesToFrame);
+  scaleEl.addEventListener('input', render);
+  framePadEl.addEventListener('input', render);
+  colsEl.addEventListener('input', render);
+  rowsEl.addEventListener('input', render);
+  weaponPivotXEl.addEventListener('input', () => {
+    const weaponDef = getActiveWeaponDef();
+    weaponDef.pivot = { x: parseFloat(weaponPivotXEl.value || '0.5'), y: parseFloat(weaponPivotYEl.value || '1.0') };
+    syncWeaponDefToLegacy();
+    updateOutput();
+    renderWeaponCanvas();
+    renderSwing3dEditor();
+  });
+  weaponPivotYEl.addEventListener('input', () => {
+    const weaponDef = getActiveWeaponDef();
+    weaponDef.pivot = { x: parseFloat(weaponPivotXEl.value || '0.5'), y: parseFloat(weaponPivotYEl.value || '1.0') };
+    syncWeaponDefToLegacy();
+    updateOutput();
+    renderWeaponCanvas();
+    renderSwing3dEditor();
+  });
+  weaponAngleOffsetEl.addEventListener('input', () => {
+    data.weaponAngleOffset = parseFloat(weaponAngleOffsetEl.value || '0');
+    updateOutput();
+    render();
+  });
+  weaponSwingStartEl.addEventListener('input', () => {
+    data.weaponSwing.startDeg = parseFloat(weaponSwingStartEl.value || '0');
+    updateOutput();
+    render();
+  });
+  weaponSwingEndEl.addEventListener('input', () => {
+    data.weaponSwing.endDeg = parseFloat(weaponSwingEndEl.value || '0');
+    updateOutput();
+    render();
+  });
+  weaponSwingStartTEl.addEventListener('input', () => {
+    data.weaponSwing.startT = parseFloat(weaponSwingStartTEl.value || '0');
+    updateOutput();
+    render();
+  });
+  weaponSwingEndTEl.addEventListener('input', () => {
+    data.weaponSwing.endT = parseFloat(weaponSwingEndTEl.value || '1');
+    updateOutput();
+    render();
+  });
+  weaponSwingPreviewTEl.addEventListener('input', render);
+  weaponSwingEasingEl.addEventListener('change', () => {
+    data.weaponSwing.easing = weaponSwingEasingEl.value;
+    updateOutput();
+    render();
+  });
+  ghostStartEl.addEventListener('change', render);
+  ghostEndEl.addEventListener('change', render);
+  weaponSpritePathEl.addEventListener('change', loadWeaponSprite);
+  weaponScaleEl.addEventListener('input', render);
+  weaponScaleEl.addEventListener('input', syncSwing3dUiFromData);
+  weaponOpacityEl.addEventListener('input', render);
+  swing3dEnabledEl.addEventListener('change', () => {
+    const weaponDef = getActiveWeaponDef();
+    weaponDef.swing3d.enabled = swing3dEnabledEl.checked;
+    updateOutput();
+    renderSwing3dEditor();
+  });
+  swing3dPosInterpEl.addEventListener('change', () => {
+    const weaponDef = getActiveWeaponDef();
+    weaponDef.swing3d.interp.pos = swing3dPosInterpEl.value;
+    updateOutput();
+  });
+  swing3dRotInterpEl.addEventListener('change', () => {
+    const weaponDef = getActiveWeaponDef();
+    weaponDef.swing3d.interp.rot = swing3dRotInterpEl.value;
+    updateOutput();
+  });
+  swing3dDisplayModeEl.addEventListener('change', () => {
+    renderSwing3dEditor();
+  });
+  [swingPoseStartBtn, swingPoseMidBtn, swingPoseEndBtn].forEach((btn, idx) => {
+    btn.addEventListener('click', () => {
+      selectedSwingPointIndex = idx;
+      syncSwingPoseControls();
+      renderSwing3dPointControls();
+      render();
+    });
+  });
+  swingPoseRotYEl.addEventListener('input', () => {
+    const point = getSelectedSwingPoint();
+    if (!point) return;
+    point.rot[1] = parseFloat(swingPoseRotYEl.value || '0');
+    updateOutput();
+    render();
+  });
+  swingPoseZEl.addEventListener('input', () => {
+    const point = getSelectedSwingPoint();
+    if (!point) return;
+    point.pos[2] = parseFloat(swingPoseZEl.value || '0');
+    updateOutput();
+    renderSwing3dPointControls();
+    render();
+  });
+  resetSwing3dBtn.addEventListener('click', () => {
+    const weaponDef = getActiveWeaponDef();
+    weaponDef.swing3d = createDefaultSwing3d();
+    selectedSwingPointIndex = 0;
+    syncSwing3dUiFromData();
+    updateOutput();
+    render();
+  });
+  swing3dPointsEl.addEventListener('input', (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    const index = parseInt(target.dataset.pointIndex || '', 10);
+    const field = target.dataset.pointField;
+    if (Number.isNaN(index) || !field) return;
+    selectedSwingPointIndex = index;
+    const weaponDef = getActiveWeaponDef();
+    const point = weaponDef.swing3d.points[index];
+    const value = parseFloat(target.value || '0');
+    if (!point || Number.isNaN(value)) return;
+    if (field === 't') point.t = Math.max(0, Math.min(1, value));
+    if (field === 'x') point.pos[0] = value;
+    if (field === 'y') point.pos[1] = value;
+    if (field === 'z') point.pos[2] = value;
+    weaponDef.swing3d.points.sort((a, b) => a.t - b.t);
+    updateOutput();
+    renderSwing3dPointControls();
+    render();
+  });
+  toggleSwingPreviewBtn.addEventListener('click', () => {
+    swingPreviewActive = !swingPreviewActive;
+    swingPreviewStart = performance.now();
+  });
+  animSelectEl.addEventListener('change', () => {
+    animFrameIndexEl.value = 0;
+    setFrameFromAnim();
+  });
+  backFacingEl.addEventListener('change', setFrameFromAnim);
+  animFrameIndexEl.addEventListener('input', setFrameFromAnim);
+  toggleAnimPreviewBtn.addEventListener('click', () => {
+    animPreviewActive = !animPreviewActive;
+    animPreviewStart = performance.now();
+  });
+
+  // Initial load
+  setAnimOptions();
+  setFrameFromAnim();
+  loadSheet();
+  loadWeaponSprite();
+
+  weaponCanvas.addEventListener('pointerdown', (e) => {
+    weaponPivotDrag = true;
+    if (weaponCanvas.setPointerCapture) weaponCanvas.setPointerCapture(e.pointerId);
+    setWeaponPivotFromCanvasEvent(e);
+  });
+  weaponCanvas.addEventListener('pointermove', (e) => {
+    if (!weaponPivotDrag) return;
+    setWeaponPivotFromCanvasEvent(e);
+  });
+  weaponCanvas.addEventListener('pointerup', (e) => {
+    weaponPivotDrag = false;
+    if (weaponCanvas.releasePointerCapture) weaponCanvas.releasePointerCapture(e.pointerId);
+  });
+  weaponCanvas.addEventListener('pointercancel', () => {
+    weaponPivotDrag = false;
+  });
+  weaponCanvas.addEventListener('click', (e) => {
+    setWeaponPivotFromCanvasEvent(e);
+  });
+
+  swing3dCanvas.addEventListener('mousedown', (e) => {
+    const weaponDef = getActiveWeaponDef();
+    if (!weaponDef.swing3d.enabled) return;
+    const rect = swing3dCanvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (swing3dCanvas.width / rect.width);
+    const y = (e.clientY - rect.top) * (swing3dCanvas.height / rect.height);
+    const points = [...weaponDef.swing3d.points].sort((a, b) => a.t - b.t);
+    let hitIndex = -1;
+    let bestDistance = 14;
+    points.forEach((point, index) => {
+      const projected = projectSwingPoint(point);
+      const dist = Math.hypot(projected.x - x, projected.y - y);
+      if (dist < bestDistance) {
+        bestDistance = dist;
+        hitIndex = index;
+      }
+    });
+    if (hitIndex >= 0) {
+      selectedSwingPointIndex = hitIndex;
+      swing3dDrag = { index: hitIndex, shiftKey: e.shiftKey };
+      renderSwing3dPointControls();
+      renderSwing3dEditor();
+    }
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!swing3dDrag) return;
+    const weaponDef = getActiveWeaponDef();
+    const point = [...weaponDef.swing3d.points].sort((a, b) => a.t - b.t)[swing3dDrag.index];
+    if (!point) return;
+    const rect = swing3dCanvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (swing3dCanvas.width / rect.width);
+    const y = (e.clientY - rect.top) * (swing3dCanvas.height / rect.height);
+    if (e.shiftKey || swing3dDrag.shiftKey) {
+      const centerY = swing3dCanvas.height * 0.7;
+      point.pos[2] = Math.max(-1.5, Math.min(1.5, (centerY - y - point.pos[1] * 120) / 46));
+    } else {
+      const local = unprojectSwingPoint(x, y, point.pos[2]);
+      point.pos[0] = Math.max(-1.5, Math.min(1.5, local.x));
+      point.pos[1] = Math.max(-1.5, Math.min(1.5, local.y));
+    }
+    updateOutput();
+    renderSwing3dPointControls();
+    render();
+  });
+
+  window.addEventListener('mouseup', () => {
+    swing3dDrag = null;
+  });
+
+  function tick() {
+    if (animPreviewActive) {
+      const anim = getCurrentAnim();
+      if (anim) {
+        const elapsed = performance.now() - animPreviewStart;
+        const frameCount = anim.indices.length;
+        const frame = Math.floor(elapsed / anim.speed);
+        const idx = anim.loop ? (frame % frameCount) : Math.min(frame, frameCount - 1);
+        animFrameIndexEl.value = idx;
+        frameIndexEl.value = anim.indices[idx];
+      }
+    }
+    if (swingPreviewActive || animPreviewActive) render();
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
+

@@ -1,0 +1,102 @@
+{
+  "sprite": "sprites/soldier/soldier.png",
+  "cols": 7,
+  "rows": 4,
+  "weaponPivot": {
+    "x": 0.29625,
+    "y": 0.6883007812499999
+  },
+  "weaponAngleOffset": 0,
+  "weaponSwing": {
+    "startDeg": 280,
+    "endDeg": 180,
+    "startT": 0.2,
+    "endT": 0.5,
+    "easing": "easeOutCubic"
+  },
+  "weapons": {
+    "default_weapon": {
+      "pivot": {
+        "x": 0.29625,
+        "y": 0.6883007812499999
+      },
+      "angleOffset": 0,
+      "scale": 1,
+      "sprite": "assets/sprites/sword.png",
+      "swing2d": {
+        "startDeg": 280,
+        "endDeg": 180,
+        "startT": 0.2,
+        "endT": 0.5,
+        "easing": "easeOutCubic"
+      },
+      "swing3d": {
+        "enabled": false,
+        "durationT": 1,
+        "positionSpace": "hand",
+        "rotationSpace": "hand",
+        "points": [
+          {
+            "t": 0,
+            "pos": [0, 0, 0],
+            "rot": [0, -20, 0]
+          },
+          {
+            "t": 0.4,
+            "pos": [0.12, 0.04, 0],
+            "rot": [0, 40, 0]
+          },
+          {
+            "t": 1,
+            "pos": [0, 0, 0],
+            "rot": [0, -10, 0]
+          }
+        ],
+        "interp": {
+          "pos": "catmullRom",
+          "rot": "slerp",
+          "easing": "easeOutCubic"
+        }
+      }
+    }
+  },
+  "units": {
+    "DEFAULT": {
+      "weaponId": "default_weapon"
+    }
+  },
+  "frames": {
+    "17": {
+      "weapon": {
+        "x": 0.689,
+        "y": 0.573,
+        "angle": 0,
+        "layer": "back"
+      }
+    },
+    "19": {
+      "weapon": {
+        "x": 0.782,
+        "y": 0.747,
+        "angle": 0,
+        "layer": "front"
+      }
+    },
+    "24": {
+      "weapon": {
+        "x": 0.509,
+        "y": 0.546,
+        "angle": 0,
+        "layer": "back"
+      }
+    },
+    "26": {
+      "weapon": {
+        "x": 0.261,
+        "y": 0.615,
+        "angle": 0,
+        "layer": "front"
+      }
+    }
+  }
+}

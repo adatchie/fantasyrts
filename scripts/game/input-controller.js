@@ -254,6 +254,16 @@ export class InputController {
 
         let h;
 
+        let clickedUnit = null;
+        if (game.renderingEngine && game.renderingEngine.getUnitFromScreenCoordinates) {
+            const preferSide = game.playerSide || null;
+            clickedUnit = game.renderingEngine.getUnitFromScreenCoordinates(
+                game.input.start.x,
+                game.input.start.y,
+                game.selectedUnits.length > 0 ? preferSide : null
+            );
+        }
+
         if (game.renderingEngine && game.renderingEngine.getHexFromScreenCoordinates) {
             h = game.renderingEngine.getHexFromScreenCoordinates(game.input.start.x, game.input.start.y);
         } else {
@@ -262,7 +272,7 @@ export class InputController {
 
         if (!h || !isValidHex(h)) return;
 
-        const u = game.units.find(x => !x.dead && x.x === h.q && x.y === h.r);
+        const u = clickedUnit || game.units.find(x => !x.dead && x.x === h.q && x.y === h.r);
         const menu = document.getElementById('context-menu');
         if (menu) menu.style.display = 'none';
 

@@ -77,7 +77,7 @@ export const ANIMATIONS = {
     },
     // 攻撃中 (旧互換)
     attack: {
-        indices: [17, 18], // 17, 18
+        indices: [17, 19], // 17=Wind up, 19=Slash (弓の18を避ける)
         speed: 150,
         loop: true
     },
@@ -95,7 +95,7 @@ export const ANIMATIONS = {
     },
     // 攻撃パターン2（強攻撃/別パターン）
     attack2: {
-        indices: [17, 18], // 17->18 (振り下ろし)
+        indices: [17, 19], // 17->19 (振り下ろし)
         speed: 100, // 高速
         loop: false // 一回切り
     },
