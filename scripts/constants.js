@@ -216,12 +216,58 @@ export const UNIT_TYPES = {
 };
 
 // 武器定義
+// sprite: 武器スプライト画像ファイル名（assets/sprites/ 以下）
+// scale: ユニットサイズに対する武器スプライトの倍率
+// pivot: 武器スプライト内の回転中心（正規化座標 0-1）。y=1.0 で柄の底部
+// hand: ユニットスプライト上の手の位置（正規化座標 0-1）
+// swing: スイングアニメーション定義
+//   windupDeg: 振りかぶり角度（baseAngleからの相対）
+//   strikeDeg: 振り下ろし角度（baseAngleからの相対）
+//   easing: イージング関数名
+// ※同じ weapon キーでスプライトを差し替えてもモーションはそのまま成立する
 export const WEAPON_TYPES = {
-    sword: { sprite: 'sword.png', offset: { x: 5, y: -5 }, scale: 0.8 },
-    spear: { sprite: 'spear.png', offset: { x: 10, y: -5 }, scale: 1.0 },
-    bow: { sprite: 'bow.png', offset: { x: 5, y: 0 }, scale: 0.8 },
-    gun: { sprite: 'gun.png', offset: { x: 8, y: -2 }, scale: 0.9 },
-    staff: { sprite: 'staff.png', offset: { x: 8, y: -5 }, scale: 0.9 }
+    sword: {
+        sprite: 'sword.png',
+        scale: 1.5,
+        pivot: { x: 0.5, y: 1.0 },
+        hand: { x: 0.6, y: 0.55 },
+        swing: { windupDeg: 40, strikeDeg: -80, easing: 'easeOutCubic' }
+    },
+    spear: {
+        sprite: 'spear.png',
+        scale: 1.8,
+        pivot: { x: 0.5, y: 0.85 },
+        hand: { x: 0.55, y: 0.5 },
+        swing: { windupDeg: 25, strikeDeg: -40, easing: 'easeOutCubic' }
+    },
+    bow: {
+        sprite: 'bow.png',
+        scale: 1.3,
+        pivot: { x: 0.5, y: 0.5 },
+        hand: { x: 0.55, y: 0.5 },
+        swing: { windupDeg: 15, strikeDeg: -10, easing: 'linear' }
+    },
+    gun: {
+        sprite: 'gun.png',
+        scale: 1.4,
+        pivot: { x: 0.5, y: 0.7 },
+        hand: { x: 0.55, y: 0.5 },
+        swing: { windupDeg: 10, strikeDeg: -5, easing: 'linear' }
+    },
+    staff: {
+        sprite: 'staff.png',
+        scale: 1.6,
+        pivot: { x: 0.5, y: 0.9 },
+        hand: { x: 0.55, y: 0.5 },
+        swing: { windupDeg: 20, strikeDeg: -30, easing: 'easeOutCubic' }
+    },
+    cannon: {
+        sprite: 'sword.png',
+        scale: 1.8,
+        pivot: { x: 0.5, y: 0.7 },
+        hand: { x: 0.5, y: 0.5 },
+        swing: { windupDeg: 5, strikeDeg: -10, easing: 'linear' }
+    }
 };
 
 /**

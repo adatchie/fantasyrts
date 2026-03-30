@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { HEX_SIZE, TILE_SIZE, TILE_HEIGHT, MAP_W, MAP_H, WARLORDS, getUnitTypeInfo } from './constants.js';
+import { HEX_SIZE, TILE_SIZE, TILE_HEIGHT, MAP_W, MAP_H, WARLORDS, getUnitTypeInfo, UNIT_TYPES, WEAPON_TYPES } from './constants.js';
 import { KamonDrawer } from './kamon.js';
 import { ANIMATIONS, DIRECTIONS, SPRITE_SHEET_PATH, SHEET_LAYOUT, getSpriteIndex, SPRITE_PATHS, UNIT_TYPE_TO_SPRITE } from './sprite-config.js';
 
@@ -24,7 +24,7 @@ export class RenderingEngine3D {
 
         this.unitMeshes = new Map(); // 繝ｦ繝九ャ繝・D -> Mesh
         this.effects = []; // 3D繧ｨ繝輔ぉ繧ｯ繝・
-        this.attachmentData = new Map(); // spriteKey -> attachment JSON
+        // attachmentData は廃止済み（WEAPON_TYPESベースに移行）
 
 
 
@@ -40,7 +40,7 @@ export class RenderingEngine3D {
         this.spriteTextures = new Map(); // 繧ｹ繝励Λ繧､繝医す繝ｼ繝医ユ繧ｯ繧ｹ繝√Ε繧ｭ繝｣繝・す繝･
         this.unitAnimationStates = new Map(); // 繝ｦ繝九ャ繝・D -> {anim, frame, lastUpdate}
         this.loadSpriteTextures();
-        this.loadAttachmentData();
+        // attachmentData（旧per-frame JSON方式）は廃止。武器はunitSpriteの子として方向ベースで自動配置。
 
 
 
@@ -166,20 +166,8 @@ export class RenderingEngine3D {
         this.animate();
     }
 
-    async loadAttachmentData() {
-        // DEFAULT only for now
-        try {
-            const response = await fetch('./scripts/data/attachments/soldier.json');
-            if (!response.ok) {
-                console.warn('[Attachment] Failed to load soldier.json:', response.status);
-                return;
-            }
-            const data = await response.json();
-            this.attachmentData.set('DEFAULT', data);
-        } catch (err) {
-            console.warn('[Attachment] Error loading attachment data:', err);
-        }
-    }
+    // loadAttachmentData() は廃止。武器アタッチメントはWEAPON_TYPESで定義し、
+    // unitSpriteの子として自動追従する方式に移行済み。
 
     async init() {
         return Promise.resolve();
@@ -1475,147 +1463,89 @@ export class RenderingEngine3D {
                             swordSprite.position.z = 5; // unitSprite(Z=4)より手前
                         }
 
-                        // ユニットサイズ倍率を適用して実際の手の座標を算出
+                        // === 武器アニメーション（unitSpriteの子として配置済み） ===
+                        // unitSpriteのローカル座標系で計算。ビルボード追従は親子関係で自動。
                         const baseUnitSize = anim.unitSize || window.gameState?.units?.find(u=>u.id===unit.id)?.size || 1;
                         const sizeScale = baseUnitSize === 4 ? 1.8 : baseUnitSize === 2 ? 1.3 : 1.0;
-                        const logicalSize = 30 * 0.6 * sizeScale; // HEX_SIZE(30)相当のベースサイズ
+                        const logicalSize = 30 * 0.6 * sizeScale;
                         const planeSize = logicalSize * 2; // unitSprite plane width/height
 
-                        // Attachments (DEFAULT only)
-                        let attachment = null;
-                        let spriteKey = 'DEFAULT';
-                        const typeUpper = unit.type ? unit.type.toUpperCase() : 'DEFAULT';
-                        if (UNIT_TYPE_TO_SPRITE[typeUpper]) {
-                            spriteKey = UNIT_TYPE_TO_SPRITE[typeUpper];
-                        }
-                        if (spriteKey === 'DEFAULT') {
-                            const state = this.unitAnimationStates.get(unit.id);
-                            const currentIndex = state?.currentBaseIndex;
-                            const currentSpriteIndex = state?.currentSpriteIndex;
-                            const data = this.attachmentData.get('DEFAULT');
-                            if (data && data.frames && (currentSpriteIndex !== undefined || currentIndex !== undefined)) {
-                                const frameEntry = (currentSpriteIndex !== undefined && data.frames[currentSpriteIndex])
-                                    ? data.frames[currentSpriteIndex]
-                                    : (currentIndex !== undefined ? data.frames[currentIndex] : null);
-                                attachment = frameEntry ? (frameEntry.weapon || null) : null;
-                                var weaponPivot = data.weaponPivot || { x: 0.5, y: 1.0 };
-                                var weaponAngleOffset = (data.weaponAngleOffset || 0) * Math.PI / 180;
-                                var weaponSwing = data.weaponSwing || null;
-                                if (attachment && attachment.layer) {
-                                    const isBack = attachment.layer === 'back';
-                                    swordSprite.position.z = isBack ? 3 : 5;
-                                    swordSprite.renderOrder = isBack ? 90 : 110;
-                                }
-                            }
-                        }
+                        // 武器定義を取得
+                        const unitTypeDef = UNIT_TYPES[unit.type?.toUpperCase()];
+                        const weaponKey = unitTypeDef?.weapon;
+                        const weaponDef = weaponKey ? WEAPON_TYPES[weaponKey] : null;
 
-                        // If the current frame has no attachment, keep the last valid one to avoid warping.
+                        // 手の位置（武器定義から、なければデフォルト）
+                        const handX = weaponDef?.hand?.x ?? 0.6;
+                        const handY = weaponDef?.hand?.y ?? 0.55;
+                        const swingDef = weaponDef?.swing ?? { windupDeg: 40, strikeDeg: -80, easing: 'easeOutCubic' };
+
+                        // 方向別の基本角度と手の位置オフセット
+                        // unitSpriteローカル座標: X右正、Y上正
                         const state = this.unitAnimationStates.get(unit.id);
-                        if (!attachment && state?.lastAttachment) {
-                            attachment = state.lastAttachment.weapon;
-                            weaponPivot = state.lastAttachment.weaponPivot;
-                            weaponAngleOffset = state.lastAttachment.weaponAngleOffset;
-                            weaponSwing = state.lastAttachment.weaponSwing;
+                        const isFlipped = state?.currentFlip || false;
+
+                        // 手の位置をunitSpriteローカル座標に変換（正規化0-1 → planeSize座標）
+                        let handOffsetX = (handX - 0.5) * planeSize;
+                        let handOffsetY = (0.5 - handY) * planeSize;
+                        if (isFlipped) {
+                            handOffsetX = -handOffsetX;
                         }
 
-                        if (attachment) {
-                            if (state) {
-                                state.lastAttachment = {
-                                    weapon: attachment,
-                                    weaponPivot: weaponPivot,
-                                    weaponAngleOffset: weaponAngleOffset,
-                                    weaponSwing: weaponSwing
-                                };
-                            }
-                            let xNorm = attachment.x;
-                            let yNorm = attachment.y;
-                            let angleRad = (attachment.angle || 0) * Math.PI / 180;
-                            let finalAngle = angleRad + (weaponAngleOffset || 0);
-                            if (weaponSwing) {
-                                const startT = weaponSwing.startT ?? 0.2;
-                                const endT = weaponSwing.endT ?? 0.5;
-                                if (t >= startT && t <= endT) {
-                                    const localT = (t - startT) / Math.max(0.0001, (endT - startT));
-                                    let eased = localT;
-                                    if ((weaponSwing.easing || 'easeOutCubic') === 'easeOutCubic') {
-                                        eased = 1 - Math.pow(1 - localT, 3);
-                                    }
-                                    const swingStart = (weaponSwing.startDeg ?? 0) * Math.PI / 180;
-                                    const swingEnd = (weaponSwing.endDeg ?? 0) * Math.PI / 180;
-                                    finalAngle += swingStart + (swingEnd - swingStart) * eased;
-                                }
-                            }
-                            let pivotX = (weaponPivot?.x ?? 0.5);
-                            const pivotY = (weaponPivot?.y ?? 1.0);
-                            if (state?.currentFlip) {
-                                xNorm = 1 - xNorm;
-                                finalAngle = -finalAngle;
-                                pivotX = 1 - pivotX;
-                            }
-                            const handOffsetX = (xNorm - 0.5) * planeSize;
-                            const handOffsetY = (0.5 - yNorm) * planeSize + logicalSize;
+                        // 方向別の基本角度（ビルボード面上の2D角度）
+                        const baseAngles = {
+                            0: -Math.PI * 3 / 4,  // 下向き
+                            1:  Math.PI * 3 / 4,   // 左向き
+                            2:  Math.PI / 4,        // 上向き
+                            3: -Math.PI / 4          // 右向き
+                        };
+                        let baseAngle = baseAngles[unit.dir] ?? baseAngles[0];
+                        if (isFlipped) {
+                            baseAngle = -baseAngle;
+                        }
 
-                            // Weapon pivot offset (local to sword sprite)
-                            const swordSize = logicalSize * 1.5;
-                            const pivotLocalX = (pivotX - 0.5) * swordSize;
-                            const pivotLocalY = (1 - pivotY) * swordSize;
-                            const cosA = Math.cos(finalAngle);
-                            const sinA = Math.sin(finalAngle);
-                            const pivotRotX = pivotLocalX * cosA - pivotLocalY * sinA;
-                            const pivotRotY = pivotLocalX * sinA + pivotLocalY * cosA;
+                        // スイングアニメーション計算
+                        const windupRad = (swingDef.windupDeg ?? 40) * Math.PI / 180;
+                        const strikeRad = (swingDef.strikeDeg ?? -80) * Math.PI / 180;
+                        let currentAngle = baseAngle;
 
-                            // MeshのZ軸回転を更新（Spriteではないのでmaterial.rotationではない）
-                            swordSprite.rotation.z = finalAngle;
-                            
-                            // 位置は常に手の座標に固定（Geometry作成時にピボットが柄の最下部に設定済み）
-                            swordSprite.position.x = handOffsetX - pivotRotX;
-                            swordSprite.position.y = handOffsetY - pivotRotY;
-
-                            if (t >= 0.5) {
-                                const fadeT = (t - 0.5) / 0.5;
-                                swordSprite.material.opacity = 1.0 - fadeT;
-                            } else {
-                                swordSprite.material.opacity = 1.0;
+                        if (t < 0.2) {
+                            // windup: 構え → 振りかぶり
+                            const windupT = t / 0.2;
+                            currentAngle = baseAngle + windupRad * windupT;
+                        } else if (t < 0.5) {
+                            // strike: 振りかぶり → 振り下ろし
+                            const attackT = (t - 0.2) / 0.3;
+                            let eased = attackT;
+                            if (swingDef.easing === 'easeOutCubic') {
+                                eased = 1 - Math.pow(1 - attackT, 3);
                             }
+                            const swingFrom = baseAngle + windupRad;
+                            const swingTo = baseAngle + strikeRad;
+                            currentAngle = swingFrom + (swingTo - swingFrom) * eased;
                         } else {
-                            // Fallback: fixed hand positions + swing
-                            const handPositions = {
-                                0: { x: 0.4, y: 0.8, baseAngle: -3 * Math.PI / 4 },
-                                1: { x: -0.4, y: 0.8, baseAngle: 3 * Math.PI / 4 },
-                                2: { x: -0.3, y: 1.1, baseAngle: Math.PI / 4 },
-                                3: { x: 0.3, y: 1.1, baseAngle: -Math.PI / 4 }
-                            };
-
-                            const config = handPositions[unit.dir] || handPositions[0];
-                            const handOffsetX = config.x * logicalSize;
-                            const handOffsetY = config.y * logicalSize;
-                            let baseAngle = config.baseAngle;
-
-                            const SWING_TOTAL = Math.PI * 2 / 3;
-                            const SWING_START = baseAngle + SWING_TOTAL / 2;
-
-                            let currentAngle = 0;
-
-                            if (t < 0.2) {
-                                const windupT = t / 0.2;
-                                currentAngle = baseAngle + SWING_TOTAL / 2 * windupT;
-                            } else if (t < 0.5) {
-                                const attackT = (t - 0.2) / 0.3;
-                                const easeT = 1 - Math.pow(1 - attackT, 3);
-                                currentAngle = SWING_START - SWING_TOTAL * easeT;
-                            } else {
-                                const fadeT = (t - 0.5) / 0.5;
-                                currentAngle = SWING_START - SWING_TOTAL;
-                                swordSprite.material.opacity = 1.0 - fadeT;
-                            }
-
-                            swordSprite.rotation.z = currentAngle;
-                            swordSprite.position.x = handOffsetX;
-                            swordSprite.position.y = handOffsetY;
+                            // フェードアウト（振り下ろし後の位置で静止）
+                            currentAngle = baseAngle + strikeRad;
+                            const fadeT = (t - 0.5) / 0.5;
+                            swordSprite.material.opacity = 1.0 - fadeT;
                         }
 
-                        // 大きさはMesh化によりGeometry側で固定されているためScale計算は不要
-                        swordSprite.scale.set(1, 1, 1);
+                        if (t < 0.5) {
+                            swordSprite.material.opacity = 1.0;
+                        }
+
+                        swordSprite.rotation.z = currentAngle;
+                        swordSprite.position.x = handOffsetX;
+                        swordSprite.position.y = handOffsetY;
+
+                        // 方向によるレイヤー制御（Z軸で前後を切り替え）
+                        if (unit.dir === 2 || unit.dir === 3) {
+                            swordSprite.position.z = -1; // ユニットの奥側
+                            swordSprite.renderOrder = 90;
+                        } else {
+                            swordSprite.position.z = 1;  // ユニットの手前側
+                            swordSprite.renderOrder = 110;
+                        }
 
                     } else {
                         swordSprite.visible = false;
@@ -1630,11 +1560,6 @@ export class RenderingEngine3D {
                 if (swordSprite) {
                     swordSprite.visible = false;
                     swordSprite.material.opacity = 1.0;
-                    swordSprite.scale.set(1, 1, 1);
-                }
-                const state = this.unitAnimationStates.get(unit.id);
-                if (state) {
-                    state.lastAttachment = null;
                 }
             }
 
@@ -1842,11 +1767,6 @@ export class RenderingEngine3D {
                 if (swordSprite) {
                     swordSprite.visible = false;
                     swordSprite.material.opacity = 1.0;
-                    swordSprite.scale.set(1, 1, 1);
-                }
-                const state = this.unitAnimationStates.get(unit.id);
-                if (state) {
-                    state.lastAttachment = null;
                 }
             }
 
@@ -2167,37 +2087,39 @@ export class RenderingEngine3D {
         hitBox.position.y = size;
         group.add(hitBox);
 
-        // 6. Sword Sprite (for infantry and cavalry attacks)
-        if (unit.type === 'INFANTRY' || unit.type === 'CAVALRY') {
-            const swordTexture = new THREE.TextureLoader().load('assets/sprites/sword.png');
-            swordTexture.colorSpace = THREE.SRGBColorSpace;
-            const swordMat = new THREE.MeshBasicMaterial({
-                map: swordTexture,
+        // 6. Weapon Sprite（全近接/遠隔ユニット対応、unitSpriteの子として追加）
+        const unitTypeDef = UNIT_TYPES[unit.type?.toUpperCase()];
+        const weaponKey = unitTypeDef?.weapon;
+        const weaponDef = weaponKey ? WEAPON_TYPES[weaponKey] : null;
+        if (weaponDef) {
+            const spritePath = `assets/sprites/${weaponDef.sprite}`;
+            const weaponTexture = new THREE.TextureLoader().load(spritePath);
+            weaponTexture.colorSpace = THREE.SRGBColorSpace;
+            const weaponMat = new THREE.MeshBasicMaterial({
+                map: weaponTexture,
                 transparent: true,
                 side: THREE.DoubleSide,
                 alphaTest: 0.5,
-                depthWrite: true,
-                depthTest: true
+                depthWrite: false,
+                depthTest: false
             });
-            // サイズをユニットに合わせる。MeshとしてPlaneGeometryを利用し、常にキャラクターと同じXYZ空間に立てる
-            const swordSize = size * 1.5;
-            const swordGeo = new THREE.PlaneGeometry(swordSize, swordSize);
-            // Translateを利用し、Geometryの原点ピボットを「底部中央（＝柄）」にずらす。これによりposition操作だけで手元に追従する
-            swordGeo.translate(0, swordSize / 2, 0);
+            const weaponScale = weaponDef.scale || 1.5;
+            const weaponSize = size * weaponScale;
+            const weaponGeo = new THREE.PlaneGeometry(weaponSize, weaponSize);
+            // ピボットを武器定義のpivot位置に設定（デフォルト: 底部中央=柄）
+            const pivotX = (weaponDef.pivot?.x ?? 0.5) - 0.5;
+            const pivotY = (weaponDef.pivot?.y ?? 1.0) - 0.5;
+            weaponGeo.translate(-pivotX * weaponSize, (0.5 - pivotY) * weaponSize, 0);
 
-            // SpriteからMeshへ変更（カメラの俯瞰角度のパースを自然に受けるため）
-            const swordMesh = new THREE.Mesh(swordGeo, swordMat);
-            
-            // 初期状態は非表示
-            swordMesh.visible = false;
-            // 変数名はswordSpriteのままだが、実体はMesh
-            swordMesh.name = 'swordSprite'; 
+            const weaponMesh = new THREE.Mesh(weaponGeo, weaponMat);
+            weaponMesh.visible = false;
+            weaponMesh.name = 'swordSprite'; // 後方互換のため名前は維持
+            // unitSpriteのローカル座標で配置（Z=1で手前に出す）
+            weaponMesh.position.set(0, 0, 1);
+            weaponMesh.renderOrder = 110;
 
-            // Z=5に置くことで、ユニットのPlane(Z=4)より常に手前側に描画される判定を確保
-            swordMesh.position.set(0, size * 1.2, 5);
-            swordMesh.renderOrder = 100; // ユニットと同じrenderOrderにしてZソートを働かせる
-
-            group.add(swordMesh);
+            // unitSprite（plane）の子として追加 → ビルボードquaternionを自動継承
+            plane.add(weaponMesh);
         }
 
         // 情報オーバーレイ初期作成
