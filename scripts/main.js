@@ -11,7 +11,7 @@
  *   - managers/turn-manager.js  : ターン管理（commitTurn/resolveTurn/triggerEndGame）
  */
 
-import { WARLORDS } from './constants.js';
+import { WARLORDS } from './constants.js?v=125';
 // TUTORIAL_PLAIN_DATA import removed: JSON統一化によりfetch経由で読み込む
 import { AudioEngine } from './audio.js?v=123';
 import { MapSystem } from './map.js?v=123';
