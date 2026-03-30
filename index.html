@@ -517,13 +517,13 @@
     </script>
 
     <script type="module">
-        console.log('[TEST] calibrator script tag executing');
-        import('./scripts/weapon-calibrator.js?v=3')
-            .then(m => { console.log('[TEST] module loaded', m); m.initWeaponCalibrator(); })
-            .catch(err => console.error('[WeaponCalibrator] ロード失敗:', err));
-    </script>
-    <script type="module">
         import { Game } from './scripts/main.js?v=124';
+
+        // キャリブレーターをゲームと同じスクリプトコンテキストで起動
+        console.log('[TEST] game script executing');
+        import('./scripts/weapon-calibrator.js?v=4')
+            .then(m => { console.log('[TEST] calibrator loaded'); m.initWeaponCalibrator(); })
+            .catch(err => console.error('[WeaponCalibrator] ロード失敗:', err));
 
         try {
             // グローバルスコープにGameインスタンスを作成
