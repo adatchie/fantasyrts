@@ -517,8 +517,9 @@
     </script>
 
     <script type="module">
-        import('./scripts/weapon-calibrator.js?v=2')
-            .then(m => m.initWeaponCalibrator())
+        console.log('[TEST] calibrator script tag executing');
+        import('./scripts/weapon-calibrator.js?v=3')
+            .then(m => { console.log('[TEST] module loaded', m); m.initWeaponCalibrator(); })
             .catch(err => console.error('[WeaponCalibrator] ロード失敗:', err));
     </script>
     <script type="module">
