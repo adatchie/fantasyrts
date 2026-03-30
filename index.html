@@ -517,8 +517,9 @@
     </script>
 
     <script type="module">
-        import { initWeaponCalibrator } from './scripts/weapon-calibrator.js?v=1';
-        initWeaponCalibrator();
+        import('./scripts/weapon-calibrator.js?v=2')
+            .then(m => m.initWeaponCalibrator())
+            .catch(err => console.error('[WeaponCalibrator] ロード失敗:', err));
     </script>
     <script type="module">
         import { Game } from './scripts/main.js?v=124';
