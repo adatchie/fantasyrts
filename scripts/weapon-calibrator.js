@@ -20,8 +20,8 @@ import {
     SHEET_LAYOUT,
     ANIMATIONS,
     DIRECTIONS,
-} from './sprite-config.js';
-import { UNIT_TYPES, WEAPON_TYPES } from './constants.js';
+} from './sprite-config.js?v=125';
+import { UNIT_TYPES, WEAPON_TYPES } from './constants.js?v=125';
 
 // ---- フェーズとフレームの対応 ----
 const PHASE_FRAMES = {

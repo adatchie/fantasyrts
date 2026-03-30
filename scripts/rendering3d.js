@@ -5,9 +5,9 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { HEX_SIZE, TILE_SIZE, TILE_HEIGHT, MAP_W, MAP_H, WARLORDS, getUnitTypeInfo, UNIT_TYPES, WEAPON_TYPES } from './constants.js';
+import { HEX_SIZE, TILE_SIZE, TILE_HEIGHT, MAP_W, MAP_H, WARLORDS, getUnitTypeInfo, UNIT_TYPES, WEAPON_TYPES } from './constants.js?v=125';
 import { KamonDrawer } from './kamon.js';
-import { ANIMATIONS, DIRECTIONS, SPRITE_SHEET_PATH, SHEET_LAYOUT, getSpriteIndex, SPRITE_PATHS, UNIT_TYPE_TO_SPRITE, WEAPON_HAND_CONFIG } from './sprite-config.js';
+import { ANIMATIONS, DIRECTIONS, SPRITE_SHEET_PATH, SHEET_LAYOUT, getSpriteIndex, SPRITE_PATHS, UNIT_TYPE_TO_SPRITE, WEAPON_HAND_CONFIG } from './sprite-config.js?v=125';
 
 import TerrainManager from './terrain-manager.js';
 import { BuildingSystem, BUILDING_TEMPLATES } from './building.js';
