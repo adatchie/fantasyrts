@@ -80,13 +80,13 @@ class WeaponCalibrator {
     <option value="PRIEST">PRIEST</option>
   </select>
   <label>View</label>
-  <button id="wc-view-front" style="background:#334;color:#fff;border:1px solid #668;border-radius:4px;padding:2px 10px;cursor:pointer;font:11px monospace">front</button>
-  <button id="wc-view-back"  style="background:#222;color:#aaa;border:1px solid #444;border-radius:4px;padding:2px 10px;cursor:pointer;font:11px monospace">back</button>
+  <button id="wc-view-front" style="background:#4455bb;color:#fff;border:1px solid #88aaff;border-radius:4px;padding:2px 10px;cursor:pointer;font:bold 11px monospace">front</button>
+  <button id="wc-view-back"  style="background:#222;color:#777;border:1px solid #444;border-radius:4px;padding:2px 10px;cursor:pointer;font:11px monospace">back</button>
 </div>
 
 <div style="display:flex;gap:6px;margin-bottom:8px">
-  <button id="wc-phase-windup" style="background:#334;color:#fff;border:1px solid #668;border-radius:4px;padding:2px 10px;cursor:pointer;font:11px monospace">windup</button>
-  <button id="wc-phase-strike" style="background:#222;color:#aaa;border:1px solid #444;border-radius:4px;padding:2px 10px;cursor:pointer;font:11px monospace">strike</button>
+  <button id="wc-phase-windup" style="background:#4455bb;color:#fff;border:1px solid #88aaff;border-radius:4px;padding:2px 10px;cursor:pointer;font:bold 11px monospace">windup</button>
+  <button id="wc-phase-strike" style="background:#222;color:#777;border:1px solid #444;border-radius:4px;padding:2px 10px;cursor:pointer;font:11px monospace">strike</button>
 </div>
 
 <canvas id="wc-canvas"
@@ -96,6 +96,12 @@ class WeaponCalibrator {
 
 <div style="margin-bottom:4px;color:#aaa;font-size:11px">
   クリック: 手の位置を設定 &nbsp; ←/→: 角度調整
+</div>
+
+<div id="wc-frame-label"
+  style="background:#1a1a2e;border:1px solid #445;border-radius:4px;
+         padding:3px 8px;margin-bottom:6px;font-size:11px;color:#8af">
+  frame —
 </div>
 
 <div id="wc-values"
@@ -170,9 +176,10 @@ class WeaponCalibrator {
         const btnA = this._panel.querySelector(`#${idA}`);
         const btnB = this._panel.querySelector(`#${idB}`);
         const applyStyle = (btn, active) => {
-            btn.style.background   = active ? '#334' : '#222';
-            btn.style.color        = active ? '#fff' : '#aaa';
-            btn.style.borderColor  = active ? '#668' : '#444';
+            btn.style.background   = active ? '#4455bb' : '#222';
+            btn.style.color        = active ? '#fff' : '#777';
+            btn.style.borderColor  = active ? '#88aaff' : '#444';
+            btn.style.fontWeight   = active ? 'bold' : 'normal';
         };
         applyStyle(btnA,  aIsActive);
         applyStyle(btnB, !aIsActive);
@@ -245,6 +252,12 @@ class WeaponCalibrator {
         const frameIdx = this.view === 'back' ? baseFrame + 7 : baseFrame;
         const fcol = frameIdx % cols;
         const frow = Math.floor(frameIdx / cols);
+
+        // フレームラベル更新
+        const labelEl = this._panel.querySelector('#wc-frame-label');
+        if (labelEl) {
+            labelEl.textContent = `frame ${frameIdx}  (${this.view} / ${this.phase})`;
+        }
 
         // スプライトフレームを描画
         this._ctx.clearRect(0, 0, this._canvas.width, this._canvas.height);

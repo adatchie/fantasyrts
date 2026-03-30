@@ -1480,24 +1480,38 @@ export class RenderingEngine3D {
                         const typeUpper = unit.type?.toUpperCase() ?? 'INFANTRY';
                         const spriteKey = UNIT_TYPE_TO_SPRITE[typeUpper] ?? 'DEFAULT';
 
-                        // フェーズ（windup / strike）に対応する手座標を取得
+                        // windup / strike 両方の設定を取得してスイング補間する
                         const handConfigs = window._weaponHandConfig ?? WEAPON_HAND_CONFIG;
-                        const phaseKey = anim.phase === 'attack' ? 'strike' : 'windup';
-                        const handCfg = handConfigs[spriteKey]?.[viewKey]?.[phaseKey]
-                                     ?? handConfigs['DEFAULT']?.[viewKey]?.[phaseKey];
+                        const cfgSrc = handConfigs[spriteKey]?.[viewKey]
+                                    ?? handConfigs['DEFAULT']?.[viewKey];
+                        const windupCfg = cfgSrc?.windup;
+                        const strikeCfg = cfgSrc?.strike;
 
-                        if (handCfg) {
-                            // フリップ時はX座標と角度を反転
-                            let hx = handCfg.x;
-                            let angleRad = handCfg.angle * Math.PI / 180;
-                            if (isFlipped) {
-                                hx = 1 - hx;
-                                angleRad = -angleRad;
+                        if (windupCfg && strikeCfg) {
+                            // スイング補間パラメータ
+                            // t=0.0-0.2: windup（静止）
+                            // t=0.2-0.5: windup→strike へ easeOutCubic で補間
+                            // t=0.5-1.0: strike（静止 → フェードアウト）
+                            let blendT = 0;
+                            if (t >= 0.2 && t < 0.5) {
+                                const raw = (t - 0.2) / 0.3;
+                                blendT = 1 - Math.pow(1 - raw, 3); // easeOutCubic
+                            } else if (t >= 0.5) {
+                                blendT = 1;
                             }
 
+                            // 座標・角度を補間
+                            const hx  = windupCfg.x     + (strikeCfg.x     - windupCfg.x)     * blendT;
+                            const hy  = windupCfg.y     + (strikeCfg.y     - windupCfg.y)     * blendT;
+                            const ang = windupCfg.angle + (strikeCfg.angle - windupCfg.angle) * blendT;
+
+                            // フリップ時はX座標と角度を反転
+                            const finalX   = isFlipped ? (1 - hx) : hx;
+                            const angleRad = (isFlipped ? -ang : ang) * Math.PI / 180;
+
                             // unitSpriteローカル座標に変換（0-1 → planeSize空間）
-                            swordSprite.position.x = (hx - 0.5) * planeSize;
-                            swordSprite.position.y = (0.5 - handCfg.y) * planeSize;
+                            swordSprite.position.x = (finalX - 0.5) * planeSize;
+                            swordSprite.position.y = (0.5 - hy) * planeSize;
                             swordSprite.rotation.z = angleRad;
 
                             // フェードアウト（t=0.5以降）
