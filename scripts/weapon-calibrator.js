@@ -80,13 +80,13 @@ class WeaponCalibrator {
     <option value="PRIEST">PRIEST</option>
   </select>
   <label>View</label>
-  <button id="wc-view-front" class="wc-btn wc-active">front</button>
-  <button id="wc-view-back"  class="wc-btn">back</button>
+  <button id="wc-view-front" style="background:#334;color:#fff;border:1px solid #668;border-radius:4px;padding:2px 10px;cursor:pointer;font:11px monospace">front</button>
+  <button id="wc-view-back"  style="background:#222;color:#aaa;border:1px solid #444;border-radius:4px;padding:2px 10px;cursor:pointer;font:11px monospace">back</button>
 </div>
 
 <div style="display:flex;gap:6px;margin-bottom:8px">
-  <button id="wc-phase-windup" class="wc-btn wc-active">windup</button>
-  <button id="wc-phase-strike" class="wc-btn">strike</button>
+  <button id="wc-phase-windup" style="background:#334;color:#fff;border:1px solid #668;border-radius:4px;padding:2px 10px;cursor:pointer;font:11px monospace">windup</button>
+  <button id="wc-phase-strike" style="background:#222;color:#aaa;border:1px solid #444;border-radius:4px;padding:2px 10px;cursor:pointer;font:11px monospace">strike</button>
 </div>
 
 <canvas id="wc-canvas"
@@ -110,13 +110,7 @@ class WeaponCalibrator {
   JSON をコピー（コンソール出力）
 </button>
 
-<style>
-  .wc-btn {
-    background:#222;color:#aaa;border:1px solid #444;border-radius:4px;
-    padding:2px 10px;cursor:pointer;font:11px monospace;
-  }
-  .wc-btn.wc-active { background:#334;color:#fff;border-color:#668; }
-</style>`;
+`;
 
         document.body.appendChild(this._panel);
 
@@ -145,9 +139,9 @@ class WeaponCalibrator {
     // キーバインド
     // -----------------------------------------------
     _bindKeys() {
-        document.addEventListener('keydown', e => {
-            // Kキー: トグル
-            if ((e.key === 'k' || e.key === 'K') && !e.ctrlKey && !e.metaKey) {
+        window.addEventListener('keydown', e => {
+            // Kキー: トグル（コンソールからは window.toggleCalibrator() でも可）
+            if (e.key === 'k' || e.key === 'K') {
                 this.toggle();
                 return;
             }
@@ -175,8 +169,13 @@ class WeaponCalibrator {
     _refreshTabButtons(idA, idB, aIsActive) {
         const btnA = this._panel.querySelector(`#${idA}`);
         const btnB = this._panel.querySelector(`#${idB}`);
-        btnA.classList.toggle('wc-active', aIsActive);
-        btnB.classList.toggle('wc-active', !aIsActive);
+        const applyStyle = (btn, active) => {
+            btn.style.background   = active ? '#334' : '#222';
+            btn.style.color        = active ? '#fff' : '#aaa';
+            btn.style.borderColor  = active ? '#668' : '#444';
+        };
+        applyStyle(btnA,  aIsActive);
+        applyStyle(btnB, !aIsActive);
     }
 
     // -----------------------------------------------
@@ -396,10 +395,16 @@ class WeaponCalibrator {
 // エントリポイント
 // -----------------------------------------------
 export function initWeaponCalibrator() {
-    // DOMが準備できてから初期化
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => { window._wc = new WeaponCalibrator(); });
-    } else {
+    const create = () => {
         window._wc = new WeaponCalibrator();
+        // コンソールから直接呼べるグローバル関数
+        window.toggleCalibrator = () => window._wc.toggle();
+        console.log('[WeaponCalibrator] 初期化完了 — Kキー or toggleCalibrator() で開閉');
+    };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', create);
+    } else {
+        create();
     }
 }
