@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { HEX_SIZE, TILE_SIZE, TILE_HEIGHT, MAP_W, MAP_H, WARLORDS, getUnitTypeInfo, UNIT_TYPES, WEAPON_TYPES } from './constants.js';
 import { KamonDrawer } from './kamon.js';
-import { ANIMATIONS, DIRECTIONS, SPRITE_SHEET_PATH, SHEET_LAYOUT, getSpriteIndex, SPRITE_PATHS, UNIT_TYPE_TO_SPRITE } from './sprite-config.js';
+import { ANIMATIONS, DIRECTIONS, SPRITE_SHEET_PATH, SHEET_LAYOUT, getSpriteIndex, SPRITE_PATHS, UNIT_TYPE_TO_SPRITE, WEAPON_HAND_CONFIG } from './sprite-config.js';
 
 import TerrainManager from './terrain-manager.js';
 import { BuildingSystem, BUILDING_TEMPLATES } from './building.js';
@@ -1463,87 +1463,55 @@ export class RenderingEngine3D {
                             swordSprite.position.z = 5; // unitSprite(Z=4)より手前
                         }
 
-                        // === 武器アニメーション（unitSpriteの子として配置済み） ===
-                        // unitSpriteのローカル座標系で計算。ビルボード追従は親子関係で自動。
+                        // === 武器アニメーション ===
+                        // 手座標はスプライトの絵に依存するため WEAPON_HAND_CONFIG から取得する。
+                        // キャリブレーター起動中は window._weaponHandConfig を優先参照し
+                        // リアルタイムで反映される。
                         const baseUnitSize = anim.unitSize || window.gameState?.units?.find(u=>u.id===unit.id)?.size || 1;
                         const sizeScale = baseUnitSize === 4 ? 1.8 : baseUnitSize === 2 ? 1.3 : 1.0;
                         const logicalSize = 30 * 0.6 * sizeScale;
-                        const planeSize = logicalSize * 2; // unitSprite plane width/height
+                        const planeSize = logicalSize * 2;
 
-                        // 武器定義を取得
-                        const unitTypeDef = UNIT_TYPES[unit.type?.toUpperCase()];
-                        const weaponKey = unitTypeDef?.weapon;
-                        const weaponDef = weaponKey ? WEAPON_TYPES[weaponKey] : null;
-
-                        // 手の位置（武器定義から、なければデフォルト）
-                        const handX = weaponDef?.hand?.x ?? 0.6;
-                        const handY = weaponDef?.hand?.y ?? 0.55;
-                        const swingDef = weaponDef?.swing ?? { windupDeg: 40, strikeDeg: -80, easing: 'easeOutCubic' };
-
-                        // 方向別の基本角度と手の位置オフセット
-                        // unitSpriteローカル座標: X右正、Y上正
+                        // スプライトキーと表示方向（front/back）
                         const state = this.unitAnimationStates.get(unit.id);
                         const isFlipped = state?.currentFlip || false;
+                        const dirInfo = DIRECTIONS[unit.dir] ?? DIRECTIONS[0];
+                        const viewKey = dirInfo.isBack ? 'back' : 'front';
+                        const typeUpper = unit.type?.toUpperCase() ?? 'INFANTRY';
+                        const spriteKey = UNIT_TYPE_TO_SPRITE[typeUpper] ?? 'DEFAULT';
 
-                        // 手の位置をunitSpriteローカル座標に変換（正規化0-1 → planeSize座標）
-                        let handOffsetX = (handX - 0.5) * planeSize;
-                        let handOffsetY = (0.5 - handY) * planeSize;
-                        if (isFlipped) {
-                            handOffsetX = -handOffsetX;
-                        }
+                        // フェーズ（windup / strike）に対応する手座標を取得
+                        const handConfigs = window._weaponHandConfig ?? WEAPON_HAND_CONFIG;
+                        const phaseKey = anim.phase === 'attack' ? 'strike' : 'windup';
+                        const handCfg = handConfigs[spriteKey]?.[viewKey]?.[phaseKey]
+                                     ?? handConfigs['DEFAULT']?.[viewKey]?.[phaseKey];
 
-                        // 方向別の基本角度（ビルボード面上の2D角度）
-                        const baseAngles = {
-                            0: -Math.PI * 3 / 4,  // 下向き
-                            1:  Math.PI * 3 / 4,   // 左向き
-                            2:  Math.PI / 4,        // 上向き
-                            3: -Math.PI / 4          // 右向き
-                        };
-                        let baseAngle = baseAngles[unit.dir] ?? baseAngles[0];
-                        if (isFlipped) {
-                            baseAngle = -baseAngle;
-                        }
-
-                        // スイングアニメーション計算
-                        const windupRad = (swingDef.windupDeg ?? 40) * Math.PI / 180;
-                        const strikeRad = (swingDef.strikeDeg ?? -80) * Math.PI / 180;
-                        let currentAngle = baseAngle;
-
-                        if (t < 0.2) {
-                            // windup: 構え → 振りかぶり
-                            const windupT = t / 0.2;
-                            currentAngle = baseAngle + windupRad * windupT;
-                        } else if (t < 0.5) {
-                            // strike: 振りかぶり → 振り下ろし
-                            const attackT = (t - 0.2) / 0.3;
-                            let eased = attackT;
-                            if (swingDef.easing === 'easeOutCubic') {
-                                eased = 1 - Math.pow(1 - attackT, 3);
+                        if (handCfg) {
+                            // フリップ時はX座標と角度を反転
+                            let hx = handCfg.x;
+                            let angleRad = handCfg.angle * Math.PI / 180;
+                            if (isFlipped) {
+                                hx = 1 - hx;
+                                angleRad = -angleRad;
                             }
-                            const swingFrom = baseAngle + windupRad;
-                            const swingTo = baseAngle + strikeRad;
-                            currentAngle = swingFrom + (swingTo - swingFrom) * eased;
-                        } else {
-                            // フェードアウト（振り下ろし後の位置で静止）
-                            currentAngle = baseAngle + strikeRad;
-                            const fadeT = (t - 0.5) / 0.5;
-                            swordSprite.material.opacity = 1.0 - fadeT;
+
+                            // unitSpriteローカル座標に変換（0-1 → planeSize空間）
+                            swordSprite.position.x = (hx - 0.5) * planeSize;
+                            swordSprite.position.y = (0.5 - handCfg.y) * planeSize;
+                            swordSprite.rotation.z = angleRad;
+
+                            // フェードアウト（t=0.5以降）
+                            swordSprite.material.opacity = t >= 0.5
+                                ? Math.max(0, 1 - (t - 0.5) / 0.5)
+                                : 1.0;
                         }
 
-                        if (t < 0.5) {
-                            swordSprite.material.opacity = 1.0;
-                        }
-
-                        swordSprite.rotation.z = currentAngle;
-                        swordSprite.position.x = handOffsetX;
-                        swordSprite.position.y = handOffsetY;
-
-                        // 方向によるレイヤー制御（Z軸で前後を切り替え）
-                        if (unit.dir === 2 || unit.dir === 3) {
-                            swordSprite.position.z = -1; // ユニットの奥側
+                        // 方向によるレイヤー制御
+                        if (dirInfo.isBack) {
+                            swordSprite.position.z = -1;
                             swordSprite.renderOrder = 90;
                         } else {
-                            swordSprite.position.z = 1;  // ユニットの手前側
+                            swordSprite.position.z = 1;
                             swordSprite.renderOrder = 110;
                         }
 

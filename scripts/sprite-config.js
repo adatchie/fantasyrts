@@ -146,6 +146,62 @@ export const ARMY_COLORS = {
 };
 
 /**
+ * 武器の手元座標設定（スプライトフレーム内の正規化座標 0-1、左上原点）
+ * キャラクタースプライトに紐づく情報であり、武器スプライトを差し替えても変わらない。
+ *
+ * front: front_right スプライト（dir 0/1）
+ * back:  back_left スプライト（dir 2/3）
+ * windup: 攻撃frame17（構え）
+ * strike: 攻撃frame19（打ち込み）
+ * x, y: フレーム内の手の位置（0-1）
+ * angle: 武器の角度（度、上=0、時計回り正）
+ *
+ * ※ キャリブレーター（Kキー）で視覚的に調整してこの値を上書きする。
+ */
+export const WEAPON_HAND_CONFIG = {
+    DEFAULT: {
+        front: {
+            windup: { x: 0.62, y: 0.42, angle: -130 },
+            strike: { x: 0.70, y: 0.60, angle:   30 },
+        },
+        back: {
+            windup: { x: 0.38, y: 0.42, angle: 130 },
+            strike: { x: 0.30, y: 0.60, angle: -30 },
+        },
+    },
+    ARCHER: {
+        front: {
+            windup: { x: 0.55, y: 0.45, angle: -90 },
+            strike: { x: 0.55, y: 0.45, angle: -90 },
+        },
+        back: {
+            windup: { x: 0.45, y: 0.45, angle: 90 },
+            strike: { x: 0.45, y: 0.45, angle: 90 },
+        },
+    },
+    MAGE: {
+        front: {
+            windup: { x: 0.58, y: 0.44, angle: -110 },
+            strike: { x: 0.62, y: 0.55, angle:   10 },
+        },
+        back: {
+            windup: { x: 0.42, y: 0.44, angle: 110 },
+            strike: { x: 0.38, y: 0.55, angle: -10 },
+        },
+    },
+    PRIEST: {
+        front: {
+            windup: { x: 0.58, y: 0.44, angle: -110 },
+            strike: { x: 0.58, y: 0.44, angle: -110 },
+        },
+        back: {
+            windup: { x: 0.42, y: 0.44, angle: 110 },
+            strike: { x: 0.42, y: 0.44, angle: 110 },
+        },
+    },
+};
+
+/**
  * スプライト情報取得ヘルパー（廃止予定だが互換性のため残す、または用途変更）
  * @param {number} dir - 方向 (0-3)
  * @param {number} baseIndex - front_right基準のインデックス
