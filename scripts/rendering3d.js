@@ -5,9 +5,9 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { HEX_SIZE, TILE_SIZE, TILE_HEIGHT, MAP_W, MAP_H, WARLORDS, getUnitTypeInfo, UNIT_TYPES, WEAPON_TYPES } from './constants.js?v=125';
+import { HEX_SIZE, TILE_SIZE, TILE_HEIGHT, MAP_W, MAP_H, WARLORDS, getUnitTypeInfo, UNIT_TYPES, WEAPON_TYPES } from './constants.js?v=126';
 import { KamonDrawer } from './kamon.js';
-import { ANIMATIONS, DIRECTIONS, SPRITE_SHEET_PATH, SHEET_LAYOUT, getSpriteIndex, SPRITE_PATHS, UNIT_TYPE_TO_SPRITE, WEAPON_HAND_CONFIG } from './sprite-config.js?v=125';
+import { ANIMATIONS, DIRECTIONS, SPRITE_SHEET_PATH, SHEET_LAYOUT, getSpriteIndex, SPRITE_PATHS, UNIT_TYPE_TO_SPRITE, WEAPON_HAND_CONFIG } from './sprite-config.js?v=126';
 
 import TerrainManager from './terrain-manager.js';
 import { BuildingSystem, BUILDING_TEMPLATES } from './building.js';
@@ -1480,24 +1480,42 @@ export class RenderingEngine3D {
                         const typeUpper = unit.type?.toUpperCase() ?? 'INFANTRY';
                         const spriteKey = UNIT_TYPE_TO_SPRITE[typeUpper] ?? 'DEFAULT';
 
-                        // フェーズ（windup / strike）に対応する手座標を取得
+                        // windup / strike 両方の設定を取得してスイング補間する
                         const handConfigs = window._weaponHandConfig ?? WEAPON_HAND_CONFIG;
-                        const phaseKey = anim.phase === 'attack' ? 'strike' : 'windup';
-                        const handCfg = handConfigs[spriteKey]?.[viewKey]?.[phaseKey]
-                                     ?? handConfigs['DEFAULT']?.[viewKey]?.[phaseKey];
+                        const cfgSrc = handConfigs[spriteKey]?.[viewKey]
+                                    ?? handConfigs['DEFAULT']?.[viewKey];
+                        const windupCfg = cfgSrc?.windup;
+                        const strikeCfg = cfgSrc?.strike;
 
-                        if (handCfg) {
-                            // フリップ時はX座標と角度を反転
-                            let hx = handCfg.x;
-                            let angleRad = handCfg.angle * Math.PI / 180;
-                            if (isFlipped) {
-                                hx = 1 - hx;
-                                angleRad = -angleRad;
+                        if (windupCfg && strikeCfg) {
+                            // スイング補間パラメータ
+                            // t=0.0-0.3: windup（静止）
+                            // t=0.3-0.45: windup→strike へ easeOutCubic で補間（高速スイング）
+                            // t=0.45-1.0: strike（静止 → フェードアウト）
+                            let blendT = 0;
+                            if (t >= 0.3 && t < 0.45) {
+                                const raw = (t - 0.3) / 0.15;
+                                blendT = 1 - Math.pow(1 - raw, 3); // easeOutCubic
+                            } else if (t >= 0.45) {
+                                blendT = 1;
                             }
 
+                            // scaleXで奥行き偽装: スイング中盤で武器を細く見せる
+                            const depthScale = 1.0 - 0.25 * Math.sin(blendT * Math.PI);
+                            swordSprite.scale.x = depthScale;
+
+                            // 座標・角度を補間
+                            const hx  = windupCfg.x     + (strikeCfg.x     - windupCfg.x)     * blendT;
+                            const hy  = windupCfg.y     + (strikeCfg.y     - windupCfg.y)     * blendT;
+                            const ang = windupCfg.angle + (strikeCfg.angle - windupCfg.angle) * blendT;
+
+                            // フリップ時はX座標と角度を反転
+                            const finalX   = isFlipped ? (1 - hx) : hx;
+                            const angleRad = (isFlipped ? -ang : ang) * Math.PI / 180;
+
                             // unitSpriteローカル座標に変換（0-1 → planeSize空間）
-                            swordSprite.position.x = (hx - 0.5) * planeSize;
-                            swordSprite.position.y = (0.5 - handCfg.y) * planeSize;
+                            swordSprite.position.x = (finalX - 0.5) * planeSize;
+                            swordSprite.position.y = (0.5 - hy) * planeSize;
                             swordSprite.rotation.z = angleRad;
 
                             // フェードアウト（t=0.5以降）

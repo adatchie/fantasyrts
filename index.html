@@ -517,11 +517,11 @@
     </script>
 
     <script type="module">
-        import { Game } from './scripts/main.js?v=125';
+        import { Game } from './scripts/main.js?v=126';
 
         // キャリブレーターをゲームと同じスクリプトコンテキストで起動
         console.log('[TEST] game script executing');
-        import('./scripts/weapon-calibrator.js?v=4')
+        import('./scripts/weapon-calibrator.js?v=5')
             .then(m => { console.log('[TEST] calibrator loaded'); m.initWeaponCalibrator(); })
             .catch(err => console.error('[WeaponCalibrator] ロード失敗:', err));
 
