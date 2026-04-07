@@ -161,12 +161,12 @@ export const ARMY_COLORS = {
 export const WEAPON_HAND_CONFIG = {
     DEFAULT: {
         front: {
-            windup: { x: 0.62, y: 0.42, angle: -130 },
-            strike: { x: 0.70, y: 0.60, angle:   30 },
+            windup: { x: 0.62, y: 0.42, angle: -50 },
+            strike: { x: 0.70, y: 0.60, angle:  10 },
         },
         back: {
-            windup: { x: 0.38, y: 0.42, angle: 130 },
-            strike: { x: 0.30, y: 0.60, angle: -30 },
+            windup: { x: 0.38, y: 0.42, angle: 50 },
+            strike: { x: 0.30, y: 0.60, angle: -10 },
         },
     },
     ARCHER: {

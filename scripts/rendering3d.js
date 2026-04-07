@@ -5,9 +5,9 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { HEX_SIZE, TILE_SIZE, TILE_HEIGHT, MAP_W, MAP_H, WARLORDS, getUnitTypeInfo, UNIT_TYPES, WEAPON_TYPES } from './constants.js?v=125';
+import { HEX_SIZE, TILE_SIZE, TILE_HEIGHT, MAP_W, MAP_H, WARLORDS, getUnitTypeInfo, UNIT_TYPES, WEAPON_TYPES } from './constants.js?v=126';
 import { KamonDrawer } from './kamon.js';
-import { ANIMATIONS, DIRECTIONS, SPRITE_SHEET_PATH, SHEET_LAYOUT, getSpriteIndex, SPRITE_PATHS, UNIT_TYPE_TO_SPRITE, WEAPON_HAND_CONFIG } from './sprite-config.js?v=125';
+import { ANIMATIONS, DIRECTIONS, SPRITE_SHEET_PATH, SHEET_LAYOUT, getSpriteIndex, SPRITE_PATHS, UNIT_TYPE_TO_SPRITE, WEAPON_HAND_CONFIG } from './sprite-config.js?v=126';
 
 import TerrainManager from './terrain-manager.js';
 import { BuildingSystem, BUILDING_TEMPLATES } from './building.js';
@@ -1489,16 +1489,20 @@ export class RenderingEngine3D {
 
                         if (windupCfg && strikeCfg) {
                             // スイング補間パラメータ
-                            // t=0.0-0.2: windup（静止）
-                            // t=0.2-0.5: windup→strike へ easeOutCubic で補間
-                            // t=0.5-1.0: strike（静止 → フェードアウト）
+                            // t=0.0-0.3: windup（静止）
+                            // t=0.3-0.45: windup→strike へ easeOutCubic で補間（高速スイング）
+                            // t=0.45-1.0: strike（静止 → フェードアウト）
                             let blendT = 0;
-                            if (t >= 0.2 && t < 0.5) {
-                                const raw = (t - 0.2) / 0.3;
+                            if (t >= 0.3 && t < 0.45) {
+                                const raw = (t - 0.3) / 0.15;
                                 blendT = 1 - Math.pow(1 - raw, 3); // easeOutCubic
-                            } else if (t >= 0.5) {
+                            } else if (t >= 0.45) {
                                 blendT = 1;
                             }
+
+                            // scaleXで奥行き偽装: スイング中盤で武器を細く見せる
+                            const depthScale = 1.0 - 0.25 * Math.sin(blendT * Math.PI);
+                            swordSprite.scale.x = depthScale;
 
                             // 座標・角度を補間
                             const hx  = windupCfg.x     + (strikeCfg.x     - windupCfg.x)     * blendT;
