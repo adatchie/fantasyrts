@@ -67,12 +67,8 @@ func _resolve_turn() -> void:
 		await get_tree().create_timer(0.05).timeout  # 微小ウェイト（描画更新余地）
 
 	# 勝利条件チェック
-	var player_hq = units.filter(func(u: Unit):
-		return u.side == player_side and u.unit_type == "HEADQUARTERS" and u.is_alive()
-	)
-	var enemy_hq = units.filter(func(u: Unit):
-		return u.side != player_side and u.unit_type == "HEADQUARTERS" and u.is_alive()
-	)
+	var player_hq = units.filter(func(u: Unit): return u.side == player_side and u.unit_type == "HEADQUARTERS" and u.is_alive())
+	var enemy_hq = units.filter(func(u: Unit): return u.side != player_side and u.unit_type == "HEADQUARTERS" and u.is_alive())
 
 	if player_hq.is_empty():
 		game_ended.emit("ENEMY", "本陣を落とされた")

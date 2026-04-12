@@ -91,10 +91,7 @@ func _evaluate_target(unit: Unit, enemy: Unit, all_units: Array, map_system: Nod
 			score += 30.0
 
 	# 協応攻撃できる味方の数
-	var allies = all_units.filter(func(u: Unit):
-		return u.side == unit.side and u != unit and u.is_alive()
-			and Pathfinding.dist_units(u, enemy) <= u.size + 1
-	)
+	var allies = all_units.filter(func(u: Unit): return u.side == unit.side and u != unit and u.is_alive() and Pathfinding.dist_units(u, enemy) <= u.size + 1)
 	score += allies.size() * 20.0
 
 	# 本陣・大型ユニットは優先
