@@ -15,14 +15,14 @@ import { WARLORDS } from './constants.js?v=126';
 // TUTORIAL_PLAIN_DATA import removed: JSON統一化によりfetch経由で読み込む
 import { AudioEngine } from './audio.js?v=123';
 import { MapSystem } from './map.js?v=123';
-import { RenderingEngine3D } from './rendering3d.js?v=130';
-import { CombatSystem } from './combat.js?v=128';
+import { RenderingEngine3D } from './rendering3d.js?v=131';
+import { CombatSystem } from './combat.js?v=129';
 import { AISystem } from './ai.js?v=124';
-import { UnitManager } from './unit-manager.js?v=123';
+import { UnitManager } from './unit-manager.js?v=125';
 import { hexToPixel } from './pathfinding.js?v=123';
 import { BuildingEditor } from './editor/building-editor.js?v=123';
 import { StageLoader } from './stage-loader.js?v=123';
-import { createSceneManager, SCENES } from './scene-manager.js?v=123';
+import { createSceneManager, SCENES } from './scene-manager.js?v=126';
 import { mapRepository } from './map-repository.js?v=123';
 import { createTurnManager } from './managers/turn-manager.js?v=123';
 import { EventManager } from './managers/dialogue-manager.js?v=124';
@@ -30,7 +30,7 @@ import { EventManager } from './managers/dialogue-manager.js?v=124';
 // Sub-modules
 import { InputController } from './game/input-controller.js?v=123';
 import { UIManager } from './game/ui-manager.js?v=123';
-import { UnitSpawner } from './game/unit-spawner.js?v=123';
+import { UnitSpawner } from './game/unit-spawner.js?v=125';
 import { BuildingPlacementController } from './game/building-placement.js?v=123';
 
 // Main Game Logic

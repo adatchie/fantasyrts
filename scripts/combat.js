@@ -6,9 +6,55 @@
 import { getDist, getDistRaw, getFacingAngle, findPath, getDistAttack } from './pathfinding.js';
 import { TERRAIN_TYPES } from './map.js';
 import { hexToPixel } from './pathfinding.js';
-import { DIALOGUE, UNIT_TYPES, UNIT_TYPE_NORMAL, UNIT_TYPE_HEADQUARTERS, TILE_HEIGHT, COMMANDER_GROWTH_RATES, MAX_LEVEL, STAT_CAP, expToNextLevel } from './constants.js';
+import { DIALOGUE, UNIT_TYPES, UNIT_TYPE_NORMAL, UNIT_TYPE_HEADQUARTERS, TILE_HEIGHT, COMMANDER_GROWTH_RATES, MAX_LEVEL, STAT_CAP, expToNextLevel, getOccupiedGrids } from './constants.js';
 import { getFormationModifiers, checkForcedFormationChange, calculateFormationTargets } from './formation.js';
 import { ATTACK_PATTERNS, rotatePattern } from './attack-patterns.js';
+
+const GAME_DIR_TO_PATTERN_DIR = [1, 2, 3, 0];
+const MELEE_REACH_TYPES = new Set(['melee', 'forward2']);
+
+function getPatternDir(unit) {
+    return GAME_DIR_TO_PATTERN_DIR[unit?.dir ?? 0] ?? 0;
+}
+
+function getSizeShape(unit) {
+    if (unit?.sizeShape) return unit.sizeShape;
+    if (unit?.size === 4) return '2x2';
+    if (unit?.size === 2) return 'vertical';
+    return 'single';
+}
+
+function getAttackOccupiedGrids(unit) {
+    return getOccupiedGrids(unit.x, unit.y, getPatternDir(unit), getSizeShape(unit));
+}
+
+export function isMeleeReachable(unit, target, allUnits = [], rangeType = 'melee', map = null) {
+    if (!unit || !target || !MELEE_REACH_TYPES.has(rangeType)) return false;
+
+    const attackerGrids = getAttackOccupiedGrids(unit);
+    const targetGrids = getAttackOccupiedGrids(target);
+
+    if (rangeType === 'melee') {
+        const attackerSize = unit.size || 1;
+        const targetSize = target.size || 1;
+        const reach = (attackerSize + targetSize) / 2.0 + 0.5;
+
+        return attackerGrids.some(attGrid =>
+            targetGrids.some(targetGrid =>
+                Math.max(Math.abs(attGrid.x - targetGrid.x), Math.abs(attGrid.y - targetGrid.y)) <= reach
+            )
+        );
+    }
+
+    const pattern = ATTACK_PATTERNS[rangeType];
+    if (!pattern) return false;
+
+    const targetKeys = new Set(targetGrids.map(grid => `${grid.x},${grid.y}`));
+    return attackerGrids.some(attGrid => {
+        const rotated = rotatePattern(pattern, getPatternDir(unit));
+        return rotated.some(offset => targetKeys.has(`${attGrid.x + offset.dx},${attGrid.y + offset.dy}`));
+    });
+}
 
 export class CombatSystem {
     constructor(audioEngine, unitManager = null) {
@@ -1043,6 +1089,9 @@ export class CombatSystem {
                 const currentVal = unit[key] ?? 50;
                 if (roll < rate && currentVal < STAT_CAP) {
                     unit[key] = currentVal + 1;
+                    if (unit.baseStats && unit.baseStats[key] !== undefined) {
+                        unit.baseStats[key] = Math.min(STAT_CAP, unit.baseStats[key] + 1);
+                    }
                     if (combatMap[key] && unit[combatMap[key]] !== undefined) {
                         unit[combatMap[key]] = unit[key];
                     }
@@ -1795,5 +1844,3 @@ export class CombatSystem {
         await this.wait(200);
     }
 }
-
-

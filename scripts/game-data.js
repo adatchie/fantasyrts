@@ -10,6 +10,13 @@
 // ============================================
 
 import { getFormationModifiers } from './formation.js';
+import {
+    EQUIPMENT_ITEMS,
+    createEmptyEquipment,
+    createInitialEquipmentInventory,
+    getEquipmentItem,
+    normalizeEquipment
+} from './equipment-data.js';
 
 export class Squadron {
     constructor(id, leaderId) {
@@ -120,11 +127,11 @@ export const STAGE_EVENTS = {
 // 初期所持ユニット（部隊リスト）
 // unitCount: 部隊内のユニット数（コスト管理対象）
 export const PLAYER_UNIT_POOL = [
-    { id: 1, type: 'INFANTRY', name: '歩兵隊', level: 1, exp: 0, unitCount: 10 },
-    { id: 2, type: 'ARCHER', name: '弓兵隊', level: 1, exp: 0, unitCount: 5 },
-    { id: 3, type: 'MAGE', name: '魔導師団', level: 1, exp: 0, unitCount: 3 },
-    { id: 4, type: 'PRIEST', name: '僧侶団', level: 1, exp: 0, unitCount: 2 },
-    { id: 5, type: 'KNIGHT', name: '騎士団', level: 1, exp: 0, unitCount: 2 }
+    { id: 1, type: 'INFANTRY', name: '歩兵隊', level: 1, exp: 0, unitCount: 10, equipment: createEmptyEquipment() },
+    { id: 2, type: 'ARCHER', name: '弓兵隊', level: 1, exp: 0, unitCount: 5, equipment: createEmptyEquipment() },
+    { id: 3, type: 'MAGE', name: '魔導師団', level: 1, exp: 0, unitCount: 3, equipment: createEmptyEquipment() },
+    { id: 4, type: 'PRIEST', name: '僧侶団', level: 1, exp: 0, unitCount: 2, equipment: createEmptyEquipment() },
+    { id: 5, type: 'KNIGHT', name: '騎士団', level: 1, exp: 0, unitCount: 2, equipment: createEmptyEquipment() }
 ];
 
 // ============================================
@@ -135,9 +142,13 @@ export class GameProgress {
     constructor() {
         this.completedStages = [];
         this.unlockedStages = ['tutorial'];
-        this.playerUnits = [...PLAYER_UNIT_POOL]; // 部隊リストをコピー
+        this.playerUnits = PLAYER_UNIT_POOL.map(unit => ({
+            ...unit,
+            equipment: normalizeEquipment(unit.equipment)
+        })); // 部隊リストをコピー
         this.deployedUnits = this.playerUnits.map(u => u.id); // 全員出撃設定
         this.gold = 1000;
+        this.equipmentInventory = createInitialEquipmentInventory();
         this.currentStage = null;
         this.nextUnitId = 10;
     }
@@ -166,7 +177,8 @@ export class GameProgress {
             type: type,
             name: `${type}_${this.nextUnitId}`, // 仮名
             level: 1,
-            exp: 0
+            exp: 0,
+            equipment: createEmptyEquipment()
         };
         this.playerUnits.push(newUnit);
         this.deployUnit(newUnit.id); // 自動で出撃枠に入れる
@@ -241,6 +253,85 @@ export class GameProgress {
         return this.deployedUnits.map(id =>
             this.playerUnits.find(u => u.id === id)
         ).filter(Boolean);
+    }
+
+    /**
+     * 装備品の所持数を取得
+     */
+    getEquipmentQuantity(itemId) {
+        return this.equipmentInventory?.[itemId] || 0;
+    }
+
+    /**
+     * 指定装備品が現在何人に装備されているかを取得
+     */
+    getEquipmentUsedCount(itemId, excludeUnitId = null) {
+        let used = 0;
+        for (const unit of this.playerUnits) {
+            if (excludeUnitId !== null && unit.id === excludeUnitId) continue;
+            const equipment = normalizeEquipment(unit.equipment);
+            for (const equippedItemId of Object.values(equipment)) {
+                if (equippedItemId === itemId) used++;
+            }
+        }
+        return used;
+    }
+
+    /**
+     * 装備可能な残数を取得
+     */
+    getEquipmentAvailableCount(itemId, excludeUnitId = null) {
+        return Math.max(0, this.getEquipmentQuantity(itemId) - this.getEquipmentUsedCount(itemId, excludeUnitId));
+    }
+
+    /**
+     * 所持している装備品を取得
+     */
+    getOwnedEquipmentItems(slot = null) {
+        return EQUIPMENT_ITEMS.filter(item => {
+            if (slot && item.slot !== slot) return false;
+            return this.getEquipmentQuantity(item.id) > 0;
+        });
+    }
+
+    /**
+     * 装備品を購入
+     */
+    buyEquipment(itemId) {
+        const item = getEquipmentItem(itemId);
+        if (!item) return { ok: false, message: '装備品が見つかりません。' };
+        if (this.gold < item.price) return { ok: false, message: 'ゴールドが足りません。' };
+
+        this.gold -= item.price;
+        this.equipmentInventory[item.id] = this.getEquipmentQuantity(item.id) + 1;
+        return { ok: true, item };
+    }
+
+    /**
+     * 指揮官ユニットの装備を変更
+     */
+    equipUnit(unitId, slot, itemId) {
+        const unit = this.getUnit(unitId);
+        if (!unit) return { ok: false, message: 'ユニットが見つかりません。' };
+
+        unit.equipment = normalizeEquipment(unit.equipment);
+
+        if (!itemId) {
+            unit.equipment[slot] = null;
+            return { ok: true };
+        }
+
+        const item = getEquipmentItem(itemId);
+        if (!item || item.slot !== slot) {
+            return { ok: false, message: 'このスロットには装備できません。' };
+        }
+
+        if (this.getEquipmentAvailableCount(itemId, unitId) <= 0 && unit.equipment[slot] !== itemId) {
+            return { ok: false, message: '装備できる在庫がありません。' };
+        }
+
+        unit.equipment[slot] = itemId;
+        return { ok: true, item };
     }
 
     /**
@@ -335,13 +426,14 @@ export class GameProgress {
             if (rosterUnit) {
                 rosterUnit.level = hq.level || rosterUnit.level;
                 rosterUnit.exp = hq.exp || rosterUnit.exp;
-                if (hq.ATK) rosterUnit.ATK = hq.ATK;
-                if (hq.DEF) rosterUnit.DEF = hq.DEF;
-                if (hq.AGI) rosterUnit.AGI = hq.AGI;
-                if (hq.VIT) rosterUnit.VIT = hq.VIT;
-                if (hq.INT) rosterUnit.INT = hq.INT;
-                if (hq.MND) rosterUnit.MND = hq.MND;
-                if (hq.LUK) rosterUnit.LUK = hq.LUK;
+                const baseStats = hq.baseStats || hq;
+                if (baseStats.ATK) rosterUnit.ATK = baseStats.ATK;
+                if (baseStats.DEF) rosterUnit.DEF = baseStats.DEF;
+                if (baseStats.AGI) rosterUnit.AGI = baseStats.AGI;
+                if (baseStats.VIT) rosterUnit.VIT = baseStats.VIT;
+                if (baseStats.INT) rosterUnit.INT = baseStats.INT;
+                if (baseStats.MND) rosterUnit.MND = baseStats.MND;
+                if (baseStats.LUK) rosterUnit.LUK = baseStats.LUK;
             }
         }
     }
@@ -357,7 +449,9 @@ export class GameProgress {
             completedStages: this.completedStages,
             unlockedStages: this.unlockedStages,
             playerUnits: this.playerUnits,
-            gold: this.gold
+            deployedUnits: this.deployedUnits,
+            gold: this.gold,
+            equipmentInventory: this.equipmentInventory
         };
     }
 
@@ -381,8 +475,20 @@ export class GameProgress {
     import(data) {
         if (data.completedStages) this.completedStages = data.completedStages;
         if (data.unlockedStages) this.unlockedStages = data.unlockedStages;
-        if (data.playerUnits) this.playerUnits = data.playerUnits;
+        if (data.playerUnits) {
+            this.playerUnits = data.playerUnits.map(unit => ({
+                ...unit,
+                equipment: normalizeEquipment(unit.equipment)
+            }));
+        }
+        if (data.deployedUnits) this.deployedUnits = data.deployedUnits;
         if (data.gold) this.gold = data.gold;
+        if (data.equipmentInventory) {
+            this.equipmentInventory = {
+                ...createInitialEquipmentInventory(),
+                ...data.equipmentInventory
+            };
+        }
     }
 }
 

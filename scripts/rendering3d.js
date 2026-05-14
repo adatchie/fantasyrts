@@ -16,6 +16,7 @@ import SkyManager from './sky-manager.js';
 import { decompressBlocks } from './map-repository.js';
 import { generatePortrait } from './rendering.js'; // Import generatePortrait
 import { C_EAST, C_WEST, UNIT_TYPE_HEADQUARTERS } from './constants.js'; // Import constants
+import { ITEM_ICON_ATLAS, getEquipmentItem } from './equipment-data.js';
 
 export class RenderingEngine3D {
     constructor(canvas) {
@@ -25,6 +26,7 @@ export class RenderingEngine3D {
         this.unitMeshes = new Map(); // 繝ｦ繝九ャ繝・D -> Mesh
         this.effects = []; // 3D繧ｨ繝輔ぉ繧ｯ繝・
         // attachmentData は廃止済み（WEAPON_TYPESベースに移行）
+        this.itemIconTextureCache = new Map();
 
 
 
@@ -1924,6 +1926,123 @@ export class RenderingEngine3D {
         return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
     }
 
+    resolveUnitWeaponDefinition(unit) {
+        const equippedWeapon = unit.unitType === UNIT_TYPE_HEADQUARTERS
+            ? getEquipmentItem(unit.equipment?.weapon)
+            : null;
+
+        if (equippedWeapon?.slot === 'weapon' && equippedWeapon.weapon) {
+            return {
+                ...equippedWeapon.weapon,
+                itemIcon: equippedWeapon.icon,
+                itemId: equippedWeapon.id
+            };
+        }
+
+        const unitTypeDef = UNIT_TYPES[unit.type?.toUpperCase()];
+        const weaponKey = unitTypeDef?.weapon;
+        return weaponKey ? WEAPON_TYPES[weaponKey] : null;
+    }
+
+    createWeaponTexture(weaponDef) {
+        if (weaponDef.itemIcon) {
+            return this.createItemIconTexture(weaponDef.itemIcon, weaponDef.itemId);
+        }
+
+        const spritePath = `assets/sprites/${weaponDef.sprite}`;
+        const texture = new THREE.TextureLoader().load(spritePath);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        return texture;
+    }
+
+    createItemIconTexture(icon, itemId = '') {
+        const cacheKey = `${itemId}:${icon.col}:${icon.row}`;
+        if (this.itemIconTextureCache.has(cacheKey)) {
+            return this.itemIconTextureCache.get(cacheKey);
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 128;
+        canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.magFilter = THREE.LinearFilter;
+        texture.minFilter = THREE.LinearFilter;
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.premultiplyAlpha = false;
+        this.itemIconTextureCache.set(cacheKey, texture);
+
+        const img = new Image();
+        img.onload = () => {
+            const cellW = img.width / ITEM_ICON_ATLAS.columns;
+            const cellH = img.height / ITEM_ICON_ATLAS.rows;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(
+                img,
+                icon.col * cellW,
+                icon.row * cellH,
+                cellW,
+                cellH,
+                0,
+                0,
+                canvas.width,
+                canvas.height
+            );
+            this.removeConnectedWhiteBackground(ctx, canvas.width, canvas.height);
+            texture.needsUpdate = true;
+        };
+        img.src = ITEM_ICON_ATLAS.path;
+
+        return texture;
+    }
+
+    removeConnectedWhiteBackground(ctx, width, height) {
+        const imageData = ctx.getImageData(0, 0, width, height);
+        const data = imageData.data;
+        const visited = new Uint8Array(width * height);
+        const stack = [];
+
+        const isBackground = (idx) => {
+            const offset = idx * 4;
+            return data[offset + 3] > 0
+                && data[offset] >= 246
+                && data[offset + 1] >= 246
+                && data[offset + 2] >= 246;
+        };
+
+        const pushIfBackground = (x, y) => {
+            if (x < 0 || y < 0 || x >= width || y >= height) return;
+            const idx = y * width + x;
+            if (visited[idx] || !isBackground(idx)) return;
+            visited[idx] = 1;
+            stack.push(idx);
+        };
+
+        for (let x = 0; x < width; x++) {
+            pushIfBackground(x, 0);
+            pushIfBackground(x, height - 1);
+        }
+        for (let y = 0; y < height; y++) {
+            pushIfBackground(0, y);
+            pushIfBackground(width - 1, y);
+        }
+
+        while (stack.length > 0) {
+            const idx = stack.pop();
+            const offset = idx * 4;
+            data[offset + 3] = 0;
+
+            const x = idx % width;
+            const y = Math.floor(idx / width);
+            pushIfBackground(x + 1, y);
+            pushIfBackground(x - 1, y);
+            pushIfBackground(x, y + 1);
+            pushIfBackground(x, y - 1);
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+    }
+
     /**
      * 繝ｦ繝九ャ繝医Γ繝・す繝･繧剃ｽ懈・縺励※霑斐☆・亥句挨繝輔ぃ繧､繝ｫ迚茨ｼ・
      */
@@ -2075,13 +2194,9 @@ export class RenderingEngine3D {
         group.add(hitBox);
 
         // 6. Weapon Sprite（全近接/遠隔ユニット対応、unitSpriteの子として追加）
-        const unitTypeDef = UNIT_TYPES[unit.type?.toUpperCase()];
-        const weaponKey = unitTypeDef?.weapon;
-        const weaponDef = weaponKey ? WEAPON_TYPES[weaponKey] : null;
+        const weaponDef = this.resolveUnitWeaponDefinition(unit);
         if (weaponDef) {
-            const spritePath = `assets/sprites/${weaponDef.sprite}`;
-            const weaponTexture = new THREE.TextureLoader().load(spritePath);
-            weaponTexture.colorSpace = THREE.SRGBColorSpace;
+            const weaponTexture = this.createWeaponTexture(weaponDef);
             const weaponMat = new THREE.MeshBasicMaterial({
                 map: weaponTexture,
                 transparent: true,

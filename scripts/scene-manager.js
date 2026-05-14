@@ -1,23 +1,60 @@
 
-import { STAGES, gameProgress, STAGE_EVENTS } from './game-data.js';
+import { STAGES, gameProgress, STAGE_EVENTS } from './game-data.js?v=126';
 import { getUnitTypeInfo, UNIT_TYPES, SOLDIERS_PER_UNIT, MAP_W, MAP_H } from './constants.js?v=11';
 import { SPRITE_PATHS, UNIT_TYPE_TO_SPRITE } from './sprite-config.js'; // スプライト設定読み込み
 import { mapRepository } from './map-repository.js?v=2'; // マップリポジトリ読み込み
+import {
+    EQUIPMENT_ITEMS,
+    EQUIPMENT_STAT_KEYS,
+    EQUIPMENT_SLOTS,
+    formatEquipmentStats,
+    getEquipmentItem,
+    getEquipmentItemsBySlot,
+    getEquipmentStatBonus,
+    getItemIconStyle,
+    normalizeEquipment
+} from './equipment-data.js';
+import { createInputHandler, setupInputListeners } from './managers/input-handler.js';
+import { createTurnManager } from './managers/turn-manager.js';
+import { validateMapData, validateUnitData, validatePlacements } from './game/validator.js';
 
 function esc(str) {
     const el = document.createElement('span');
     el.textContent = String(str ?? '');
     return el.innerHTML;
 }
-import { createInputHandler, setupInputListeners } from './managers/input-handler.js';
-import { createTurnManager } from './managers/turn-manager.js';
-import { validateMapData, validateUnitData, validatePlacements } from './game/validator.js';
+
+const EQUIPMENT_SLOT_ORDER = ['head', 'body', 'weapon', 'shield'];
+
+function renderEquipmentIcon(item, extraClass = '') {
+    if (!item) {
+        return `<span class="equipment-icon empty ${extraClass}">-</span>`;
+    }
+    return `<span class="equipment-icon ${extraClass}" style="${getItemIconStyle(item)}" title="${esc(item.name)}"></span>`;
+}
+
+function renderEquipmentMiniIcons(unit) {
+    const equipment = normalizeEquipment(unit.equipment);
+    return EQUIPMENT_SLOT_ORDER.map(slotId => {
+        const item = getEquipmentItem(equipment[slotId]);
+        return renderEquipmentIcon(item, 'mini');
+    }).join('');
+}
+
+function renderStatLines(stats = {}) {
+    return formatEquipmentStats(stats)
+        .split(' / ')
+        .map(text => `<span>${esc(text)}</span>`)
+        .join('');
+}
 
 export const SCENES = {
     TITLE: 'TITLE',
     WORLD_MAP: 'WORLD_MAP',
     MAP_SELECT: 'MAP_SELECT',
     ORGANIZATION: 'ORGANIZATION',
+    EQUIPMENT: 'EQUIPMENT',
+    EQUIPMENT_SHOP: 'EQUIPMENT_SHOP',
     DEPLOYMENT: 'DEPLOYMENT',
     BATTLE: 'BATTLE',
     RESULT: 'RESULT',
@@ -41,7 +78,7 @@ class SceneManager {
             const link = document.createElement('link');
             link.id = 'scene-styles';
             link.rel = 'stylesheet';
-            link.href = 'styles/scene-styles.css';
+            link.href = 'styles/scene-styles.css?v=126';
             document.head.appendChild(link);
         }
 
@@ -138,6 +175,12 @@ class SceneManager {
                     break;
                 case SCENES.ORGANIZATION:
                     this.sceneInstance = new OrganizationScene(this);
+                    break;
+                case SCENES.EQUIPMENT:
+                    this.sceneInstance = new EquipmentScene(this, params.unitId);
+                    break;
+                case SCENES.EQUIPMENT_SHOP:
+                    this.sceneInstance = new EquipmentShopScene(this);
                     break;
                 case SCENES.DEPLOYMENT:
                     this.sceneInstance = new DeploymentScene(this);
@@ -456,6 +499,9 @@ class OrganizationScene {
                             <span id="header-cost-val">0 / 300</span>
                         </div>
                         <div class="header-actions">
+                            <button class="btn-sub-action" id="btn-shop">
+                                <i class="fas fa-store"></i> 購入
+                            </button>
                             <button class="btn-sub-action" id="btn-skill" disabled>
                                 <i class="fas fa-book"></i> スキル
                             </button>
@@ -515,8 +561,20 @@ class OrganizationScene {
         });
 
         document.getElementById('btn-skill').addEventListener('click', () => alert('スキル画面へ（未実装）'));
-        document.getElementById('btn-equip').addEventListener('click', () => alert('装備画面へ（未実装）'));
+        document.getElementById('btn-shop').addEventListener('click', () => {
+            this.manager.transition(SCENES.EQUIPMENT_SHOP);
+        });
+        document.getElementById('btn-equip').addEventListener('click', () => {
+            const activeUnit = this.getActiveUnit();
+            if (activeUnit) this.manager.transition(SCENES.EQUIPMENT, { unitId: activeUnit.id });
+        });
 
+    }
+
+    getActiveUnit() {
+        const activeId = this.selectedDeployedUnitId || this.selectedUnitId;
+        if (!activeId) return null;
+        return this.allUnits.find(u => u.id === activeId) || null;
     }
 
     calculateTotalCost() {
@@ -545,8 +603,8 @@ class OrganizationScene {
         const equipBtn = document.getElementById('btn-equip');
 
         // どちらかで選択されていれば活性化（優先は右リスト）
-        const activeId = this.selectedDeployedUnitId || this.selectedUnitId;
-        const isDisabled = !activeId;
+        const activeUnit = this.getActiveUnit();
+        const isDisabled = !activeUnit;
 
         if (skillBtn) skillBtn.disabled = isDisabled;
         if (equipBtn) equipBtn.disabled = isDisabled;
@@ -584,6 +642,7 @@ class OrganizationScene {
                     <div class="card-meta">
                         Lv.${unit.level} / ${unit.unitCount}体
                     </div>
+                    <div class="card-equipment-icons">${renderEquipmentMiniIcons(unit)}</div>
                 </div>
             `;
 
@@ -638,7 +697,8 @@ class OrganizationScene {
                     <div class="d-symbol">${esc(info?.marker || '?')}</div>
                     <div class="d-name">${esc(unit.name)}</div>
                     <div class="d-lv">Lv.${unit.level}</div>
-                    
+                    <div class="d-equipment-icons">${renderEquipmentMiniIcons(unit)}</div>
+
                     <!-- 簡易兵数操作 (hover時等に表示、または常時) -->
                     <div class="d-count-ctrl">
                         <button class="btn-mini dec">-</button>
@@ -709,6 +769,411 @@ class OrganizationScene {
             });
 
             container.appendChild(row);
+        });
+    }
+
+    openEquipmentDialog(unitId, selectedSlot = 'weapon') {
+        const unit = this.allUnits.find(u => u.id === unitId);
+        if (!unit) return;
+
+        const existing = document.getElementById('equipment-modal-overlay');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'equipment-modal-overlay';
+        overlay.className = 'equipment-modal-overlay';
+        this.manager.uiContainer.appendChild(overlay);
+
+        const render = (slotId) => {
+            unit.equipment = normalizeEquipment(unit.equipment);
+            const typeInfo = getUnitTypeInfo(unit.class || unit.type);
+            const bonus = getEquipmentStatBonus(unit.equipment);
+            const currentSlotItem = getEquipmentItem(unit.equipment[slotId]);
+
+            overlay.innerHTML = `
+                <div class="equipment-modal">
+                    <div class="equipment-modal-header">
+                        <div>
+                            <div class="equipment-modal-title">${esc(unit.name)} の装備</div>
+                            <div class="equipment-modal-sub">${esc(typeInfo?.name || unit.class || unit.type)} / Lv.${esc(unit.level || 1)}</div>
+                        </div>
+                        <button class="equipment-close-btn" id="equipment-close-btn">×</button>
+                    </div>
+                    <div class="equipment-modal-body">
+                        <div class="equipment-slot-panel">
+                            ${EQUIPMENT_SLOT_ORDER.map(slot => {
+                                const slotItem = getEquipmentItem(unit.equipment[slot]);
+                                const slotInfo = EQUIPMENT_SLOTS[slot];
+                                return `
+                                    <button class="equipment-slot-btn ${slot === slotId ? 'active' : ''}" data-slot="${slot}">
+                                        ${renderEquipmentIcon(slotItem)}
+                                        <span>${esc(slotInfo.name)}</span>
+                                        <strong>${esc(slotItem?.name || '未装備')}</strong>
+                                    </button>
+                                `;
+                            }).join('')}
+                            <div class="equipment-bonus-box">
+                                <label>装備補正</label>
+                                <div class="equipment-stat-lines">${renderStatLines(bonus)}</div>
+                            </div>
+                        </div>
+                        <div class="equipment-choice-panel">
+                            <div class="equipment-choice-header">
+                                <div>
+                                    <span>${esc(EQUIPMENT_SLOTS[slotId].name)}</span>
+                                    <strong>${esc(currentSlotItem?.name || '未装備')}</strong>
+                                </div>
+                                <button class="btn-secondary compact" id="equipment-clear-btn">外す</button>
+                            </div>
+                            <div class="equipment-choice-list" id="equipment-choice-list"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const choiceList = overlay.querySelector('#equipment-choice-list');
+            const ownedItems = gameProgress.getOwnedEquipmentItems(slotId);
+            if (ownedItems.length === 0) {
+                choiceList.innerHTML = '<div class="equipment-empty">このスロットの装備品をまだ所持していません。</div>';
+            } else {
+                ownedItems.forEach(item => {
+                    const isCurrent = unit.equipment[slotId] === item.id;
+                    const available = gameProgress.getEquipmentAvailableCount(item.id, unit.id);
+                    const canEquip = isCurrent || available > 0;
+                    const card = document.createElement('button');
+                    card.className = `equipment-choice-card ${isCurrent ? 'active' : ''}`;
+                    card.disabled = !canEquip;
+                    card.innerHTML = `
+                        ${renderEquipmentIcon(item)}
+                        <div class="equipment-choice-main">
+                            <div class="equipment-choice-name">${esc(item.name)}</div>
+                            <div class="equipment-choice-desc">${esc(item.description)}</div>
+                            <div class="equipment-choice-stats">${renderStatLines(item.stats)}</div>
+                        </div>
+                        <div class="equipment-choice-stock">
+                            <span>所持 ${gameProgress.getEquipmentQuantity(item.id)}</span>
+                            <span>空き ${available}</span>
+                        </div>
+                    `;
+                    card.addEventListener('click', () => {
+                        const result = gameProgress.equipUnit(unit.id, slotId, item.id);
+                        if (!result.ok) {
+                            alert(result.message);
+                            return;
+                        }
+                        this.renderLists();
+                        this.renderDeployedDetailList();
+                        render(slotId);
+                    });
+                    choiceList.appendChild(card);
+                });
+            }
+
+            overlay.querySelectorAll('.equipment-slot-btn').forEach(btn => {
+                btn.addEventListener('click', () => render(btn.dataset.slot));
+            });
+
+            overlay.querySelector('#equipment-clear-btn')?.addEventListener('click', () => {
+                gameProgress.equipUnit(unit.id, slotId, null);
+                this.renderLists();
+                this.renderDeployedDetailList();
+                render(slotId);
+            });
+
+            overlay.querySelector('#equipment-close-btn')?.addEventListener('click', () => overlay.remove());
+            overlay.addEventListener('click', (event) => {
+                if (event.target === overlay) overlay.remove();
+            });
+        };
+
+        render(selectedSlot);
+    }
+}
+
+class EquipmentShopScene {
+    constructor(manager) {
+        this.manager = manager;
+        this.selectedSlot = 'weapon';
+    }
+
+    createUI() {
+        if (!this.manager.uiContainer) return;
+
+        const shop = document.createElement('div');
+        shop.className = 'scene-ui equipment-shop-screen';
+        shop.innerHTML = `
+            <div class="equipment-shop-shell">
+                <div class="equipment-shop-header">
+                    <div>
+                        <h2>装備品購入</h2>
+                        <p>GOLD <strong id="shop-gold">${gameProgress.gold}</strong></p>
+                    </div>
+                    <button class="btn-secondary" id="btn-back-org-from-shop">編成へ戻る</button>
+                </div>
+                <div class="equipment-shop-tabs">
+                    ${EQUIPMENT_SLOT_ORDER.map(slot => `
+                        <button class="equipment-shop-tab ${slot === this.selectedSlot ? 'active' : ''}" data-slot="${slot}">
+                            ${esc(EQUIPMENT_SLOTS[slot].name)}
+                        </button>
+                    `).join('')}
+                </div>
+                <div class="equipment-shop-grid" id="equipment-shop-grid"></div>
+            </div>
+        `;
+
+        this.manager.uiContainer.appendChild(shop);
+
+        document.getElementById('btn-back-org-from-shop')?.addEventListener('click', () => {
+            this.manager.transition(SCENES.ORGANIZATION);
+        });
+
+        shop.querySelectorAll('.equipment-shop-tab').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.selectedSlot = btn.dataset.slot;
+                shop.querySelectorAll('.equipment-shop-tab').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                this.renderItems();
+            });
+        });
+
+        this.renderItems();
+    }
+
+    renderItems() {
+        const grid = document.getElementById('equipment-shop-grid');
+        const gold = document.getElementById('shop-gold');
+        if (!grid) return;
+
+        if (gold) gold.textContent = gameProgress.gold;
+        grid.innerHTML = '';
+
+        getEquipmentItemsBySlot(this.selectedSlot).forEach(item => {
+            const canBuy = gameProgress.gold >= item.price;
+            const card = document.createElement('div');
+            card.className = 'equipment-shop-card';
+            card.innerHTML = `
+                ${renderEquipmentIcon(item, 'large')}
+                <div class="equipment-shop-info">
+                    <h3>${esc(item.name)}</h3>
+                    <p>${esc(item.description)}</p>
+                    <div class="equipment-shop-stats">${renderStatLines(item.stats)}</div>
+                    <div class="equipment-shop-owned">所持数: ${gameProgress.getEquipmentQuantity(item.id)}</div>
+                </div>
+                <button class="btn-primary equipment-buy-btn" ${canBuy ? '' : 'disabled'} data-item-id="${esc(item.id)}">
+                    ${item.price} G
+                </button>
+            `;
+
+            card.querySelector('.equipment-buy-btn')?.addEventListener('click', () => {
+                const result = gameProgress.buyEquipment(item.id);
+                if (!result.ok) {
+                    alert(result.message);
+                    return;
+                }
+                this.renderItems();
+            });
+
+            grid.appendChild(card);
+        });
+    }
+}
+
+class EquipmentScene {
+    constructor(manager, initialUnitId = null) {
+        this.manager = manager;
+        this.units = gameProgress.getPlayerUnits();
+        this.selectedUnitId = initialUnitId || this.units[0]?.id || null;
+        this.selectedSlot = 'weapon';
+    }
+
+    createUI() {
+        if (!this.manager.uiContainer) return;
+
+        const equipment = document.createElement('div');
+        equipment.className = 'scene-ui equipment-screen';
+        equipment.innerHTML = `
+            <div class="equipment-screen-shell">
+                <div class="equipment-screen-header">
+                    <div>
+                        <h2>装備変更</h2>
+                        <p>GOLD <strong id="equipment-screen-gold">${gameProgress.gold}</strong></p>
+                    </div>
+                    <div class="equipment-screen-actions">
+                        <button class="btn-sub-action" id="btn-equipment-shop">購入</button>
+                        <button class="btn-secondary" id="btn-back-org-from-equipment">編成へ戻る</button>
+                    </div>
+                </div>
+                <div class="equipment-screen-body">
+                    <div class="equipment-roster-panel">
+                        <div class="equipment-panel-title">指揮官</div>
+                        <div class="equipment-roster-list" id="equipment-roster-list"></div>
+                    </div>
+                    <div class="equipment-detail-panel" id="equipment-detail-panel"></div>
+                </div>
+            </div>
+        `;
+
+        this.manager.uiContainer.appendChild(equipment);
+
+        document.getElementById('btn-back-org-from-equipment')?.addEventListener('click', () => {
+            this.manager.transition(SCENES.ORGANIZATION);
+        });
+
+        document.getElementById('btn-equipment-shop')?.addEventListener('click', () => {
+            this.manager.transition(SCENES.EQUIPMENT_SHOP);
+        });
+
+        this.render();
+    }
+
+    getSelectedUnit() {
+        return this.units.find(unit => unit.id === this.selectedUnitId) || this.units[0] || null;
+    }
+
+    render() {
+        this.renderRoster();
+        this.renderDetail();
+    }
+
+    renderRoster() {
+        const list = document.getElementById('equipment-roster-list');
+        if (!list) return;
+
+        list.innerHTML = '';
+        this.units.forEach(unit => {
+            const info = getUnitTypeInfo(unit.class || unit.type);
+            const row = document.createElement('button');
+            row.className = `equipment-roster-item ${unit.id === this.selectedUnitId ? 'active' : ''}`;
+            row.innerHTML = `
+                <div class="equipment-roster-marker">${esc(info?.marker || '?')}</div>
+                <div class="equipment-roster-main">
+                    <strong>${esc(unit.name)}</strong>
+                    <span>${esc(info?.name || unit.class || unit.type)} / Lv.${esc(unit.level || 1)}</span>
+                    <div class="card-equipment-icons">${renderEquipmentMiniIcons(unit)}</div>
+                </div>
+            `;
+            row.addEventListener('click', () => {
+                this.selectedUnitId = unit.id;
+                this.render();
+            });
+            list.appendChild(row);
+        });
+    }
+
+    renderDetail() {
+        const panel = document.getElementById('equipment-detail-panel');
+        const unit = this.getSelectedUnit();
+        if (!panel || !unit) return;
+
+        unit.equipment = normalizeEquipment(unit.equipment);
+        const typeInfo = getUnitTypeInfo(unit.class || unit.type);
+        const bonus = getEquipmentStatBonus(unit.equipment);
+
+        panel.innerHTML = `
+            <div class="equipment-unit-summary">
+                <div>
+                    <h3>${esc(unit.name)}</h3>
+                    <p>${esc(typeInfo?.name || unit.class || unit.type)} / Lv.${esc(unit.level || 1)}</p>
+                </div>
+                <div class="equipment-total-bonus">
+                    <label>装備補正</label>
+                    <div class="equipment-stat-lines">${renderStatLines(bonus)}</div>
+                </div>
+            </div>
+            <div class="equipment-current-layout">
+                <div class="equipment-slot-grid">
+                    ${EQUIPMENT_SLOT_ORDER.map(slot => {
+                        const item = getEquipmentItem(unit.equipment[slot]);
+                        return `
+                            <button class="equipment-slot-btn ${slot === this.selectedSlot ? 'active' : ''}" data-slot="${slot}">
+                                ${renderEquipmentIcon(item)}
+                                <span>${esc(EQUIPMENT_SLOTS[slot].name)}</span>
+                                <strong>${esc(item?.name || '未装備')}</strong>
+                            </button>
+                        `;
+                    }).join('')}
+                </div>
+                <div class="equipment-screen-stats">
+                    ${EQUIPMENT_STAT_KEYS.map(key => {
+                        const base = Number(unit[key] ?? unit[key.toLowerCase()] ?? 0);
+                        const add = bonus[key] || 0;
+                        return `
+                            <div class="equipment-screen-stat">
+                                <span>${key}</span>
+                                <strong>${base + add}</strong>
+                                <em>${add ? `${add > 0 ? '+' : ''}${add}` : '+0'}</em>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+            <div class="equipment-screen-choice">
+                <div class="equipment-choice-header">
+                    <div>
+                        <span>${esc(EQUIPMENT_SLOTS[this.selectedSlot].name)}</span>
+                        <strong>${esc(getEquipmentItem(unit.equipment[this.selectedSlot])?.name || '未装備')}</strong>
+                    </div>
+                    <button class="btn-secondary compact" id="equipment-screen-clear-btn">外す</button>
+                </div>
+                <div class="equipment-choice-list" id="equipment-screen-choice-list"></div>
+            </div>
+        `;
+
+        panel.querySelectorAll('.equipment-slot-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.selectedSlot = btn.dataset.slot;
+                this.renderDetail();
+            });
+        });
+
+        panel.querySelector('#equipment-screen-clear-btn')?.addEventListener('click', () => {
+            gameProgress.equipUnit(unit.id, this.selectedSlot, null);
+            this.render();
+        });
+
+        this.renderChoices(unit);
+    }
+
+    renderChoices(unit) {
+        const list = document.getElementById('equipment-screen-choice-list');
+        if (!list) return;
+
+        const ownedItems = gameProgress.getOwnedEquipmentItems(this.selectedSlot);
+        list.innerHTML = '';
+
+        if (ownedItems.length === 0) {
+            list.innerHTML = '<div class="equipment-empty">このスロットの装備品をまだ所持していません。購入画面で入手できます。</div>';
+            return;
+        }
+
+        ownedItems.forEach(item => {
+            const isCurrent = unit.equipment[this.selectedSlot] === item.id;
+            const available = gameProgress.getEquipmentAvailableCount(item.id, unit.id);
+            const canEquip = isCurrent || available > 0;
+            const card = document.createElement('button');
+            card.className = `equipment-choice-card ${isCurrent ? 'active' : ''}`;
+            card.disabled = !canEquip;
+            card.innerHTML = `
+                ${renderEquipmentIcon(item)}
+                <div class="equipment-choice-main">
+                    <div class="equipment-choice-name">${esc(item.name)}</div>
+                    <div class="equipment-choice-desc">${esc(item.description)}</div>
+                    <div class="equipment-choice-stats">${renderStatLines(item.stats)}</div>
+                </div>
+                <div class="equipment-choice-stock">
+                    <span>所持 ${gameProgress.getEquipmentQuantity(item.id)}</span>
+                    <span>空き ${available}</span>
+                </div>
+            `;
+            card.addEventListener('click', () => {
+                const result = gameProgress.equipUnit(unit.id, this.selectedSlot, item.id);
+                if (!result.ok) {
+                    alert(result.message);
+                    return;
+                }
+                this.render();
+            });
+            list.appendChild(card);
         });
     }
 }

@@ -11,10 +11,23 @@ import { UNIT_TYPE_HEADQUARTERS, UNIT_TYPE_NORMAL, UNIT_TYPES, getUnitTypeInfo }
 
 // 定数インポート
 import { MAP_W, MAP_H } from './constants.js';
-import { Squadron } from './game-data.js';
+import { Squadron } from './game-data.js?v=126';
+import { addStatBonuses, getEquipmentStatBonus, normalizeEquipment } from './equipment-data.js';
 
 // 1ユニットあたりの標準兵力
 export const SOLDIERS_PER_UNIT = 1000;
+
+function resolveBaseStats(source, typeInfo) {
+    return {
+        ATK: source.ATK ?? source.atk ?? typeInfo?.atk ?? 50,
+        DEF: source.DEF ?? source.def ?? typeInfo?.def ?? 50,
+        AGI: source.AGI ?? source.jin ?? 50,
+        VIT: source.VIT ?? 50,
+        INT: source.INT ?? 50,
+        MND: source.MND ?? 50,
+        LUK: source.LUK ?? 50
+    };
+}
 
 /**
  * マルチユニット管理クラス
@@ -77,13 +90,18 @@ export class UnitManager {
         const rawType = warlord.class || warlord.type || warlord.unitType || 'INFANTRY';
         const defaultUnitType = String(rawType).toUpperCase();
         const typeInfo = getUnitTypeInfo(defaultUnitType) || UNIT_TYPES.INFANTRY;
+        const equipment = normalizeEquipment(warlord.equipment);
+        const baseStats = resolveBaseStats(warlord, typeInfo);
+        const commanderEquipmentStats = getEquipmentStatBonus(equipment);
 
         for (let i = 0; i < totalUnits; i++) {
             const isHeadquarters = (i === 0); // 最初のユニット（中央）が本陣
-            
+            const activeEquipmentStats = isHeadquarters ? commanderEquipmentStats : {};
+            const effectiveStats = addStatBonuses(baseStats, activeEquipmentStats);
+
             // 安全策：positionsが足りない場合は本陣の位置を使う
             const pos = positions[i] || hqPosition;
-            
+
             const unit = {
                 id: this.nextUnitId++,
                 warlordId: warlordId,
@@ -98,16 +116,19 @@ export class UnitManager {
                 // 武将の属性を継承
                 name: warlord.name,
                 side: warlord.side,
-                ATK: warlord.ATK,
-                DEF: warlord.DEF,
-                AGI: warlord.AGI,
-                VIT: warlord.VIT ?? 50,
-                INT: warlord.INT ?? 50,
-                MND: warlord.MND ?? 50,
-                LUK: warlord.LUK ?? 50,
-                atk: warlord.ATK, // 互換性
-                def: warlord.DEF, // 互換性
-                jin: warlord.AGI, // 互換性
+                ATK: effectiveStats.ATK,
+                DEF: effectiveStats.DEF,
+                AGI: effectiveStats.AGI,
+                VIT: effectiveStats.VIT,
+                INT: effectiveStats.INT,
+                MND: effectiveStats.MND,
+                LUK: effectiveStats.LUK,
+                atk: effectiveStats.ATK, // 互換性
+                def: effectiveStats.DEF, // 互換性
+                jin: effectiveStats.AGI, // 互換性
+                baseStats: { ...baseStats },
+                equipmentStats: isHeadquarters ? { ...commanderEquipmentStats } : null,
+                equipment: isHeadquarters ? { ...equipment } : null,
                 loyalty: warlord.loyalty,
                 p: warlord.p,
                 kamon: warlord.kamon,
@@ -216,6 +237,11 @@ export class UnitManager {
         // ユニットタイプから基本パラメータを取得
         const unitTypeId = unitData.class || unitData.type || 'INFANTRY';
         const typeInfo = getUnitTypeInfo(unitTypeId) || UNIT_TYPES.INFANTRY;
+        const equipment = normalizeEquipment(unitData.equipment);
+        const baseStats = resolveBaseStats(unitData, typeInfo);
+        const isHeadquartersUnit = (unitData.unitType || UNIT_TYPE_NORMAL) === UNIT_TYPE_HEADQUARTERS;
+        const activeEquipmentStats = isHeadquartersUnit ? getEquipmentStatBonus(equipment) : {};
+        const effectiveStats = addStatBonuses(baseStats, activeEquipmentStats);
 
         const unit = {
             id: this.nextUnitId++,
@@ -228,16 +254,19 @@ export class UnitManager {
             name: unitData.name,
             side: side,
             // ユニットタイプの基本ステータスを適用（unitDataの値で上書き可能）
-            atk: unitData.ATK ?? unitData.atk ?? typeInfo.atk,
-            def: unitData.DEF ?? unitData.def ?? typeInfo.def,
-            jin: unitData.AGI ?? unitData.jin ?? 50,
-            ATK: unitData.ATK ?? unitData.atk ?? typeInfo.atk,
-            DEF: unitData.DEF ?? unitData.def ?? typeInfo.def,
-            AGI: unitData.AGI ?? unitData.jin ?? 50,
-            VIT: unitData.VIT ?? 50,
-            INT: unitData.INT ?? 50,
-            MND: unitData.MND ?? 50,
-            LUK: unitData.LUK ?? 50,
+            atk: effectiveStats.ATK,
+            def: effectiveStats.DEF,
+            jin: effectiveStats.AGI,
+            ATK: effectiveStats.ATK,
+            DEF: effectiveStats.DEF,
+            AGI: effectiveStats.AGI,
+            VIT: effectiveStats.VIT,
+            INT: effectiveStats.INT,
+            MND: effectiveStats.MND,
+            LUK: effectiveStats.LUK,
+            baseStats: { ...baseStats },
+            equipmentStats: isHeadquartersUnit ? { ...activeEquipmentStats } : null,
+            equipment: isHeadquartersUnit ? { ...equipment } : null,
             level: unitData.level ?? 1,
             exp: unitData.exp ?? 0,
             loyalty: unitData.loyalty ?? 100,

@@ -6,10 +6,11 @@
  * カスタムマップ敵・プレイヤーユニット・ステージ敵・フォールバック(WARLORDS)を担当。
  */
 
-import { STAGES, gameProgress } from '../game-data.js';
+import { STAGES, gameProgress } from '../game-data.js?v=126';
 import { WARLORDS, TILE_SIZE, UNIT_TYPES, SOLDIERS_PER_UNIT } from '../constants.js';
 import { BUILDING_TEMPLATES } from '../building.js?v=118';
 import { decompressBlocks } from '../map-repository.js';
+import { normalizeEquipment } from '../equipment-data.js';
 
 export class UnitSpawner {
     /**
@@ -173,7 +174,8 @@ export class UnitSpawner {
                     p: unitData.p || 50,
                     kamon: unitData.kamon || null,
                     bg: unitData.bg || null,
-                    face: unitData.face || null
+                    face: unitData.face || null,
+                    equipment: normalizeEquipment(unitData.equipment)
                 };
 
                 const warlordId = unitData.warlordId || `player_${placementIndex}`;
