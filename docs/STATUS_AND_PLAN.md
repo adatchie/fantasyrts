@@ -11,7 +11,7 @@ Fantasy RTSは「関ヶ原の戦い」をモチーフにしたブラウザベー
 
 - **技術スタック**: HTML + CSS + Pure JavaScript (ES6 Modules) + Three.js
 - **ビルドシステム**: なし（静的ファイルサーブ: `python -m http.server 8000`）
-- **テストフレームワーク**: なし
+- **テストフレームワーク**: node:test（57テスト、3ファイル）
 - **エントリーポイント**: `index.html`
 - **ゲームフロー**: TITLE → MAP_SELECT → ORGANIZATION → DEPLOYMENT → BATTLE → RESULT
 
@@ -107,9 +107,9 @@ Fantasy RTSは「関ヶ原の戦い」をモチーフにしたブラウザベー
 | 槍前方2マス (forward2) | 槍兵,騎兵 | attack-patterns.js | rangedCombat() | ✅ 動作 |
 | 回復 (heal) | 僧侶 | attack-patterns.js | rangedCombat():1479 | ✅ 動作 |
 | 砲撃 (siege) | 砲兵 | attack-patterns.js | rangedCombat() | ✅ 動作 |
-| **範囲魔法 (aoe)** | 魔術師 | constants.js `isAoe: true` | ❌ **スプラッシュダメージ未実装** | 単体攻撃として動作 |
-| **ブレス (breath)** | ドラゴン,竜騎兵 | attack-patterns.js | ❌ **扇状ダメージ未実装** | 単体攻撃として動作 |
-| **騎兵押し出し (canPushBack)** | 騎兵 | constants.js `canPushBack: true` | ❌ **完全未実装** | 能力なし |
+| **範囲魔法 (aoe)** | 魔術師 | constants.js `isAoe: true` | ⚠️ **実装済み・テスト未整備** | 着弾点周囲8マスに50%スプラッシュ (combat.js:1768) |
+| **ブレス (breath)** | ドラゴン,竜騎兵 | attack-patterns.js | ⚠️ **実装済み・テスト未整備** | 扇状範囲に60%ダメージ (combat.js:1807) |
+| **騎兵押し出し (canPushBack)** | 騎兵 | constants.js `canPushBack: true` | ⚠️ **実装済み・テスト未整備** | 攻撃方向に1マス押し出し (combat.js:947) |
 
 #### スプライト実装状況
 
@@ -143,9 +143,11 @@ Fantasy RTSは「関ヶ原の戦い」をモチーフにしたブラウザベー
 
 | 課題 | 影響 | 優先度 |
 |------|------|--------|
-| テストフレームワーク不在 | リグレッションリスク大 | 高 |
+| ~~テストフレームワーク不在~~ | → node:test導入済み（57テスト） | 完了 |
 | rendering3d.js 4,209行の巨大ファイル | 変更・理解が困難 | 中 |
 | rangedCombat()が2つ定義（374行目と1349行目） | 374行目はデッドコード（後の定義が有効） | 中 |
+| **方向体系の不一致** | **getFacingAngle(0:右) と rotatePattern(0:上) がずれ、方向依存攻撃(forward2/siege/breath)が誤方向の可能性** | 高 |
+| TASKS.mdの完了状態が実態と乖離 | 開発判断を誤る原因 | ~~中~~ → 修正済み |
 | TASKS.mdの完了状態が実態と乖離 | 開発判断を誤る原因 | 中 |
 | バックアップファイル混在 (rendering3d.js.backup等) | リポジトリ汚染 | 低 |
 | デバッグ/一時ファイル残留 (_debug_formations.js等) | リポジトリ汚染 | 低 |
@@ -235,4 +237,4 @@ open http://localhost:8000/building-designer.html
 
 ---
 
-*最終更新: 2026-02-14*
+*最終更新: 2026-05-09*

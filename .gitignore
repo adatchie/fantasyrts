@@ -12,5 +12,6 @@ nul
 Gradle/
 claude-mem/
 tmp_*.txt
+tmp_*profile*
 scripts/tmp_git.txt
 tmpclaude-*-cwd

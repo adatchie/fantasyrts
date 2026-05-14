@@ -120,7 +120,7 @@
                     window.opener.postMessage({
                         type: 'DEPLOY_BUILDING',
                         data: data
-                    }, '*');
+                    }, window.location.origin);
                     sent = true;
                 }
 

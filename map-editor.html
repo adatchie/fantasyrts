@@ -604,11 +604,17 @@
         style="display:none; position:fixed; top:0; left:0; width:100%; background:rgba(100,0,0,0.8); color:white; padding:10px; z-index:9999; font-family:monospace; pointer-events:none;">
     </div>
     <script>
+        function escapeHtml(s) {
+            const d = document.createElement('div');
+            d.textContent = String(s ?? '');
+            return d.innerHTML;
+        }
+
         window.onerror = function (msg, url, line, col, error) {
             const div = document.getElementById('error-log');
             if (div) {
                 div.style.display = 'block';
-                div.innerHTML += `<div>Error: ${msg} <br> ${url}:${line}:${col}</div>`;
+                div.innerHTML += `<div>Error: ${escapeHtml(msg)} <br> ${escapeHtml(url)}:${line}:${col}</div>`;
             }
             console.error(msg, error);
             return false;
@@ -617,7 +623,7 @@
             const div = document.getElementById('error-log');
             if (div) {
                 div.style.display = 'block';
-                div.innerHTML += `<div>Promise Error: ${event.reason}</div>`;
+                div.innerHTML += `<div>Promise Error: ${escapeHtml(event.reason)}</div>`;
             }
             console.error(event.reason);
         });
@@ -1154,7 +1160,7 @@
                     });
                 }
                 btn.dataset.building = key;
-                btn.innerHTML = `<span>${name}</span>`;
+                btn.innerHTML = `<span>${escapeHtml(name)}</span>`;
                 btn.addEventListener('click', () => this.selectBuilding(key));
                 container.appendChild(btn);
             }
@@ -1419,8 +1425,9 @@
 
                 // Custom Building Import Message (window.opener)
                 window.addEventListener('message', (event) => {
-                    if (event.data && event.data.type === 'DEPLOY_BUILDING') {
-                        console.log('Received custom building (postMessage):', event.data.data);
+                    if (event.origin !== window.location.origin) return;
+                    if (!event.data || typeof event.data !== 'object') return;
+                    if (event.data.type === 'DEPLOY_BUILDING' && event.data.data) {
                         this.registerCustomBuilding(event.data.data);
                     }
                 });
@@ -1609,8 +1616,8 @@
 
                     el.innerHTML = `
                         <div class="event-info-short">
-                            <strong>${evName}</strong>
-                            <div style="font-size: 11px; color: #aaa;">${ev.type}</div>
+                            <strong>${escapeHtml(evName)}</strong>
+                            <div style="font-size: 11px; color: #aaa;">${escapeHtml(ev.type)}</div>
                         </div>
                         <span class="event-delete-btn" title="削除">×</span>
                     `;
@@ -1830,12 +1837,12 @@
 
                 el.innerHTML = `
                     <div style="flex: 1; display: flex; flex-direction: column; gap: 5px;">
-                        <input type="text" class="input-base dl-speaker" placeholder="話者名" value="${speaker}" style="margin-bottom: 5px;">
-                        <textarea class="input-base dl-text" placeholder="セリフテキスト" rows="2" style="font-size: 13px;">${text}</textarea>
+                        <input type="text" class="input-base dl-speaker" placeholder="話者名" value="${escapeHtml(speaker)}" style="margin-bottom: 5px;">
+                        <textarea class="input-base dl-text" placeholder="セリフテキスト" rows="2" style="font-size: 13px;">${escapeHtml(text)}</textarea>
                     </div>
                     <div style="display: flex; flex-direction: column; align-items: center; gap: 5px; width: 65px;">
                         <div class="dl-portrait" title="顔グラフィックを選択">
-                            <img class="portrait-preview" src="${portraitSrc}" alt="" data-filename="${portrait}" style="display: ${portraitSrc ? 'block' : 'none'};">
+                            <img class="portrait-preview" src="${escapeHtml(portraitSrc)}" alt="" data-filename="${escapeHtml(portrait)}" style="display: ${portraitSrc ? 'block' : 'none'};">
                             <span class="portrait-placeholder" style="display: ${portraitSrc ? 'none' : 'block'};">+</span>
                         </div>
                         <select class="input-base dl-position" title="表示位置" style="padding: 2px; font-size: 11px; width:100%;">
@@ -2156,8 +2163,8 @@
                     el.className = 'unit-list-item ' + (this.currentUnitDefId === def.id ? 'active' : '');
                     el.innerHTML = `
                         <div class="unit-info">
-                            <span class="unit-name">${def.name}</span>
-                            <span class="unit-details">${UNIT_TYPES[def.type].marker} ${UNIT_TYPES[def.type].name} x${def.count} Lv${def.level}</span>
+                            <span class="unit-name">${escapeHtml(def.name)}</span>
+                            <span class="unit-details">${escapeHtml(UNIT_TYPES[def.type]?.marker ?? '')} ${escapeHtml(UNIT_TYPES[def.type]?.name ?? '??')} x${def.count} Lv${def.level}</span>
                         </div>
                         <span class="unit-delete-btn">×</span>
                     `;
@@ -2418,7 +2425,7 @@
                     maps.forEach(m => {
                         const div = document.createElement('div');
                         div.className = 'map-item';
-                        div.innerHTML = `<strong>${m.name}</strong> (ID: ${m.id})<br><small>Size: ${m.terrain?.width}x${m.terrain?.height}</small>`;
+                        div.innerHTML = `<strong>${escapeHtml(m.name)}</strong> (ID: ${escapeHtml(m.id)})<br><small>Size: ${m.terrain?.width}x${m.terrain?.height}</small>`;
                         div.addEventListener('click', () => {
                             this.loadMap(m.id);
                             document.body.removeChild(modal);
@@ -3221,9 +3228,9 @@
                 const maps = mapRepository.list();
 
                 list.innerHTML = maps.map(m => `
-                    <div class="map-item ${m.id === this.currentMapId ? 'active' : ''}" data-id="${m.id}">
-                        <span class="map-name">${m.name}</span>
-                        <span class="map-delete-btn" data-id="${m.id}" title="削除">×</span>
+                    <div class="map-item ${m.id === this.currentMapId ? 'active' : ''}" data-id="${escapeHtml(m.id)}">
+                        <span class="map-name">${escapeHtml(m.name)}</span>
+                        <span class="map-delete-btn" data-id="${escapeHtml(m.id)}" title="削除">×</span>
                     </div>
                 `).join('');
 

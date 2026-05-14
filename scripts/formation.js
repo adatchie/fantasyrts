@@ -89,10 +89,10 @@ export const FORMATION_INFO = {
  */
 export function getFormationModifiers(formation) {
     if (!formation || !FORMATION_INFO[formation]) {
-        return { atk: 0, def: 0 };
+        return { atk: 0, def: 0, ATK: 0, DEF: 0 };
     }
     const info = FORMATION_INFO[formation];
-    return { atk: info.atkMod, def: info.defMod };
+    return { atk: info.atkMod, def: info.defMod, ATK: info.atkMod, DEF: info.defMod };
 }
 
 /**
@@ -117,11 +117,15 @@ function rotateSquare(x, y, rotation) {
  * 座標が有効かつ通行可能かチェック
  */
 function isValidPosition(x, y, mapSystem) {
-    if (x < 0 || x >= MAP_W || y < 0 || y >= MAP_H) return false;
+    if (mapSystem && mapSystem.isValidCoord) {
+        if (!mapSystem.isValidCoord(x, y)) return false;
+    } else if (x < 0 || x >= MAP_W || y < 0 || y >= MAP_H) {
+        return false;
+    }
     if (mapSystem) {
         const tile = mapSystem.getTile(x, y);
-        if (!tile) return false; // マップ範囲外
-        if (TERRAIN_TYPES[tile.type] && !TERRAIN_TYPES[tile.type].passable) return false; // 通行不可地形
+        if (!tile) return false;
+        if (TERRAIN_TYPES[tile.type] && !TERRAIN_TYPES[tile.type].passable) return false;
         if (tile.type === 'MTN') return false; // 念のため明示的チェック
     }
     // マップシステムが無い場合は単純な範囲チェックのみ

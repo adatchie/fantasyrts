@@ -87,6 +87,33 @@ export const STAGES = {
 };
 
 // ============================================
+// ステージ間イベント
+// ============================================
+
+export const STAGE_EVENTS = {
+    'tutorial→castle': {
+        id: 'inter_tutorial_castle',
+        dialogue: [
+            { speaker: 'アルドリック', text: '平原の戦、見事であった。諸君らの働きのおかげだ。', position: 'top' },
+            { speaker: 'ギャレス', text: 'しかし敵は城に籠もる構え。正面突破は被害が大きいかと。', position: 'bottom' },
+            { speaker: 'アルドリック', text: 'だからこそ、速攻が肝要だ。城の守りが固まる前に落とす。', position: 'top' },
+            { speaker: 'ヴァレン', text: '斥候の報告によれば、城の東壁が手薄とのこと。そこを突きましょう。', position: 'bottom' },
+            { speaker: 'アルドリック', text: 'よし、全軍出陣の準備を。次は城攻めだ！', position: 'top' },
+        ]
+    },
+    'castle→mountain': {
+        id: 'inter_castle_mountain',
+        dialogue: [
+            { speaker: 'ギャレス', text: '城を落としたものの、敵本体は山岳地帯へ退却しました。', position: 'bottom' },
+            { speaker: 'アルドリック', text: '追撃をかける。山に入られる前に決着をつけるぞ。', position: 'top' },
+            { speaker: 'ヴァレン', text: '山道は弓兵に有利な地形。伏射には警戒が必要です。', position: 'bottom' },
+            { speaker: 'アルドリック', text: '高地を制圧すれば我らの弓も有利になる。地の利を奪え！', position: 'top' },
+            { speaker: 'ギャレス', text: '了解。部隊を再編成し、直ちに出発します。', position: 'bottom' },
+        ]
+    }
+};
+
+// ============================================
 // プレイヤーユニットプール
 // ============================================
 
@@ -229,6 +256,102 @@ export class GameProgress {
     /**
      * セーブデータとしてエクスポート
      */
+    /**
+     * ステージ順序（正規リスト）
+     */
+    static get STAGE_ORDER() { return ['tutorial', 'castle', 'mountain']; }
+
+    /**
+     * 全ステージ情報を取得（ロック状態含む）
+     */
+    getAllStages() {
+        return GameProgress.STAGE_ORDER.map(id => ({
+            id,
+            ...STAGES[id],
+            completed: this.completedStages.includes(id),
+            unlocked: this.unlockedStages.includes(id)
+        }));
+    }
+
+    /**
+     * 次のステージIDを取得（最後にクリアしたステージの次）
+     */
+    getNextStageId() {
+        const order = GameProgress.STAGE_ORDER;
+        for (let i = order.length - 1; i >= 0; i--) {
+            if (this.completedStages.includes(order[i]) && i < order.length - 1) {
+                return order[i + 1];
+            }
+        }
+        return this.unlockedStages[0] || 'tutorial';
+    }
+
+    /**
+     * ステージ間の遷移キーを取得（イベント表示用）
+     */
+    getStageTransitionKey() {
+        const order = GameProgress.STAGE_ORDER;
+        for (let i = order.length - 1; i >= 0; i--) {
+            if (this.completedStages.includes(order[i]) && i < order.length - 1) {
+                return `${order[i]}→${order[i + 1]}`;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 戦闘前のユニットスナップショットを保存
+     */
+    snapshotPlayerUnits() {
+        this._preBattleSnapshot = this.playerUnits.map(u => ({
+            id: u.id, level: u.level || 1, exp: u.exp || 0,
+            ATK: u.ATK || 50, DEF: u.DEF || 50, AGI: u.AGI || 50,
+            VIT: u.VIT || 50, INT: u.INT || 50, MND: u.MND || 50, LUK: u.LUK || 50
+        }));
+    }
+
+    /**
+     * スナップショットを取得（ResultScene用）
+     */
+    getPreBattleSnapshot() {
+        return this._preBattleSnapshot || [];
+    }
+
+    /**
+     * ステージクリア＋EXP反映（冪等）
+     */
+    completeStageWithExp(stageId, battleUnits) {
+        if (this._resultConsumed) return;
+        this._resultConsumed = true;
+
+        this.completeStage(stageId, { goldEarned: 100 });
+
+        // battleUnits（自軍HQユニット）からroster unitへEXP/Level反映
+        const playerHQs = (battleUnits || []).filter(u =>
+            u.side === this._lastPlayerSide && u.unitType === 'HEADQUARTERS' && !u.dead
+        );
+        for (const hq of playerHQs) {
+            const rosterUnit = this.playerUnits.find(u => u.id === hq.sourceUnitId);
+            if (rosterUnit) {
+                rosterUnit.level = hq.level || rosterUnit.level;
+                rosterUnit.exp = hq.exp || rosterUnit.exp;
+                if (hq.ATK) rosterUnit.ATK = hq.ATK;
+                if (hq.DEF) rosterUnit.DEF = hq.DEF;
+                if (hq.AGI) rosterUnit.AGI = hq.AGI;
+                if (hq.VIT) rosterUnit.VIT = hq.VIT;
+                if (hq.INT) rosterUnit.INT = hq.INT;
+                if (hq.MND) rosterUnit.MND = hq.MND;
+                if (hq.LUK) rosterUnit.LUK = hq.LUK;
+            }
+        }
+    }
+
+    /** プレイヤー側を記憶（completeStageWithExp用） */
+    setPlayerSide(side) {
+        this._lastPlayerSide = side;
+        this._resultConsumed = false;
+    }
+
     export() {
         return {
             completedStages: this.completedStages,

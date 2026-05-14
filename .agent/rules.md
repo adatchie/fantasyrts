@@ -1,60 +1,51 @@
 # プロジェクトルール
 
-## ブラウザ操作制限
+1. Think Before Coding
+Don't assume. Don't hide confusion. Surface tradeoffs.
 
-> [!CAUTION]
-> **Antigravityの自律的デバッグ処理（browser_subagent）は現状遅くて使い物にならないため、無断使用を固く禁ずる。**
-> **ユーザーから明示的に許可されたとき以外、原則としてbrowser_subagentの起動は一切禁止する。**
-> **会話の開始時にこのルールを必ず参照すること。**
+Before implementing:
 
-- ユーザーの明示的な指示（「ブラウザで確認して」等）がない限り、**絶対に** browser_subagent ツールを呼び出してはならない。
-- 独断で「ブラウザで確認します」と提案したり、実行に移したりすることは禁止。
-- 「動作確認のため」等の理由で暗黙的にbrowser_subagentを起動する行為は **重大なルール違反** とみなす。
-- この件について二度と口にするな。ユーザーの許可なくブラウザ操作を行おうとすることは重大なルール違反とする。
+State your assumptions explicitly. If uncertain, ask.
+If multiple interpretations exist, present them - don't pick silently.
+If a simpler approach exists, say so. Push back when warranted.
+If something is unclear, stop. Name what's confusing. Ask.
 
-## デバッグに関するルール
+2. Simplicity First
+Minimum code that solves the problem. Nothing speculative.
 
-> [!CAUTION]
-> **Antigravityのデバッグ機能は実用段階にない。**
-> 現状では、むしろユーザーの時間を無駄に拘束し、開発を停滞させるだけである。
-> **絶対に勝手に使うな。**
+No features beyond what was asked.
+No abstractions for single-use code.
+No "flexibility" or "configurability" that wasn't requested.
+No error handling for impossible scenarios.
+If you write 200 lines and it could be 50, rewrite it.
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
 
-**重要**: デバッグは基本禁止。以下のルールを必ず遵守すること。
+3. Surgical Changes
+Touch only what you must. Clean up only your own mess.
 
-### 1. デバッグが必要な場合の手順
+When editing existing code:
 
-- デバッグがどうしても問題の解決に必要なときは、**その根拠を含めて日本語で説明すること**
-- 実装計画（implementation_plan.md）の中にデバッグを紛れ込ませて通すことは **絶対禁止**
-- 必ず **チャット内で明示的に許可を得ること**
+Don't "improve" adjacent code, comments, or formatting.
+Don't refactor things that aren't broken.
+Match existing style, even if you'd do it differently.
+If you notice unrelated dead code, mention it - don't delete it.
+When your changes create orphans:
 
-### 2. 許可を得た後の実行
+Remove imports/variables/functions that YOUR changes made unused.
+Don't remove pre-existing dead code unless asked.
+The test: Every changed line should trace directly to the user's request.
 
-- デバッグは **可能な限り迅速に** 行うこと
-- 途中経過で Confirm や Permission を得る必要は **一切ない**
-- **最後まで通して行うこと** — 中断して確認を求めてはならない
+4. Goal-Driven Execution
+Define success criteria. Loop until verified.
 
-## 破壊的操作の禁止
+Transform tasks into verifiable goals:
 
-> [!CAUTION]
-> **以下の操作は、ユーザーの未コミット作業を永久に失わせる可能性がある。**
-> **絶対に確認なしで実行してはならない。**
+"Add validation" → "Write tests for invalid inputs, then make them pass"
+"Fix the bug" → "Write a test that reproduces it, then make it pass"
+"Refactor X" → "Ensure tests pass before and after"
+For multi-step tasks, state a brief plan:
 
-### 禁止される操作（事前確認必須）
-
-1. **git checkout / git restore** — ファイルを過去の状態に戻す操作
-2. **git reset** — コミット履歴やステージングを巻き戻す操作
-3. **git clean** — 未追跡ファイルの削除
-4. **ファイル全体の上書き** — 既存ファイルを完全に別の内容で置換する操作
-5. **一括置換** — 正規表現等による広範囲の自動置換
-
-### 必須手順
-
-- 上記操作が必要な場合は、**必ず事前にユーザーに確認を取ること**
-- 確認時には **操作の影響範囲** と **失われる可能性のある変更** を明示すること
-- ユーザーが「元に戻せ」と言った場合でも、**どの範囲を戻すか** を確認すること
-- 「すべて戻す」という指示がない限り、最小限の復元に留めること
-
-### 違反した場合
-
-- ユーザーの作業が失われた場合、それは **重大な敵対行為** とみなされる
-- 弁解の余地はない
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.

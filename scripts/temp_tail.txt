@@ -1,5 +1,0 @@
-    loadFromStorage() {
-        return this.loadFromRegistry();
-    }
-}
-alert(`保存データの読み込みに失敗しました (JSON Parse Error)\nデータが破損している可能性があります。\nSize: ${sizeKB}KB\nError: ${e.message}`);

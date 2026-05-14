@@ -1525,12 +1525,13 @@ export class RenderingEngine3D {
                         }
 
                         // 方向によるレイヤー制御
+                        // weapon は常に unitSprite(renderOrder=100) より後に描画する
                         if (dirInfo.isBack) {
                             swordSprite.position.z = -1;
-                            swordSprite.renderOrder = 90;
+                            swordSprite.renderOrder = 120;
                         } else {
                             swordSprite.position.z = 1;
-                            swordSprite.renderOrder = 110;
+                            swordSprite.renderOrder = 120;
                         }
 
                     } else {
@@ -2849,6 +2850,10 @@ export class RenderingEngine3D {
             this.triggerUnitFlash(arg1);
         } else if (type === 'MAGIC_CAST') {
             this.createMagicCast(arg1);
+        } else if (type === 'SLASH') {
+            this.createSlash(arg1, arg2);
+        } else if (type === 'THUNDER_STRIKE') {
+            this.createThunderStrike(arg1, arg2);
         } else if (type === 'BREATH') {
             this.createBreath(arg1, arg2);
         }
@@ -2888,6 +2893,120 @@ export class RenderingEngine3D {
             life: 40,
             maxLife: 40,
             scale: 0.1
+        });
+    }
+
+    createSlash(att, def) {
+        // 近接スラッシュエフェクト（スプライトシート）
+        const cols = 5, rows = 4, totalFrames = 20;
+        const frameStart = 15, frameCount = 5;
+
+        // テクスチャキャッシュ
+        if (!this._slashTexture) {
+            const loader = new THREE.TextureLoader();
+            this._slashTexture = loader.load('sprites/effect/normalized/effect_slash_sheet.png');
+            this._slashTexture.colorSpace = THREE.SRGBColorSpace;
+            this._slashTexture.repeat.set(1 / cols, 1 / rows);
+        }
+        const texture = this._slashTexture.clone();
+        texture.needsUpdate = true;
+        texture.repeat.set(1 / cols, 1 / rows);
+
+        // 初期フレームのUVオフセット
+        const initCol = frameStart % cols;
+        const initRow = Math.floor(frameStart / cols);
+        texture.offset.set(initCol / cols, 1 - (initRow + 1) / rows);
+
+        const planeW = 108, planeH = 72;
+        const geo = new THREE.PlaneGeometry(planeW, planeH);
+        const mat = new THREE.MeshBasicMaterial({
+            map: texture,
+            transparent: true,
+            opacity: 0.85,
+            side: THREE.DoubleSide,
+            depthTest: false,
+            depthWrite: false,
+            blending: THREE.NormalBlending
+        });
+
+        const mesh = new THREE.Mesh(geo, mat);
+
+        // 位置: 攻撃対象寄りの中間点
+        const attPos = this.gridToWorld3D(att.x, att.y);
+        const defPos = this.gridToWorld3D(def.x, def.y);
+        const mid = new THREE.Vector3().lerpVectors(attPos, defPos, 0.65);
+        const h = this.getGroundHeight(def.x, def.y);
+        mid.y = h + 20;
+        mesh.position.copy(mid);
+
+        // カメラ向き（ビルボード）
+        mesh.lookAt(this.camera.position);
+
+        // 攻撃方向が上方向（dir 2=左上, dir 3=右上）の場合、上下反転
+        if (att.dir === 2 || att.dir === 3) {
+            mesh.scale.y = -1;
+        }
+
+        mesh.renderOrder = 1200;
+        mesh.frustumCulled = false;
+
+        this.scene.add(mesh);
+
+        this.effects.push({
+            mesh,
+            type: 'SLASH',
+            life: 15,
+            maxLife: 15,
+            cols,
+            rows,
+            frameStart,
+            frameCount
+        });
+    }
+
+    createThunderStrike(x, y) {
+        // 落雷エフェクト（スプライトシート）
+        const cols = 5, rows = 6, totalFrames = 30;
+
+        if (!this._thunderTexture) {
+            const loader = new THREE.TextureLoader();
+            this._thunderTexture = loader.load('sprites/effect/normalized/effect_thunder_sheet.png');
+            this._thunderTexture.colorSpace = THREE.SRGBColorSpace;
+        }
+        const texture = this._thunderTexture.clone();
+        texture.needsUpdate = true;
+        texture.repeat.set(1 / cols, 1 / rows);
+        texture.offset.set(0, 1 - 1 / rows);
+
+        const geo = new THREE.PlaneGeometry(84, 172);
+        const mat = new THREE.MeshBasicMaterial({
+            map: texture,
+            transparent: true,
+            opacity: 0.9,
+            side: THREE.DoubleSide,
+            depthTest: false,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending
+        });
+
+        const mesh = new THREE.Mesh(geo, mat);
+        const pos = this.gridToWorld3D(x, y);
+        const h = this.getGroundHeight(x, y);
+        pos.y = h + 86; // スプライトの半分の高さで接地
+        mesh.position.copy(pos);
+        mesh.lookAt(this.camera.position);
+        mesh.renderOrder = 1300;
+        mesh.frustumCulled = false;
+        this.scene.add(mesh);
+
+        this.effects.push({
+            mesh,
+            type: 'THUNDER_STRIKE',
+            life: 38,
+            maxLife: 38,
+            cols,
+            rows,
+            frameCount: totalFrames
         });
     }
 
@@ -3324,10 +3443,39 @@ export class RenderingEngine3D {
                 effect.mesh.geometry.attributes.position.needsUpdate = true;
                 effect.mesh.material.opacity = effect.life / effect.maxLife;
             } else if (effect.type === 'HEX_FLASH') {
-                // 轤ｹ貊・＠縺ｪ縺後ｉ豸医∴繧・
                 const progress = effect.life / effect.maxLife;
-                const flash = (Math.sin(progress * Math.PI * 4) + 1) / 2; // 2蝗樒せ貊・
+                const flash = (Math.sin(progress * Math.PI * 4) + 1) / 2;
                 effect.mesh.material.opacity = flash * 0.8;
+            } else if (effect.type === 'MAGIC_CAST') {
+                const progress = 1 - (effect.life / effect.maxLife);
+                // 0→0.3: フェードイン＋拡大, 0.3→1.0: フェードアウト＋回転
+                const fadeIn = Math.min(1, progress / 0.3);
+                const fadeOut = progress > 0.3 ? Math.max(0, 1 - (progress - 0.3) / 0.7) : 1;
+                effect.mesh.material.opacity = fadeIn * fadeOut * 0.8;
+                effect.mesh.scale.setScalar(0.1 + progress * 1.5);
+                effect.mesh.rotation.z += 0.05;
+            } else if (effect.type === 'SLASH') {
+                const progress = 1 - (effect.life / effect.maxLife);
+                const { cols, rows, frameStart, frameCount } = effect;
+                const frameIdx = Math.min(frameCount - 1, Math.floor(progress * frameCount));
+                const globalFrame = frameStart + frameIdx;
+                const col = globalFrame % cols;
+                const row = Math.floor(globalFrame / cols);
+                effect.mesh.material.map.offset.set(col / cols, 1 - (row + 1) / rows);
+                // 後半でフェードアウト
+                if (progress > 0.6) {
+                    effect.mesh.material.opacity = Math.max(0, 1 - (progress - 0.6) / 0.4) * 0.85;
+                }
+            } else if (effect.type === 'THUNDER_STRIKE') {
+                const progress = 1 - (effect.life / effect.maxLife);
+                const { cols, rows, frameCount } = effect;
+                const frameIdx = Math.min(frameCount - 1, Math.floor(progress * frameCount));
+                const col = frameIdx % cols;
+                const row = Math.floor(frameIdx / cols);
+                effect.mesh.material.map.offset.set(col / cols, 1 - (row + 1) / rows);
+                if (progress > 0.7) {
+                    effect.mesh.material.opacity = Math.max(0, 1 - (progress - 0.7) / 0.3) * 0.9;
+                }
             }
 
             if (effect.life <= 0) {

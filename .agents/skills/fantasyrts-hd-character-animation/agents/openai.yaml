@@ -1,0 +1,7 @@
+interface:
+  display_name: "FantasyRTS HD Character Animation"
+  short_description: "HD 2D sprite workflow for FantasyRTS."
+  default_prompt: "Use $fantasyrts-hd-character-animation to create or adapt an HD 2D character animation atlas for FantasyRTS."
+
+policy:
+  allow_implicit_invocation: true

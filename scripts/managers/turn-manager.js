@@ -269,12 +269,17 @@ export class TurnManager {
             });
         }
 
-        // 3. グループを統合し、兵士数でソート（少ない順）
+        // 3. グループを統合し、AGI順でソート（高いAGIが先に行動、同値なら兵士数少ない順）
         const queue = [];
         for (const groupUnits of warlordGroups.values()) {
             queue.push(...groupUnits);
         }
-        queue.sort((a, b) => a.soldiers - b.soldiers);
+        queue.sort((a, b) => {
+            const agiA = a.AGI || a.jin || 50;
+            const agiB = b.AGI || b.jin || 50;
+            if (agiB !== agiA) return agiB - agiA;
+            return a.soldiers - b.soldiers;
+        });
 
         return queue;
     }

@@ -5,6 +5,7 @@
 
 import { TILE_SIZE, MAP_W, MAP_H } from './constants.js';
 import { TERRAIN_TYPES } from './map.js';
+import { isWithinMap } from './map-dimensions.js';
 
 // 旧API互換性のためのエイリアス
 export const HEX_SIZE = TILE_SIZE;
@@ -51,12 +52,14 @@ export function cubeRound(c) {
 /**
  * 座標が有効篁E��冁E��チェチE��
  */
-export function isValidCoord(coord) {
+export function isValidCoord(coord, mapSource) {
+    if (mapSource) return isWithinMap(coord.x, coord.y, mapSource);
     return coord.x >= 0 && coord.x < MAP_W && coord.y >= 0 && coord.y < MAP_H;
 }
 
 // 旧API互換
-export function isValidHex(h) {
+export function isValidHex(h, mapSource) {
+    if (mapSource) return isWithinMap(h.q, h.r, mapSource);
     return h.q >= 0 && h.q < MAP_W && h.r >= 0 && h.r < MAP_H;
 }
 
@@ -390,9 +393,9 @@ export function findPath(startX, startY, goalX, goalY, units, movingUnit, mapSys
 
         // fScoreが最小�Eノ�Eドを線形探索で取得（ソートより高速！E
         let minIndex = 0;
-        let minFScore = fScore.get(key(openSet[0].x, openSet[0].y)) || Infinity;
+        let minFScore = fScore.get(key(openSet[0].x, openSet[0].y)) ?? Infinity;
         for (let i = 1; i < openSet.length; i++) {
-            const currentFScore = fScore.get(key(openSet[i].x, openSet[i].y)) || Infinity;
+            const currentFScore = fScore.get(key(openSet[i].x, openSet[i].y)) ?? Infinity;
             if (currentFScore < minFScore) {
                 minFScore = currentFScore;
                 minIndex = i;
@@ -460,9 +463,9 @@ export function findPath(startX, startY, goalX, goalY, units, movingUnit, mapSys
             // 山岳などでコストが極端に高い場合�EスキチE�E
             if (moveCost >= 999) continue;
 
-            const tentativeGScore = (gScore.get(currentKey) || Infinity) + moveCost;
+            const tentativeGScore = (gScore.get(currentKey) ?? Infinity) + moveCost;
 
-            if (tentativeGScore < (gScore.get(neighborKey) || Infinity)) {
+            if (tentativeGScore < (gScore.get(neighborKey) ?? Infinity)) {
                 cameFrom.set(neighborKey, current);
                 gScore.set(neighborKey, tentativeGScore);
                 fScore.set(neighborKey, tentativeGScore + getDistRaw(neighbor.x, neighbor.y, goalX, goalY));

@@ -74,7 +74,7 @@ export class AISystem {
         // ============ 本陣保護ロジック終わり ============
 
         // 調略の可能性を検討（仁が高い場合）
-        if (unit.jin >= 75) {
+        if ((unit.AGI || unit.jin) >= 75) {
             const plotTarget = this.considerPlot(unit, enemies, allUnits, mapSystem);
             if (plotTarget) {
                 return { type: 'PLOT', targetId: plotTarget.id };
@@ -118,7 +118,7 @@ export class AISystem {
         let bestCandidate = null;
 
         for (const enemy of plotCandidates) {
-            const successChance = 30 + (unit.jin - enemy.loyalty) + tideMod;
+            const successChance = 30 + ((unit.AGI || unit.jin) - enemy.loyalty) + tideMod;
 
             // 成功率が30%以上なら検討
             if (successChance >= 30) {
@@ -141,9 +141,35 @@ export class AISystem {
         let bestTarget = null;
 
         // ユニットタイプを判定
-        const unitType = unit.type || 'INFANTRY';
+        const unitType = unit.class || unit.type || 'INFANTRY';
         const typeInfo = UNIT_TYPES[unitType] || UNIT_TYPES.INFANTRY;
         const rangeType = typeInfo.rangeType || 'melee';
+
+        // ヒールユニットは味方の負傷者を優先ターゲット
+        if (rangeType === 'heal') {
+            const allies = allUnits.filter(u => u.side === unit.side && !u.dead && u !== unit);
+            let bestHealTarget = null;
+            let bestHealScore = -Infinity;
+            for (const ally of allies) {
+                const missingHp = (ally.maxSoldiers || ally.soldiers) - ally.soldiers;
+                if (missingHp <= 0) continue;
+                const dist = getDist(unit, ally);
+                if (dist > 5) continue;
+                const score = missingHp * 2 - dist * 10;
+                if (score > bestHealScore) {
+                    bestHealScore = score;
+                    bestHealTarget = ally;
+                }
+            }
+            if (bestHealTarget) return bestHealTarget;
+
+            // 回復対象なし → 隣接する敵がいれば近接攻撃フォールバック
+            const adjacentEnemy = enemies.find(e => getDist(unit, e) <= 1);
+            if (adjacentEnemy) return adjacentEnemy;
+
+            // 味方も隣接敵もいなければ待機
+            return null;
+        }
 
         // 遠距離攻撃ユニットの射程
         const isRanged = ['bowArc', 'longArc', 'siege', 'aoe', 'breath', 'heal'].includes(rangeType);

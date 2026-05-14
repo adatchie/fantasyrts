@@ -1,4 +1,9 @@
 {
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "ci": "npm test"
+  },
   "dependencies": {
     "canvas": "^3.2.1"
   }

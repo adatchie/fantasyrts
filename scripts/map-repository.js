@@ -469,6 +469,23 @@ export class MapDataRepository {
             if (!data.id) {
                 data.id = this.generateId();
             }
+
+            // 寸法境界チェック
+            if (data.terrain) {
+                const w = data.terrain.width || 0;
+                const h = data.terrain.height || 0;
+                if (w > 200 || h > 200 || w * h > 100000) {
+                    console.error('[MapDataRepository] Import rejected: map too large', w, 'x', h);
+                    return null;
+                }
+                if (Array.isArray(data.terrain.heightMap) && data.terrain.heightMap.length !== h) {
+                    console.warn('[MapDataRepository] Imported heightMap rows mismatch:', data.terrain.heightMap.length, 'vs', h);
+                }
+                if (Array.isArray(data.terrain.terrainType) && data.terrain.terrainType.length !== h) {
+                    console.warn('[MapDataRepository] Imported terrainType rows mismatch:', data.terrain.terrainType.length, 'vs', h);
+                }
+            }
+
             data.createdAt = new Date(data.createdAt);
             data.updatedAt = new Date(); // インポート時を更新とする
 

@@ -175,6 +175,7 @@ export const UNIT_TYPES = {
         size: 4,
         sizeShape: '2x2',
         rangeType: 'breath',
+        breathEffectId: 'breath_attack',
         atk: 90,
         def: 80,
         baseHp: 3000,
@@ -189,6 +190,7 @@ export const UNIT_TYPES = {
         size: 4,
         sizeShape: '2x2',
         rangeType: 'breath',
+        breathEffectId: 'flame_stream_attack',
         atk: 85,
         def: 75,
         baseHp: 2500,
@@ -279,6 +281,58 @@ export function getUnitTypeInfo(typeId) {
     return UNIT_TYPES[typeId] || null;
 }
 
+// ========================================
+// 部隊長（Commander）システム
+// ========================================
+
+/**
+ * 職業別ベースパラメータ
+ * 部隊長のクラス（職業）ごとの基本ステータス
+ */
+export const COMMANDER_CLASS_BASE = {
+    INFANTRY:     { ATK: 50, DEF: 50, AGI: 50, VIT: 50, INT: 20, MND: 20, LUK: 30 },
+    KNIGHT:       { ATK: 40, DEF: 80, AGI: 30, VIT: 70, INT: 15, MND: 25, LUK: 20 },
+    ARCHER:       { ATK: 45, DEF: 30, AGI: 60, VIT: 35, INT: 25, MND: 15, LUK: 40 },
+    SPEAR:        { ATK: 50, DEF: 50, AGI: 45, VIT: 50, INT: 20, MND: 20, LUK: 30 },
+    GUNNER:       { ATK: 70, DEF: 25, AGI: 25, VIT: 30, INT: 30, MND: 10, LUK: 20 },
+    MAGE:         { ATK: 30, DEF: 15, AGI: 25, VIT: 25, INT: 90, MND: 50, LUK: 30 },
+    PRIEST:       { ATK:  0, DEF: 40, AGI: 25, VIT: 40, INT: 30, MND: 90, LUK: 40 },
+    CAVALRY:      { ATK: 70, DEF: 60, AGI: 70, VIT: 55, INT: 15, MND: 15, LUK: 30 },
+    DRAGON:       { ATK: 90, DEF: 80, AGI: 60, VIT: 90, INT: 70, MND: 30, LUK: 25 },
+    DRAGON_RIDER: { ATK: 85, DEF: 70, AGI: 65, VIT: 75, INT: 50, MND: 30, LUK: 35 },
+    ARTILLERY:    { ATK:100, DEF: 20, AGI: 15, VIT: 35, INT: 25, MND: 10, LUK: 15 }
+};
+
+/**
+ * LvUP時の成長率（Fire Emblem風確率成長）
+ * 各値は1LvUPあたりの期待上昇値（%確率で+1、小数は追加確率）
+ */
+export const COMMANDER_GROWTH_RATES = {
+    INFANTRY:     { ATK: 3.0, DEF: 3.0, AGI: 2.0, VIT: 2.5, INT: 1.0, MND: 1.0, LUK: 1.0 },
+    KNIGHT:       { ATK: 2.0, DEF: 4.0, AGI: 1.5, VIT: 3.5, INT: 0.5, MND: 1.0, LUK: 0.5 },
+    ARCHER:       { ATK: 2.5, DEF: 1.5, AGI: 3.0, VIT: 2.0, INT: 1.5, MND: 0.5, LUK: 2.0 },
+    SPEAR:        { ATK: 3.0, DEF: 2.5, AGI: 2.0, VIT: 2.5, INT: 1.0, MND: 1.0, LUK: 1.5 },
+    GUNNER:       { ATK: 3.5, DEF: 1.0, AGI: 1.5, VIT: 1.5, INT: 2.0, MND: 0.5, LUK: 1.0 },
+    MAGE:         { ATK: 1.0, DEF: 1.0, AGI: 1.5, VIT: 1.5, INT: 4.5, MND: 2.5, LUK: 1.0 },
+    PRIEST:       { ATK: 0.5, DEF: 2.0, AGI: 1.5, VIT: 2.0, INT: 2.0, MND: 4.5, LUK: 1.5 },
+    CAVALRY:      { ATK: 3.5, DEF: 3.0, AGI: 3.5, VIT: 3.0, INT: 0.5, MND: 0.5, LUK: 1.5 },
+    DRAGON:       { ATK: 4.0, DEF: 3.5, AGI: 3.0, VIT: 4.0, INT: 3.0, MND: 1.5, LUK: 1.0 },
+    DRAGON_RIDER: { ATK: 3.5, DEF: 3.0, AGI: 3.0, VIT: 3.5, INT: 2.5, MND: 1.5, LUK: 1.5 },
+    ARTILLERY:    { ATK: 4.0, DEF: 1.0, AGI: 0.5, VIT: 1.5, INT: 1.5, MND: 0.5, LUK: 0.5 }
+};
+
+/**
+ * 次レベルに必要なEXP
+ * @param {number} level - 現在のレベル
+ * @returns {number} 次Lvに必要なEXP
+ */
+export const MAX_LEVEL = 99;
+export const STAT_CAP = 100;
+
+export function expToNextLevel(level) {
+    return Math.floor(100 * Math.pow(1.3, level - 1));
+}
+
 /**
  * ユニットが占有するグリッド座標を計算
  * @param {number} x - 基準X座標（★の位置）
@@ -322,14 +376,14 @@ export const P_CALM = '沈着';
 // セリフデータ
 export const DIALOGUE = {
     [P_BRAVE]: {
-        ATTACK: ["推して参る！", "蹴散らせ！", "我に続け！"],
+        ATTACK: ["突撃せよ！", "蹴散らせ！", "我に続け！"],
         DAMAGED: ["ぬぅ！", "退くな！"],
         PLOT_DO: ["寝返れ！"],
         PLOT_REC: ["愚弄するか"],
         DYING: ["見事…！"]
     },
     [P_LOYAL]: {
-        ATTACK: ["殿の為！", "参る！", "義は我にあり"],
+        ATTACK: ["主君の為！", "参る！", "忠義は我にあり"],
         DAMAGED: ["持ち堪えよ！"],
         PLOT_DO: ["大義の為"],
         PLOT_REC: ["裏切らぬ"],
@@ -351,60 +405,59 @@ export const DIALOGUE = {
     }
 };
 
-// 武将データ
+// 部隊長データ
 export const WARLORDS = [
-    // --- 東軍 (徳川) ---
-    // --- 東軍 (徳川) ---
-    { name: "徳川家康", side: 'EAST', soldiers: 30000, atk: 95, def: 99, jin: 99, loyalty: 100, x: 60, y: 35, size: 2, p: P_CALM, kamon: 'MITSUBA_AOI', bg: '#d4af37', face: 'tokugawa_iyeyasu.png' },
-    { name: "本多忠勝", side: 'EAST', soldiers: 500, atk: 99, def: 90, jin: 80, loyalty: 100, x: 45, y: 35, size: 1, p: P_BRAVE, kamon: 'MARUNI_TACHIAOI', bg: '#111', face: 'honda_tadakatsu.png' },
-    { name: "井伊直政", side: 'EAST', soldiers: 3600, atk: 92, def: 85, jin: 85, loyalty: 100, x: 35, y: 33, size: 1, p: P_BRAVE, kamon: 'TACHIBANA', bg: '#cc0000', face: 'ii_naomasa.png' }, // 赤備え
-    { name: "松平忠吉", side: 'EAST', soldiers: 3000, atk: 80, def: 80, jin: 75, loyalty: 100, x: 36, y: 34, size: 1, p: P_LOYAL, kamon: 'MITSUBA_AOI', bg: '#444', face: 'matsudaira_tadayoshi.png' },
+    // --- Kingdom (East) ---
+    { name: "アルドリック", side: 'EAST', class: 'KNIGHT', soldiers: 30000, ATK: 95, DEF: 99, AGI: 99, VIT: 85, INT: 45, MND: 60, LUK: 70, loyalty: 100, x: 60, y: 35, size: 2, p: P_CALM, kamon: 'MITSUBA_AOI', bg: '#d4af37', face: 'tokugawa_iyeyasu.png', level: 1, exp: 0 },
+    { name: "ギャレス", side: 'EAST', class: 'KNIGHT', soldiers: 500, ATK: 99, DEF: 90, AGI: 80, VIT: 80, INT: 20, MND: 25, LUK: 25, loyalty: 100, x: 45, y: 35, size: 1, p: P_BRAVE, kamon: 'MARUNI_TACHIAOI', bg: '#111', face: 'honda_tadakatsu.png', level: 1, exp: 0 },
+    { name: "ローラン", side: 'EAST', class: 'CAVALRY', soldiers: 3600, ATK: 92, DEF: 85, AGI: 85, VIT: 70, INT: 20, MND: 15, LUK: 30, loyalty: 100, x: 35, y: 33, size: 1, p: P_BRAVE, kamon: 'TACHIBANA', bg: '#cc0000', face: 'ii_naomasa.png', level: 1, exp: 0 },
+    { name: "エドリック", side: 'EAST', class: 'INFANTRY', soldiers: 3000, ATK: 80, DEF: 80, AGI: 75, VIT: 55, INT: 30, MND: 25, LUK: 35, loyalty: 100, x: 36, y: 34, size: 1, p: P_LOYAL, kamon: 'MITSUBA_AOI', bg: '#444', face: 'matsudaira_tadayoshi.png', level: 1, exp: 0 },
 
-    // 豊臣恩顧の東軍
-    { name: "福島正則", side: 'EAST', soldiers: 6000, atk: 90, def: 80, jin: 70, loyalty: 75, x: 32, y: 30, size: 1, p: P_BRAVE, kamon: 'OMODAKA', bg: '#222', face: 'fukushima_masanori.png' },
-    { name: "黒田長政", side: 'EAST', soldiers: 5400, atk: 88, def: 85, jin: 85, loyalty: 82, x: 38, y: 15, size: 1, p: P_CALM, kamon: 'FUJIDOMOE', bg: '#333', face: 'kuroda_nagamasa.png' },
-    { name: "細川忠興", side: 'EAST', soldiers: 5000, atk: 85, def: 80, jin: 80, loyalty: 78, x: 40, y: 16, size: 1, p: P_LOYAL, kamon: 'KUYO', bg: '#333', face: 'hosokawa_tadaoki.png' },
-    { name: "加藤嘉明", side: 'EAST', soldiers: 3000, atk: 82, def: 80, jin: 75, loyalty: 75, x: 38, y: 20, size: 1, p: P_BRAVE, kamon: 'SAGARI_FUJI', bg: '#444', face: 'kato_yoshiaki.png' },
-    { name: "田中吉政", side: 'EAST', soldiers: 3000, atk: 80, def: 80, jin: 75, loyalty: 85, x: 35, y: 22, size: 1, p: P_LOYAL, kamon: 'KUGINUKI', bg: '#444', face: 'tanaka_yoshimasa.png' },
-    { name: "藤堂高虎", side: 'EAST', soldiers: 2490, atk: 85, def: 85, jin: 85, loyalty: 88, x: 33, y: 38, size: 1, p: P_CALM, kamon: 'TSUTA', bg: '#555', face: 'todo_takatora.png' },
-    { name: "京極高知", side: 'EAST', soldiers: 3000, atk: 78, def: 75, jin: 70, loyalty: 85, x: 34, y: 39, size: 1, p: P_LOYAL, kamon: 'FOUR_DIAMONDS', bg: '#666', face: 'kyogoku_takatomo.png' },
-    { name: "寺沢広高", side: 'EAST', soldiers: 2400, atk: 75, def: 75, jin: 70, loyalty: 80, x: 38, y: 35, size: 1, p: P_CALM, kamon: 'KANI', bg: '#666', face: 'terasawa_hirotaka.png' },
-    { name: "筒井定次", side: 'EAST', soldiers: 2850, atk: 75, def: 75, jin: 70, loyalty: 80, x: 40, y: 30, size: 1, p: P_CALM, kamon: 'UMEBACHI', bg: '#666', face: 'tsutsui_sadatsugu.png' },
-    { name: "生駒一正", side: 'EAST', soldiers: 1830, atk: 75, def: 70, jin: 65, loyalty: 80, x: 42, y: 25, size: 1, p: P_LOYAL, kamon: 'GENJI_GURUMA', bg: '#666', face: 'ikoma_kazumasa.png' },
-    { name: "金森長近", side: 'EAST', soldiers: 1140, atk: 70, def: 70, jin: 60, loyalty: 85, x: 45, y: 20, size: 1, p: P_LOYAL, kamon: 'UMEBACHI', bg: '#666', face: 'kanamori_nagachika.png' },
-    { name: "古田重然", side: 'EAST', soldiers: 1200, atk: 70, def: 70, jin: 60, loyalty: 80, x: 48, y: 25, size: 1, p: P_CALM, kamon: 'MARUNI_FUTATSUHIKI', bg: '#666', face: 'furuta_shigenari.png' },
-    { name: "織田長益", side: 'EAST', soldiers: 450, atk: 60, def: 60, jin: 50, loyalty: 70, x: 45, y: 30, size: 1, p: P_COWARD, kamon: 'ODA_MOKKO', bg: '#888', face: 'oda_nagamasu.png' },
-    { name: "堀尾忠氏", side: 'EAST', soldiers: 1000, atk: 80, def: 80, jin: 75, loyalty: 100, x: 50, y: 32, size: 1, p: P_LOYAL, kamon: 'KUGINUKI', bg: '#222', face: 'horio_tadauji.png' },
-    { name: "山内一豊", side: 'EAST', soldiers: 2050, atk: 75, def: 75, jin: 75, loyalty: 95, x: 54, y: 40, size: 1, p: P_LOYAL, kamon: 'MITSU_GASHIWA', bg: '#222', face: 'yamanouchi_kazutoyo.png' },
-    { name: "池田輝政", side: 'EAST', soldiers: 4560, atk: 85, def: 85, jin: 85, loyalty: 90, x: 52, y: 38, size: 1, p: P_BRAVE, kamon: 'IKEDA_CHO', bg: '#222', face: 'ikeda_terumasa.png' },
-    { name: "戸川達安", side: 'EAST', soldiers: 1000, atk: 75, def: 75, jin: 70, loyalty: 100, x: 50, y: 37, size: 1, p: P_BRAVE, kamon: 'MARUNI_MITSUBONSUGI', bg: '#222', face: 'togawa_michiyasu.png' },
+    // Kingdom vassals
+    { name: "ケイル", side: 'EAST', class: 'INFANTRY', soldiers: 6000, ATK: 90, DEF: 80, AGI: 70, VIT: 60, INT: 25, MND: 20, LUK: 40, loyalty: 75, x: 32, y: 30, size: 1, p: P_BRAVE, kamon: 'OMODAKA', bg: '#222', face: 'fukushima_masanori.png', level: 1, exp: 0 },
+    { name: "ダリウス", side: 'EAST', class: 'GUNNER', soldiers: 5400, ATK: 88, DEF: 85, AGI: 85, VIT: 40, INT: 50, MND: 15, LUK: 25, loyalty: 82, x: 38, y: 15, size: 1, p: P_CALM, kamon: 'FUJIDOMOE', bg: '#333', face: 'kuroda_nagamasa.png', level: 1, exp: 0 },
+    { name: "トリスタン", side: 'EAST', class: 'INFANTRY', soldiers: 5000, ATK: 85, DEF: 80, AGI: 80, VIT: 55, INT: 30, MND: 30, LUK: 35, loyalty: 78, x: 40, y: 16, size: 1, p: P_LOYAL, kamon: 'KUYO', bg: '#333', face: 'hosokawa_tadaoki.png', level: 1, exp: 0 },
+    { name: "レイナルド", side: 'EAST', class: 'INFANTRY', soldiers: 3000, ATK: 82, DEF: 80, AGI: 75, VIT: 55, INT: 25, MND: 20, LUK: 35, loyalty: 75, x: 38, y: 20, size: 1, p: P_BRAVE, kamon: 'SAGARI_FUJI', bg: '#444', face: 'kato_yoshiaki.png', level: 1, exp: 0 },
+    { name: "セドリック", side: 'EAST', class: 'INFANTRY', soldiers: 3000, ATK: 80, DEF: 80, AGI: 75, VIT: 55, INT: 30, MND: 30, LUK: 40, loyalty: 85, x: 35, y: 22, size: 1, p: P_LOYAL, kamon: 'KUGINUKI', bg: '#444', face: 'tanaka_yoshimasa.png', level: 1, exp: 0 },
+    { name: "マルコム", side: 'EAST', class: 'INFANTRY', soldiers: 2490, ATK: 85, DEF: 85, AGI: 85, VIT: 60, INT: 40, MND: 35, LUK: 30, loyalty: 88, x: 33, y: 38, size: 1, p: P_CALM, kamon: 'TSUTA', bg: '#555', face: 'todo_takatora.png', level: 1, exp: 0 },
+    { name: "ゴッドウィン", side: 'EAST', class: 'INFANTRY', soldiers: 3000, ATK: 78, DEF: 75, AGI: 70, VIT: 50, INT: 30, MND: 25, LUK: 35, loyalty: 85, x: 34, y: 39, size: 1, p: P_LOYAL, kamon: 'FOUR_DIAMONDS', bg: '#666', face: 'kyogoku_takatomo.png', level: 1, exp: 0 },
+    { name: "ハーラン", side: 'EAST', class: 'INFANTRY', soldiers: 2400, ATK: 75, DEF: 75, AGI: 70, VIT: 50, INT: 30, MND: 25, LUK: 30, loyalty: 80, x: 38, y: 35, size: 1, p: P_CALM, kamon: 'KANI', bg: '#666', face: 'terasawa_hirotaka.png', level: 1, exp: 0 },
+    { name: "オールドウィン", side: 'EAST', class: 'INFANTRY', soldiers: 2850, ATK: 75, DEF: 75, AGI: 70, VIT: 50, INT: 30, MND: 25, LUK: 30, loyalty: 80, x: 40, y: 30, size: 1, p: P_CALM, kamon: 'UMEBACHI', bg: '#666', face: 'tsutsui_sadatsugu.png', level: 1, exp: 0 },
+    { name: "ハドリアン", side: 'EAST', class: 'INFANTRY', soldiers: 1830, ATK: 75, DEF: 70, AGI: 65, VIT: 50, INT: 25, MND: 20, LUK: 35, loyalty: 80, x: 42, y: 25, size: 1, p: P_LOYAL, kamon: 'GENJI_GURUMA', bg: '#666', face: 'ikoma_kazumasa.png', level: 1, exp: 0 },
+    { name: "オーウェン", side: 'EAST', class: 'INFANTRY', soldiers: 1140, ATK: 70, DEF: 70, AGI: 60, VIT: 45, INT: 25, MND: 25, LUK: 40, loyalty: 85, x: 45, y: 20, size: 1, p: P_LOYAL, kamon: 'UMEBACHI', bg: '#666', face: 'kanamori_nagachika.png', level: 1, exp: 0 },
+    { name: "ファビアン", side: 'EAST', class: 'INFANTRY', soldiers: 1200, ATK: 70, DEF: 70, AGI: 60, VIT: 45, INT: 30, MND: 25, LUK: 30, loyalty: 80, x: 48, y: 25, size: 1, p: P_CALM, kamon: 'MARUNI_FUTATSUHIKI', bg: '#666', face: 'furuta_shigenari.png', level: 1, exp: 0 },
+    { name: "ランドール", side: 'EAST', class: 'INFANTRY', soldiers: 450, ATK: 60, DEF: 60, AGI: 50, VIT: 40, INT: 35, MND: 30, LUK: 50, loyalty: 70, x: 45, y: 30, size: 1, p: P_COWARD, kamon: 'ODA_MOKKO', bg: '#888', face: 'oda_nagamasu.png', level: 1, exp: 0 },
+    { name: "ボールドウィン", side: 'EAST', class: 'INFANTRY', soldiers: 1000, ATK: 80, DEF: 80, AGI: 75, VIT: 55, INT: 25, MND: 30, LUK: 35, loyalty: 100, x: 50, y: 32, size: 1, p: P_LOYAL, kamon: 'KUGINUKI', bg: '#222', face: 'horio_tadauji.png', level: 1, exp: 0 },
+    { name: "キャラム", side: 'EAST', class: 'INFANTRY', soldiers: 2050, ATK: 75, DEF: 75, AGI: 75, VIT: 50, INT: 30, MND: 30, LUK: 40, loyalty: 95, x: 54, y: 40, size: 1, p: P_LOYAL, kamon: 'MITSU_GASHIWA', bg: '#222', face: 'yamanouchi_kazutoyo.png', level: 1, exp: 0 },
+    { name: "レオリック", side: 'EAST', class: 'INFANTRY', soldiers: 4560, ATK: 85, DEF: 85, AGI: 85, VIT: 60, INT: 25, MND: 20, LUK: 30, loyalty: 90, x: 52, y: 38, size: 1, p: P_BRAVE, kamon: 'IKEDA_CHO', bg: '#222', face: 'ikeda_terumasa.png', level: 1, exp: 0 },
+    { name: "マグナス", side: 'EAST', class: 'INFANTRY', soldiers: 1000, ATK: 75, DEF: 75, AGI: 70, VIT: 50, INT: 25, MND: 20, LUK: 35, loyalty: 100, x: 50, y: 37, size: 1, p: P_BRAVE, kamon: 'MARUNI_MITSUBONSUGI', bg: '#222', face: 'togawa_michiyasu.png', level: 1, exp: 0 },
 
-    // --- 西軍 (石田) ---
-    { name: "石田三成", side: 'WEST', soldiers: 6900, atk: 80, def: 85, jin: 95, loyalty: 100, x: 8, y: 12, size: 2, p: P_LOYAL, kamon: 'DAIICHI', bg: '#4a0080', face: 'ishida_mitsunari.png' },
-    { name: "島左近", side: 'WEST', soldiers: 1000, atk: 95, def: 90, jin: 85, loyalty: 100, x: 10, y: 14, size: 1, p: P_BRAVE, kamon: 'MITSU_GASHIWA', bg: '#8b0000', face: 'shima_sakon.png' }, // 鬼左近の赤
-    { name: "蒲生郷舎", side: 'WEST', soldiers: 800, atk: 80, def: 80, jin: 80, loyalty: 100, x: 9, y: 13, size: 1, p: P_LOYAL, kamon: 'MUKAI_TSURU', bg: '#444', face: 'gamo_satoie.png' },
-    { name: "島津義弘", side: 'WEST', soldiers: 1500, atk: 98, def: 95, jin: 90, loyalty: 100, x: 12, y: 18, size: 1, p: P_BRAVE, kamon: 'MARUNI_JUJI', bg: '#222', face: 'shimazu_yoshihiro.png', type: 'GUNNER' },
-    { name: "島津豊久", side: 'WEST', soldiers: 500, atk: 90, def: 85, jin: 80, loyalty: 100, x: 13, y: 19, size: 1, p: P_BRAVE, kamon: 'MARUNI_JUJI', bg: '#222', face: 'shimazu_toyohisa.png', type: 'GUNNER' },
-    { name: "小西行長", side: 'WEST', soldiers: 4000, atk: 80, def: 85, jin: 75, loyalty: 100, x: 15, y: 25, size: 1, p: P_CALM, kamon: 'GION_MAMORI', bg: '#333', face: 'konishi_yukinaga.png', type: 'GUNNER' }, // キリシタン大名
-    { name: "宇喜多秀家", side: 'WEST', soldiers: 17000, atk: 85, def: 85, jin: 80, loyalty: 100, x: 18, y: 30, size: 2, p: P_BRAVE, kamon: 'JI', bg: '#222', face: 'ukita_hideie.png' },
-    { name: "明石全登", side: 'WEST', soldiers: 2000, atk: 88, def: 80, jin: 75, loyalty: 100, x: 20, y: 31, size: 1, p: P_BRAVE, kamon: 'JI', bg: '#444', face: 'akashi_teruzumi.png' }, // 宇喜多家の猛将
-    { name: "大谷吉継", side: 'WEST', soldiers: 600, atk: 90, def: 90, jin: 95, loyalty: 100, x: 15, y: 40, size: 1, p: P_CALM, kamon: 'MUKAI_CHO', bg: '#fff', face: 'otani_yoshitsugu.png' }, // 白頭巾
-    { name: "大谷吉治", side: 'WEST', soldiers: 1000, atk: 75, def: 75, jin: 70, loyalty: 100, x: 16, y: 41, size: 1, p: P_LOYAL, kamon: 'MUKAI_CHO', bg: '#ccc', face: 'ootani_yoshiharu.png' },
-    { name: "戸田重政", side: 'WEST', soldiers: 1500, atk: 70, def: 70, jin: 60, loyalty: 100, x: 18, y: 39, size: 1, p: P_LOYAL, kamon: 'MUTSUBOSHI', bg: '#555', face: 'toda_shigemasa.png' },
-    { name: "平塚為広", side: 'WEST', soldiers: 360, atk: 75, def: 70, jin: 60, loyalty: 100, x: 17, y: 42, size: 1, p: P_BRAVE, kamon: 'MITSU_UROKO', bg: '#555', face: 'hiratsuka_tamehiro.png' },
-    { name: "脇坂安治", side: 'WEST', soldiers: 990, atk: 70, def: 70, jin: 50, loyalty: 60, x: 12, y: 48, size: 1, p: P_COWARD, kamon: 'WA_CHIGAI', bg: '#666', face: 'wakisaka_yasuharu.png', type: 'SPEAR' },
-    { name: "朽木元綱", side: 'WEST', soldiers: 600, atk: 65, def: 65, jin: 50, loyalty: 60, x: 13, y: 49, size: 1, p: P_COWARD, kamon: 'FOUR_DIAMONDS', bg: '#666', face: 'kuchiki_mototsuna.png', type: 'ARCHER' }, // 弓隊として設定
-    { name: "小川祐忠", side: 'WEST', soldiers: 2100, atk: 70, def: 70, jin: 50, loyalty: 60, x: 11, y: 47, size: 1, p: P_COWARD, kamon: 'MARUNI_DAKIGASHIWA', bg: '#666', face: 'ogawa_suketada.png', type: 'ARCHER' }, // 弓隊として設定
-    { name: "赤座直保", side: 'WEST', soldiers: 600, atk: 65, def: 65, jin: 50, loyalty: 60, x: 10, y: 50, size: 1, p: P_COWARD, kamon: 'MARUNI_MITSUMEBISHI', bg: '#666', face: 'akaza_naoyasu.png', type: 'GUNNER' }, // 鉄砲隊として設定
+    // --- Empire (West) ---
+    { name: "ヴァレン", side: 'WEST', class: 'MAGE', soldiers: 6900, ATK: 40, DEF: 85, AGI: 95, VIT: 30, INT: 95, MND: 70, LUK: 35, loyalty: 100, x: 8, y: 12, size: 2, p: P_LOYAL, kamon: 'DAIICHI', bg: '#4a0080', face: 'ishida_mitsunari.png', level: 1, exp: 0 },
+    { name: "ドレイヴン", side: 'WEST', class: 'INFANTRY', soldiers: 1000, ATK: 95, DEF: 90, AGI: 85, VIT: 65, INT: 30, MND: 20, LUK: 25, loyalty: 100, x: 10, y: 14, size: 1, p: P_BRAVE, kamon: 'MITSU_GASHIWA', bg: '#8b0000', face: 'shima_sakon.png', level: 1, exp: 0 },
+    { name: "ドリアン", side: 'WEST', class: 'INFANTRY', soldiers: 800, ATK: 80, DEF: 80, AGI: 80, VIT: 55, INT: 30, MND: 25, LUK: 35, loyalty: 100, x: 9, y: 13, size: 1, p: P_LOYAL, kamon: 'MUKAI_TSURU', bg: '#444', face: 'gamo_satoie.png', level: 1, exp: 0 },
+    { name: "セイン", side: 'WEST', class: 'GUNNER', soldiers: 1500, ATK: 90, DEF: 35, AGI: 80, VIT: 40, INT: 55, MND: 15, LUK: 30, loyalty: 100, x: 12, y: 18, size: 1, p: P_BRAVE, kamon: 'MARUNI_JUJI', bg: '#222', face: 'shimazu_yoshihiro.png', level: 1, exp: 0 },
+    { name: "リース", side: 'WEST', class: 'GUNNER', soldiers: 500, ATK: 85, DEF: 30, AGI: 75, VIT: 35, INT: 50, MND: 10, LUK: 25, loyalty: 100, x: 13, y: 19, size: 1, p: P_BRAVE, kamon: 'MARUNI_JUJI', bg: '#222', face: 'shimazu_toyohisa.png', level: 1, exp: 0 },
+    { name: "カシウス", side: 'WEST', class: 'GUNNER', soldiers: 4000, ATK: 80, DEF: 30, AGI: 75, VIT: 35, INT: 55, MND: 15, LUK: 25, loyalty: 100, x: 15, y: 25, size: 1, p: P_CALM, kamon: 'GION_MAMORI', bg: '#333', face: 'konishi_yukinaga.png', level: 1, exp: 0 },
+    { name: "ヴァレリウス", side: 'WEST', class: 'INFANTRY', soldiers: 17000, ATK: 85, DEF: 85, AGI: 80, VIT: 60, INT: 30, MND: 25, LUK: 30, loyalty: 100, x: 18, y: 30, size: 2, p: P_BRAVE, kamon: 'JI', bg: '#222', face: 'ukita_hideie.png', level: 1, exp: 0 },
+    { name: "マーカス", side: 'WEST', class: 'INFANTRY', soldiers: 2000, ATK: 88, DEF: 80, AGI: 75, VIT: 55, INT: 25, MND: 20, LUK: 35, loyalty: 100, x: 20, y: 31, size: 1, p: P_BRAVE, kamon: 'JI', bg: '#444', face: 'akashi_teruzumi.png', level: 1, exp: 0 },
+    { name: "エランドール", side: 'WEST', class: 'MAGE', soldiers: 600, ATK: 35, DEF: 50, AGI: 95, VIT: 30, INT: 90, MND: 80, LUK: 35, loyalty: 100, x: 15, y: 40, size: 1, p: P_CALM, kamon: 'MUKAI_CHO', bg: '#fff', face: 'otani_yoshitsugu.png', level: 1, exp: 0 },
+    { name: "フロリアン", side: 'WEST', class: 'INFANTRY', soldiers: 1000, ATK: 75, DEF: 75, AGI: 70, VIT: 50, INT: 25, MND: 25, LUK: 30, loyalty: 100, x: 16, y: 41, size: 1, p: P_LOYAL, kamon: 'MUKAI_CHO', bg: '#ccc', face: 'ootani_yoshiharu.png', level: 1, exp: 0 },
+    { name: "ギデオン", side: 'WEST', class: 'INFANTRY', soldiers: 1500, ATK: 70, DEF: 70, AGI: 60, VIT: 50, INT: 25, MND: 25, LUK: 35, loyalty: 100, x: 18, y: 39, size: 1, p: P_LOYAL, kamon: 'MUTSUBOSHI', bg: '#555', face: 'toda_shigemasa.png', level: 1, exp: 0 },
+    { name: "フェンリス", side: 'WEST', class: 'INFANTRY', soldiers: 360, ATK: 75, DEF: 70, AGI: 60, VIT: 50, INT: 25, MND: 20, LUK: 35, loyalty: 100, x: 17, y: 42, size: 1, p: P_BRAVE, kamon: 'MITSU_UROKO', bg: '#555', face: 'hiratsuka_tamehiro.png', level: 1, exp: 0 },
+    { name: "サイラス", side: 'WEST', class: 'SPEAR', soldiers: 990, ATK: 70, DEF: 55, AGI: 50, VIT: 45, INT: 20, MND: 15, LUK: 45, loyalty: 60, x: 12, y: 48, size: 1, p: P_COWARD, kamon: 'WA_CHIGAI', bg: '#666', face: 'wakisaka_yasuharu.png', level: 1, exp: 0 },
+    { name: "ブレナン", side: 'WEST', class: 'ARCHER', soldiers: 600, ATK: 55, DEF: 35, AGI: 60, VIT: 35, INT: 30, MND: 15, LUK: 45, loyalty: 60, x: 13, y: 49, size: 1, p: P_COWARD, kamon: 'FOUR_DIAMONDS', bg: '#666', face: 'kuchiki_mototsuna.png', level: 1, exp: 0 },
+    { name: "エクター", side: 'WEST', class: 'ARCHER', soldiers: 2100, ATK: 60, DEF: 35, AGI: 55, VIT: 35, INT: 25, MND: 15, LUK: 40, loyalty: 60, x: 11, y: 47, size: 1, p: P_COWARD, kamon: 'MARUNI_DAKIGASHIWA', bg: '#666', face: 'ogawa_suketada.png', level: 1, exp: 0 },
+    { name: "ロデリック", side: 'WEST', class: 'GUNNER', soldiers: 600, ATK: 70, DEF: 25, AGI: 50, VIT: 30, INT: 35, MND: 10, LUK: 25, loyalty: 60, x: 10, y: 50, size: 1, p: P_COWARD, kamon: 'MARUNI_MITSUMEBISHI', bg: '#666', face: 'akaza_naoyasu.png', level: 1, exp: 0 },
 
-    // --- 不確定勢力（松尾山）---
-    { name: "小早川秀秋", side: 'WEST', soldiers: 15600, atk: 85, def: 80, jin: 70, loyalty: 40, x: 5, y: 60, size: 2, p: P_COWARD, kamon: 'CHIGAI_GAMA', bg: '#a52a2a', face: 'kobayakawa_hideaki.png' },
-    { name: "稲葉正成", side: 'WEST', soldiers: 1000, atk: 75, def: 75, jin: 60, loyalty: 50, x: 6, y: 61, size: 1, p: P_CALM, kamon: 'OSHIKI_NI_SAN', bg: '#888', face: 'inaba_masashige.png' },
+    // --- Uncertain Forces (Hillfort) ---
+    { name: "モルデカイ", side: 'WEST', class: 'INFANTRY', soldiers: 15600, ATK: 85, DEF: 80, AGI: 70, VIT: 55, INT: 30, MND: 25, LUK: 45, loyalty: 40, x: 5, y: 60, size: 2, p: P_COWARD, kamon: 'CHIGAI_GAMA', bg: '#a52a2a', face: 'kobayakawa_hideaki.png', level: 1, exp: 0 },
+    { name: "バートラム", side: 'WEST', class: 'INFANTRY', soldiers: 1000, ATK: 75, DEF: 75, AGI: 60, VIT: 50, INT: 30, MND: 25, LUK: 35, loyalty: 50, x: 6, y: 61, size: 1, p: P_CALM, kamon: 'OSHIKI_NI_SAN', bg: '#888', face: 'inaba_masashige.png', level: 1, exp: 0 },
 
-    // --- 不確定勢力（南宮山）---
-    { name: "毛利秀元", side: 'WEST', soldiers: 16000, atk: 85, def: 90, jin: 80, loyalty: 70, x: 60, y: 60, size: 2, p: P_CALM, kamon: 'MITSUBOSHI', bg: '#222', face: 'mouri_hidemoto.png' },
-    { name: "吉川広家", side: 'WEST', soldiers: 3000, atk: 80, def: 85, jin: 85, loyalty: 20, x: 58, y: 58, size: 1, p: P_CALM, kamon: 'MITSUBOSHI', bg: '#333', face: 'kikkawa_hiroie.png' },
-    { name: "安国寺恵瓊", side: 'WEST', soldiers: 1800, atk: 70, def: 70, jin: 75, loyalty: 90, x: 62, y: 58, size: 1, p: P_CALM, kamon: 'TAKEDA_BISHI', bg: '#555', face: 'ankokuji_ekei.png', type: 'MAGE' }, // 僧兵/魔術師扱い
-    { name: "長宗我部盛親", side: 'WEST', soldiers: 6600, atk: 88, def: 85, jin: 80, loyalty: 80, x: 65, y: 55, size: 1, p: P_BRAVE, kamon: 'KATABAMI', bg: '#333', face: 'chosokabe_nobuchika.png', type: 'SPEAR' }, // 四国の雄（長槍）
-    { name: "長束正家", side: 'WEST', soldiers: 1500, atk: 75, def: 75, jin: 70, loyalty: 90, x: 63, y: 56, size: 1, p: P_LOYAL, kamon: 'HANABISHI', bg: '#444', face: 'nagatsuka_masaie.png', type: 'ARCHER' } // 算術家（弓）
+    // --- Uncertain Forces (South Garrison) ---
+    { name: "アルデマール", side: 'WEST', class: 'INFANTRY', soldiers: 16000, ATK: 85, DEF: 90, AGI: 80, VIT: 60, INT: 35, MND: 30, LUK: 35, loyalty: 70, x: 60, y: 60, size: 2, p: P_CALM, kamon: 'MITSUBOSHI', bg: '#222', face: 'mouri_hidemoto.png', level: 1, exp: 0 },
+    { name: "ヴォス", side: 'WEST', class: 'INFANTRY', soldiers: 3000, ATK: 80, DEF: 85, AGI: 85, VIT: 55, INT: 30, MND: 25, LUK: 30, loyalty: 20, x: 58, y: 58, size: 1, p: P_CALM, kamon: 'MITSUBOSHI', bg: '#333', face: 'kikkawa_hiroie.png', level: 1, exp: 0 },
+    { name: "シルヴァン", side: 'WEST', class: 'MAGE', soldiers: 1800, ATK: 30, DEF: 40, AGI: 75, VIT: 30, INT: 80, MND: 75, LUK: 35, loyalty: 90, x: 62, y: 58, size: 1, p: P_CALM, kamon: 'TAKEDA_BISHI', bg: '#555', face: 'ankokuji_ekei.png', level: 1, exp: 0 },
+    { name: "ラグナル", side: 'WEST', class: 'SPEAR', soldiers: 6600, ATK: 85, DEF: 55, AGI: 80, VIT: 55, INT: 20, MND: 15, LUK: 30, loyalty: 80, x: 65, y: 55, size: 1, p: P_BRAVE, kamon: 'KATABAMI', bg: '#333', face: 'chosokabe_nobuchika.png', level: 1, exp: 0 },
+    { name: "アリステア", side: 'WEST', class: 'ARCHER', soldiers: 1500, ATK: 60, DEF: 35, AGI: 70, VIT: 35, INT: 30, MND: 20, LUK: 45, loyalty: 90, x: 63, y: 56, size: 1, p: P_LOYAL, kamon: 'HANABISHI', bg: '#444', face: 'nagatsuka_masaie.png', level: 1, exp: 0 }
 ];

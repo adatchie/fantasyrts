@@ -15,6 +15,8 @@ export class InputController {
      */
     constructor(game) {
         this.game = game;
+        this._lastHoverTime = 0;
+        this._hoverThrottleMs = 50; // 50ms = 最大20Hz
     }
 
     // ==================== Mouse ====================
@@ -61,7 +63,11 @@ export class InputController {
             this.updateSelectionBox();
         }
 
-        // 3Dカーソル更新
+        // 3Dカーソル更新（スロットル）
+        const now = performance.now();
+        if (now - this._lastHoverTime < this._hoverThrottleMs) return;
+        this._lastHoverTime = now;
+
         if (game.renderingEngine && game.renderingEngine.updateCursorPosition && game.renderingEngine.getHexFromScreenCoordinates) {
             const h = game.renderingEngine.getHexFromScreenCoordinates(e.clientX, e.clientY);
 

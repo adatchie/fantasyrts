@@ -83,10 +83,16 @@ export class UnitSpawner {
                 side: enemySide,
                 x: placedUnit.x,
                 y: placedUnit.y,
+                class: String(def.type || 'INFANTRY').toUpperCase(),
+                type: String(def.type || 'INFANTRY').toUpperCase(),
                 soldiers: (def.count || 1) * 1000,
                 atk: def.atk || 50,
                 def: def.def || 50,
                 jin: 50,
+                ATK: def.atk || 50,
+                DEF: def.def || 50,
+                AGI: 50,
+                VIT: 50, INT: 50, MND: 50, LUK: 50,
                 loyalty: 100,
                 p: 50,
                 kamon: null,
@@ -100,7 +106,9 @@ export class UnitSpawner {
             );
 
             generatedUnits.forEach((unit, i) => {
-                unit.type = def.type;
+                const uType = String(def.type || 'INFANTRY').toUpperCase();
+                unit.type = uType;
+                unit.class = uType;
                 unit.level = def.level || 1;
                 console.log('[CUSTOM MAP] Created: ' + unit.name + ' type=' + unit.type + ' def.type=' + def.type);
                 if (def.role === 'commander' && i === 0) {
@@ -140,15 +148,27 @@ export class UnitSpawner {
                 const unitCount = unitData.unitCount || 1;
                 const soldiers = unitCount * SOLDIERS_PER_UNIT;
 
+                const normalizedType = String(unitData.class || unitData.type || 'INFANTRY').toUpperCase();
                 const warlordData = {
                     name: unitData.warlordName || unitData.name,
                     side: game.playerSide,
                     x: pos.x,
                     y: pos.y,
+                    class: normalizedType,
+                    type: normalizedType,
                     soldiers: soldiers,
                     atk: unitData.atk || 50,
                     def: unitData.def || 50,
                     jin: unitData.jin || 50,
+                    ATK: unitData.ATK || unitData.atk || 50,
+                    DEF: unitData.DEF || unitData.def || 50,
+                    AGI: unitData.AGI || unitData.jin || 50,
+                    VIT: unitData.VIT || 50,
+                    INT: unitData.INT || 50,
+                    MND: unitData.MND || 50,
+                    LUK: unitData.LUK || 50,
+                    level: unitData.level || 1,
+                    exp: unitData.exp || 0,
                     loyalty: unitData.loyalty || 100,
                     p: unitData.p || 50,
                     kamon: unitData.kamon || null,
@@ -162,8 +182,11 @@ export class UnitSpawner {
                 );
 
                 generatedUnits.forEach((unit, i) => {
-                    unit.type = unitData.type || 'infantry';
+                    const uType = String(unitData.class || unitData.type || 'INFANTRY').toUpperCase();
+                    unit.type = uType;
+                    unit.class = uType;
                     unit.level = unitData.level || 1;
+                    unit.sourceUnitId = unitData.id;
                 });
 
                 units.push(...generatedUnits);
@@ -213,11 +236,13 @@ export class UnitSpawner {
                         x: ex,
                         y: ey,
                         soldiers: 3000,
-                        atk: 50,
-                        def: 50,
-                        jin: 50,
+                        atk: 50, def: 50, jin: 50,
+                        ATK: 50, DEF: 50, AGI: 50,
+                        VIT: 50, INT: 50, MND: 50, LUK: 50,
+                        level: 1, exp: 0,
                         loyalty: 0,
                         type: force.type,
+                        class: force.type,
                         face: null
                     };
 
@@ -226,9 +251,10 @@ export class UnitSpawner {
                         enemyWarlord, warlordId, [], game.mapSystem
                     );
 
-                    generatedEnemies.forEach(u => {
-                        u.unitType = 'NORMAL';
+                    generatedEnemies.forEach((u, i) => {
+                        u.unitType = i === 0 ? 'HEADQUARTERS' : 'NORMAL';
                         u.type = force.type || 'INFANTRY';
+                        u.class = force.type || 'INFANTRY';
                         console.log('[ENEMY] Created: ' + u.name + ' type=' + u.type + ' force.type=' + force.type);
                     });
 

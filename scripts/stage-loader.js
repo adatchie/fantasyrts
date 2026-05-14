@@ -74,7 +74,11 @@ export class StageLoader {
         if (!unitsData || !Array.isArray(unitsData)) return;
 
         // 既存のユニットをクリア
-        this.game.unitManager.clearUnits(); // UnitManagerにclearUnitsが必要
+        if (this.game.unitManager && typeof this.game.unitManager.clearUnits === 'function') {
+            this.game.unitManager.clearUnits();
+        } else if (this.game.units) {
+            this.game.units.length = 0;
+        }
 
         unitsData.forEach(u => {
             // 武将IDからWARLORDSデータを検索

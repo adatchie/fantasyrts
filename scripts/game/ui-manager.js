@@ -9,6 +9,12 @@ import { UNIT_TYPE_HEADQUARTERS, UNIT_TYPES } from '../constants.js';
 import { FORMATION_HOKO, FORMATION_KAKUYOKU, FORMATION_GYORIN } from '../constants.js';
 import { FORMATION_INFO, getAvailableFormations } from '../formation.js?v=118';
 
+function esc(str) {
+    const el = document.createElement('span');
+    el.textContent = String(str);
+    return el.innerHTML;
+}
+
 export class UIManager {
     /**
      * @param {Object} game - Gameインスタンス
@@ -118,7 +124,7 @@ export class UIManager {
         info.style.flex = '1';
         const targetTypeInfo = UNIT_TYPES[targetHeadquarters.type] || UNIT_TYPES.INFANTRY;
         const targetTypeMarker = targetTypeInfo.marker || '';
-        info.innerHTML = `<strong style="color:#FF8888">[目標] ${targetHeadquarters.name} ${targetTypeMarker}</strong><br>兵: ${targetTotalSoldiers} (${targetUnitCount}部隊) <small>(攻${targetHeadquarters.atk}/防${targetHeadquarters.def})</small>`;
+        info.innerHTML = `<strong style="color:#FF8888">[目標] ${esc(targetHeadquarters.name)} ${esc(targetTypeMarker)}</strong><br>兵: ${targetTotalSoldiers} (${targetUnitCount}部隊) <small>(攻${targetHeadquarters.atk}/防${targetHeadquarters.def})</small>`;
 
         targetDiv.appendChild(img);
         targetDiv.appendChild(info);
@@ -149,7 +155,7 @@ export class UIManager {
             const target = game.units.find(u => u.id === headquarters.order.targetId);
             const targetName = target ? target.name : "地点";
             const typeMap = { 'MOVE': '移動', 'ATTACK': '攻撃', 'PLOT': '調略' };
-            ord = `<span style="color:#aaf">${typeMap[headquarters.order.type]}</span> -> ${targetName}`;
+            ord = `${typeMap[headquarters.order.type] || '??'} -> ${targetName}`;
         }
 
         // 顔グラフィック
@@ -172,14 +178,14 @@ export class UIManager {
         if (headquarters.unitType === UNIT_TYPE_HEADQUARTERS && headquarters.formation) {
             const fInfo = FORMATION_INFO[headquarters.formation];
             if (fInfo) {
-                formationText = `<br>陣形: ${fInfo.nameShort}`;
+                formationText = `<br>陣形: ${esc(fInfo.nameShort)}`;
             }
         }
 
         const unitTypeInfo = UNIT_TYPES[headquarters.type] || UNIT_TYPES.INFANTRY;
         const typeMarker = unitTypeInfo.marker || '';
 
-        info.innerHTML = `<strong>${headquarters.name} ${typeMarker}</strong><br>兵: ${totalSoldiers} (${unitCount}部隊) <small>(攻${headquarters.atk}/防${headquarters.def})</small>${formationText}<br>指示: ${ord}`;
+        info.innerHTML = `<strong>${esc(headquarters.name)} ${esc(typeMarker)}</strong><br>兵: ${totalSoldiers} (${unitCount}部隊) <small>(攻${headquarters.atk}/防${headquarters.def})</small>${formationText}<br>指示: ${esc(ord)}`;
 
         d.appendChild(img);
         d.appendChild(info);

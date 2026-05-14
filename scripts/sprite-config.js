@@ -11,6 +11,7 @@ export const SPRITE_SHEET_PATH = 'sprites/soldier/soldier.png';
 // ユニットタイプごとのスプライトファイル定義
 export const SPRITE_PATHS = {
     DEFAULT: 'sprites/soldier/soldier.png',
+    KNIGHT: 'sprites/knight/knight.png',
     ARCHER: 'sprites/archer/archer.png',
     MAGE: 'sprites/mage/mage.png',
     PRIEST: 'sprites/priest/priest.png'
@@ -26,7 +27,7 @@ export const UNIT_TYPE_TO_SPRITE = {
     'GUNNER': 'DEFAULT',
     // 'MAGE': 'DEFAULT', // Removed duplicate override
     'PRIEST': 'PRIEST',
-    'KNIGHT': 'DEFAULT',
+    'KNIGHT': 'KNIGHT',
     'CAVALRY': 'DEFAULT'
 };
 
@@ -160,6 +161,17 @@ export const ARMY_COLORS = {
  */
 export const WEAPON_HAND_CONFIG = {
     DEFAULT: {
+        front: {
+            windup: { x: 0.62, y: 0.42, angle: -50 },
+            strike: { x: 0.70, y: 0.60, angle:  10 },
+        },
+        back: {
+            windup: { x: 0.38, y: 0.42, angle: 50 },
+            strike: { x: 0.30, y: 0.60, angle: -10 },
+        },
+    },
+    // KNIGHT: プレースホルダー（soldier.pngと同一画像につきDEFAULTと同一設定）
+    KNIGHT: {
         front: {
             windup: { x: 0.62, y: 0.42, angle: -50 },
             strike: { x: 0.70, y: 0.60, angle:  10 },

@@ -716,6 +716,12 @@
     </div>
 
     <script>
+        function escapeHtml(s) {
+            const d = document.createElement('div');
+            d.textContent = String(s ?? '');
+            return d.innerHTML;
+        }
+
         // エラーログ表示機能
         window.onerror = function (message, source, lineno, colno, error) {
             const log = document.getElementById('error-log');
@@ -723,7 +729,7 @@
                 log.style.display = 'block';
                 log.style.color = 'red';
                 log.style.zIndex = '9999';
-                log.innerHTML += `<div style="background:rgba(0,0,0,0.8); padding:5px; margin:2px; border:1px solid red;">Error: ${message} <br>at ${source}:${lineno}</div>`;
+                log.innerHTML += `<div style="background:rgba(0,0,0,0.8); padding:5px; margin:2px; border:1px solid red;">Error: ${escapeHtml(message)} <br>at ${escapeHtml(source)}:${lineno}</div>`;
             }
         };
     </script>

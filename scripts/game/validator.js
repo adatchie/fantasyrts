@@ -7,12 +7,19 @@
 
 import { MAP_W, MAP_H } from '../constants.js';
 
+// マップ寸法上限
+export const MAP_MAX_WIDTH = 200;
+export const MAP_MAX_HEIGHT = 200;
+export const MAP_MAX_TILES = 100000; // 200*500 = 100000
+export const MAX_PLACEMENTS = 50;
+
 // バリデーションエラーメッセージ定数
 export const VALIDATION_ERRORS = {
     NO_MAP_DATA: 'マップデータが存在しません',
     NO_UNIT_DEFINITION: 'ユニット定義が存在しません',
-    INVALID_TERRAIN_WIDTH: 'terrain.width が無効です: {0} (最小10以上)',
-    INVALID_TERRAIN_HEIGHT: 'terrain.height が無効です: {0} (最小10以上)',
+    INVALID_TERRAIN_WIDTH: 'terrain.width が無効です: {0} (10〜200の範囲)',
+    INVALID_TERRAIN_HEIGHT: 'terrain.height が無効です: {0} (10〜200の範囲)',
+    TERRAIN_TOO_LARGE: 'マップが大きすぎます: {0}x{1} (最大{2}タイル)',
     MISSING_TERRAIN_DATA: 'terrain データが存在しません',
     MISSING_HEIGHT_MAP: 'terrain.heightMap が配列ではありません',
     MISSING_TERRAIN_TYPE: 'terrain.terrainType が配列ではありません',
@@ -28,7 +35,7 @@ export const VALIDATION_ERRORS = {
     INVALID_Y: 'y が無効です: {0} (0-{1}の範囲で指定してください)',
     INVALID_ATK: 'atk が無効です: {0}',
     INVALID_DEF: 'def が無効です: {0}',
-    TOO_MANY_PLACEMENTS: '配置数が多すぎます: {0} (最大8部隊まで)'
+    TOO_MANY_PLACEMENTS: `配置数が多すぎます: {0} (最大${MAX_PLACEMENTS}部隊まで)`
 };
 
 /**
@@ -53,6 +60,19 @@ export function validateMapData(mapData) {
         }
         if (typeof mapData.terrain.height !== 'number' || mapData.terrain.height <= 0) {
             errors.push(VALIDATION_ERRORS.INVALID_TERRAIN_HEIGHT.replace('{0}', mapData.terrain.height));
+        }
+        // 寸法上限チェック
+        if (mapData.terrain.width > MAP_MAX_WIDTH || mapData.terrain.height > MAP_MAX_HEIGHT) {
+            errors.push(VALIDATION_ERRORS.TERRAIN_TOO_LARGE
+                .replace('{0}', mapData.terrain.width)
+                .replace('{1}', mapData.terrain.height)
+                .replace('{2}', MAP_MAX_TILES));
+        }
+        if (mapData.terrain.width * mapData.terrain.height > MAP_MAX_TILES) {
+            errors.push(VALIDATION_ERRORS.TERRAIN_TOO_LARGE
+                .replace('{0}', mapData.terrain.width)
+                .replace('{1}', mapData.terrain.height)
+                .replace('{2}', MAP_MAX_TILES));
         }
         // 最小サイズチェック（10x10以下のマップを警告）
         if (mapData.terrain.width < 10) {
@@ -175,8 +195,8 @@ export function validatePlacements(placements) {
         return { valid: false, errors: [VALIDATION_ERRORS.INVALID_PLACEMENTS] };
     }
 
-    // 配置数のチェック（最大8部隊）
-    if (placements.length > 8) {
+    // 配置数のチェック
+    if (placements.length > MAX_PLACEMENTS) {
         errors.push(VALIDATION_ERRORS.TOO_MANY_PLACEMENTS.replace('{0}', placements.length));
     }
 

@@ -1,19 +1,27 @@
 
-import { STAGES, gameProgress } from './game-data.js';
+import { STAGES, gameProgress, STAGE_EVENTS } from './game-data.js';
 import { getUnitTypeInfo, UNIT_TYPES, SOLDIERS_PER_UNIT, MAP_W, MAP_H } from './constants.js?v=11';
 import { SPRITE_PATHS, UNIT_TYPE_TO_SPRITE } from './sprite-config.js'; // スプライト設定読み込み
 import { mapRepository } from './map-repository.js?v=2'; // マップリポジトリ読み込み
+
+function esc(str) {
+    const el = document.createElement('span');
+    el.textContent = String(str ?? '');
+    return el.innerHTML;
+}
 import { createInputHandler, setupInputListeners } from './managers/input-handler.js';
 import { createTurnManager } from './managers/turn-manager.js';
 import { validateMapData, validateUnitData, validatePlacements } from './game/validator.js';
 
 export const SCENES = {
     TITLE: 'TITLE',
+    WORLD_MAP: 'WORLD_MAP',
     MAP_SELECT: 'MAP_SELECT',
     ORGANIZATION: 'ORGANIZATION',
     DEPLOYMENT: 'DEPLOYMENT',
     BATTLE: 'BATTLE',
-    RESULT: 'RESULT'
+    RESULT: 'RESULT',
+    EVENT: 'EVENT'
 };
 
 export function createSceneManager(gameInstance) {
@@ -73,6 +81,9 @@ class SceneManager {
 
             // Override onGameEnd to transition to result scene
             this.turnManager.triggerEndGame = async (winnerSide, loserName) => {
+                // Set game state immediately to prevent resolveTurn from resetting to ORDER
+                this.game.gameState = 'END';
+
                 // Ensure eventManager processes clear/victory custom events prior to screen change
                 if (this.game.eventManager) {
                     await this.game.eventManager.triggerClearEvent(winnerSide);
@@ -99,9 +110,14 @@ class SceneManager {
 
     async transition(sceneName, params = {}) {
         try {
+            if (this.game?.effectManager) {
+                this.game.effectManager.clearAll();
+            }
+
             // 前のシーンのクリーンアップ
             if (this.uiContainer) {
                 this.uiContainer.innerHTML = '';
+                this.uiContainer.style.pointerEvents = '';
             }
             if (this.sceneInstance && this.sceneInstance.cleanup) {
                 this.sceneInstance.cleanup();
@@ -113,6 +129,9 @@ class SceneManager {
             switch (sceneName) {
                 case SCENES.TITLE:
                     this.sceneInstance = new TitleScene(this);
+                    break;
+                case SCENES.WORLD_MAP:
+                    this.sceneInstance = new WorldMapScene(this);
                     break;
                 case SCENES.MAP_SELECT:
                     this.sceneInstance = new MapSelectScene(this);
@@ -128,6 +147,9 @@ class SceneManager {
                     break;
                 case SCENES.RESULT:
                     this.sceneInstance = new ResultScene(this, params.result);
+                    break;
+                case SCENES.EVENT:
+                    this.sceneInstance = new EventScene(this, params.eventKey);
                     break;
                 default:
                 // Unknown scene
@@ -186,7 +208,7 @@ class TitleScene {
         this.manager.uiContainer.appendChild(title);
 
         document.getElementById('btn-start').addEventListener('click', () => {
-            this.manager.transition(SCENES.MAP_SELECT);
+            this.manager.transition(SCENES.WORLD_MAP);
         });
     }
 }
@@ -379,13 +401,14 @@ class OrganizationScene {
         this.deployedIds = [...gameProgress.deployedUnitIds];
         this.allUnits = gameProgress.getPlayerUnits();
 
-        // 【デバッグ用】ダミーデータの投入
+        // デバッグ用ダミーデータは本番ユニットとは別配列で管理
+        this.dummyUnits = [];
         if (this.allUnits.length < 10) {
             const dummyTypes = ['soldier', 'archer', 'knight', 'mage', 'lancer', 'fighter'];
             for (let i = 0; i < 20; i++) {
                 const type = dummyTypes[i % dummyTypes.length];
                 const dummyId = `dummy_${Date.now()}_${i}`;
-                this.allUnits.push({
+                this.dummyUnits.push({
                     id: dummyId,
                     type: type,
                     name: `予備部隊 ${String.fromCharCode(65 + (i % 26))}${i > 25 ? i : ''}`,
@@ -501,7 +524,7 @@ class OrganizationScene {
         this.deployedIds.forEach(id => {
             const unit = this.allUnits.find(u => u.id === id);
             if (unit) {
-                const info = getUnitTypeInfo(unit.type);
+                const info = getUnitTypeInfo(unit.class || unit.type);
                 const cost = info?.cost || 0;
                 total += cost * (unit.unitCount || 1);
             }
@@ -542,11 +565,11 @@ class OrganizationScene {
         if (!container) return;
         container.innerHTML = '';
 
-        this.allUnits.forEach(unit => {
+        [...this.allUnits, ...this.dummyUnits].forEach(unit => {
             const isDeployed = this.deployedIds.includes(unit.id);
             // 左側での選択状態
             const isSelected = (unit.id === this.selectedUnitId);
-            const info = getUnitTypeInfo(unit.type);
+            const info = getUnitTypeInfo(unit.class || unit.type);
 
             const card = document.createElement('div');
             card.className = `org-unit-card ${isSelected ? 'selected' : ''} ${isDeployed ? 'deployed' : ''}`;
@@ -554,10 +577,10 @@ class OrganizationScene {
             card.innerHTML = `
                 <div class="card-content">
                     <div class="card-header">
-                        <span class="badg-type type-${unit.type}">${info?.name || unit.type}</span>
+                        <span class="badg-type type-${esc(unit.class || unit.type)}">${esc(info?.name || unit.class || unit.type)}</span>
                         ${isDeployed ? '<span class="badg-status">DEPL</span>' : ''}
                     </div>
-                    <div class="card-name">${unit.name}</div>
+                    <div class="card-name">${esc(unit.name)}</div>
                     <div class="card-meta">
                         Lv.${unit.level} / ${unit.unitCount}体
                     </div>
@@ -604,7 +627,7 @@ class OrganizationScene {
             if (!unit) return;
 
             const isSelected = (id === this.selectedDeployedUnitId);
-            const info = getUnitTypeInfo(unit.type);
+            const info = getUnitTypeInfo(unit.class || unit.type);
 
             const row = document.createElement('div');
             row.className = `deployed-row ${isSelected ? 'selected' : ''}`;
@@ -612,8 +635,8 @@ class OrganizationScene {
             // シンボル部 + スプライト列
             row.innerHTML = `
                 <div class="d-row-left">
-                    <div class="d-symbol">${info?.marker || '?'}</div>
-                    <div class="d-name">${unit.name}</div>
+                    <div class="d-symbol">${esc(info?.marker || '?')}</div>
+                    <div class="d-name">${esc(unit.name)}</div>
                     <div class="d-lv">Lv.${unit.level}</div>
                     
                     <!-- 簡易兵数操作 (hover時等に表示、または常時) -->
@@ -634,7 +657,7 @@ class OrganizationScene {
             const line = row.querySelector('.unit-sprite-line');
 
             // ユニットタイプに基づきスプライトパスを決定
-            const typeKey = (unit.type || 'INFANTRY').toUpperCase();
+            const typeKey = (unit.class || unit.type || 'INFANTRY').toUpperCase();
             // マッピングからキーを取得 (例: 'ARCHER' -> 'ARCHER', 'INFANTRY' -> 'DEFAULT')
             const spriteKey = UNIT_TYPE_TO_SPRITE[typeKey] || 'DEFAULT';
 
@@ -736,11 +759,11 @@ class DeploymentScene {
                 <h3>📍 配置ユニット</h3>
                 <div id="deploy-unit-list" class="deploy-unit-list">
                     ${deployedUnits.map(u => {
-            const info = getUnitTypeInfo(u.type);
+            const info = getUnitTypeInfo(u.class || u.type);
             return `
-                            <div class="deploy-unit-item" data-unit-id="${u.id}">
-                                <span class="unit-marker">${info?.marker || '👤'}</span>
-                                <span>${u.name}</span>
+                            <div class="deploy-unit-item" data-unit-id="${esc(u.id)}">
+                                <span class="unit-marker">${esc(info?.marker || '👤')}</span>
+                                <span>${esc(u.name)}</span>
                                 <span class="place-status">未配置</span>
                             </div>
                         `;
@@ -1106,11 +1129,11 @@ class DeploymentScene {
         const canvas = game.renderingEngine?.canvas;
         if (canvas) {
             if (this._handlePointerDown) {
-                canvas.removeEventListener('mousedown', this._handlePointerDown);
+                canvas.removeEventListener('mousedown', this._handlePointerDown, { capture: true });
                 this._handlePointerDown = null;
             }
             if (this._handlePointerUp) {
-                canvas.removeEventListener('mouseup', this._handlePointerUp);
+                canvas.removeEventListener('mouseup', this._handlePointerUp, { capture: true });
                 this._handlePointerUp = null;
             }
         }
@@ -1187,7 +1210,13 @@ class DeploymentScene {
                     jin: 50,
                     loyalty: 100,
                     p: 50,
-                    type: def.type,
+                    type: String(def.type || 'INFANTRY').toUpperCase(),
+                    class: String(def.type || 'INFANTRY').toUpperCase(),
+                    ATK: def.atk || 50,
+                    DEF: def.def || 50,
+                    AGI: 50,
+                    VIT: 50, INT: 50, MND: 50, LUK: 50,
+                    level: def.level || 1, exp: 0,
                     face: null
                 };
 
@@ -1200,7 +1229,9 @@ class DeploymentScene {
                 );
 
                 generatedUnits.forEach((unit, i) => {
-                    unit.type = def.type;
+                    const uType = String(def.type || 'INFANTRY').toUpperCase();
+                    unit.type = uType;
+                    unit.class = uType;
                     unit.level = def.level || 1;
                     if (def.role === 'commander' && i === 0) {
                         unit.unitType = 'HEADQUARTERS';
@@ -1333,6 +1364,10 @@ class BattleScene {
         game.customMapData = this.manager.getGameData('customMapData');
         // startGame is now async (delegates to game/starter.js)
         await game.startGame('EAST');
+
+        // Save pre-battle snapshot for EXP comparison
+        gameProgress.snapshotPlayerUnits();
+        gameProgress.setPlayerSide(game.playerSide);
 
         // Setup input listeners
         const canvas = document.getElementById('gameCanvas');
@@ -1506,21 +1541,350 @@ class ResultScene {
 
         this.manager.uiContainer.style.pointerEvents = 'auto';
 
+        const isVictory = this.result === 'VICTORY';
+        const title = isVictory ? '勝利' : '敗北';
+        const color = isVictory ? '#ffd700' : '#888';
+
+        // Get player units from battle and pre-battle snapshot
+        const game = this.manager.game;
+        const playerUnits = (game.units || []).filter(u =>
+            u.side === game.playerSide && u.unitType === 'HEADQUARTERS'
+        );
+        const snapshot = gameProgress.getPreBattleSnapshot();
+
+        // Build unit cards
+        let cardsHtml = '';
+        for (const unit of playerUnits) {
+            const pre = snapshot.find(s => s.id === unit.sourceUnitId) || { level: 1, exp: 0 };
+            const gainedExp = Math.max(0, (unit.exp || 0) - pre.exp);
+            const leveledUp = (unit.level || 1) > pre.level;
+            const lvUpBadge = leveledUp ? '<span class="lvup-badge">LvUP!</span>' : '';
+
+            const statChanges = [];
+            if (leveledUp) {
+                for (const stat of ['ATK', 'DEF', 'AGI']) {
+                    const diff = (unit[stat] || 50) - (pre[stat] || 50);
+                    if (diff > 0) statChanges.push(`${stat}+${diff}`);
+                }
+            }
+            const statHtml = statChanges.length > 0
+                ? `<div class="stat-change">${statChanges.join(' ')}</div>` : '';
+
+            cardsHtml += `
+                <div class="result-unit-card">
+                    ${lvUpBadge}
+                    <div class="unit-name">${esc(unit.warlordName || unit.name)}</div>
+                    <div class="unit-level">Lv.${pre.level} → Lv.${unit.level || pre.level}</div>
+                    <div class="unit-exp">+${gainedExp} EXP</div>
+                    ${statHtml}
+                </div>
+            `;
+        }
+
         const resultDiv = document.createElement('div');
         resultDiv.className = 'scene-ui result-screen';
 
-        const title = this.result === 'VICTORY' ? '勝利' : '敗北';
-        const color = this.result === 'VICTORY' ? '#ffd700' : '#888';
-
         resultDiv.innerHTML = `
-            <h1 style="color:${color}; font-size: 64px;">${title}</h1>
-            <button class="btn-primary" id="btn-return">タイトルへ戻る</button>
+            <div class="result-header" style="color:${color}">${title}</div>
+            <div class="result-unit-grid">${cardsHtml || '<p style="color:#aaa">ユニット情報なし</p>'}</div>
+            <button class="btn-primary" id="btn-next">${isVictory ? '次へ' : '戻る'}</button>
         `;
 
         this.manager.uiContainer.appendChild(resultDiv);
 
-        document.getElementById('btn-return').addEventListener('click', () => {
-            location.reload();
+        document.getElementById('btn-next').addEventListener('click', () => {
+            if (isVictory) {
+                // Complete stage and persist EXP
+                gameProgress.completeStageWithExp(
+                    gameProgress.currentStage,
+                    game.units
+                );
+
+                // Check for inter-stage event
+                const eventKey = gameProgress.getStageTransitionKey();
+                if (eventKey && STAGE_EVENTS[eventKey]) {
+                    this.manager.transition(SCENES.EVENT, { eventKey });
+                } else {
+                    this.manager.transition(SCENES.WORLD_MAP);
+                }
+            } else {
+                this.manager.transition(SCENES.WORLD_MAP);
+            }
+        });
+    }
+}
+
+class EventScene {
+    constructor(manager, eventKey) {
+        this.manager = manager;
+        this.eventKey = eventKey;
+        this.dialogueIndex = 0;
+        this.isAnimating = false;
+    }
+
+    createUI() {
+        if (!this.manager.uiContainer) return;
+
+        const eventData = STAGE_EVENTS[this.eventKey];
+        if (!eventData || !eventData.dialogue) {
+            this.manager.transition(SCENES.WORLD_MAP);
+            return;
+        }
+
+        this.dialogue = eventData.dialogue;
+
+        const div = document.createElement('div');
+        div.className = 'scene-ui event-screen';
+
+        // 戦闘中会話と同じDOM構造・CSSクラスを使用
+        div.innerHTML = `
+            <div id="conversation-layer" class="active">
+                <div id="dialogue-top" class="dialogue-box top">
+                    <div class="dialogue-content">
+                        <div class="dialogue-speaker">
+                            <div class="speaker-img">
+                                <span id="dialogue-top-img-placeholder"></span>
+                                <img id="dialogue-top-img" src="" style="display:none;">
+                            </div>
+                            <div id="dialogue-top-name" class="speaker-name"></div>
+                        </div>
+                        <div id="dialogue-top-text" class="dialogue-text"></div>
+                    </div>
+                </div>
+                <div id="dialogue-bottom" class="dialogue-box bottom">
+                    <div class="dialogue-content">
+                        <div class="dialogue-speaker">
+                            <div class="speaker-img">
+                                <span id="dialogue-bottom-img-placeholder"></span>
+                                <img id="dialogue-bottom-img" src="" style="display:none;">
+                            </div>
+                            <div id="dialogue-bottom-name" class="speaker-name"></div>
+                        </div>
+                        <div id="dialogue-bottom-text" class="dialogue-text"></div>
+                    </div>
+                </div>
+                <div class="click-prompt" style="display:block;">▼ タップして次へ</div>
+            </div>
+        `;
+
+        this.manager.uiContainer.appendChild(div);
+        this.manager.uiContainer.style.pointerEvents = 'auto';
+
+        // DOM参照を保持
+        this.layer = document.getElementById('conversation-layer');
+        this.topBox = document.getElementById('dialogue-top');
+        this.topName = document.getElementById('dialogue-top-name');
+        this.topText = document.getElementById('dialogue-top-text');
+        this.topImg = document.getElementById('dialogue-top-img');
+        this.topPlaceholder = document.getElementById('dialogue-top-img-placeholder');
+        this.bottomBox = document.getElementById('dialogue-bottom');
+        this.bottomName = document.getElementById('dialogue-bottom-name');
+        this.bottomText = document.getElementById('dialogue-bottom-text');
+        this.bottomImg = document.getElementById('dialogue-bottom-img');
+        this.bottomPlaceholder = document.getElementById('dialogue-bottom-img-placeholder');
+
+        this.layer.addEventListener('click', () => this.advance());
+
+        this.showDialogue(0);
+    }
+
+    showDialogue(index) {
+        if (index >= this.dialogue.length) {
+            this.manager.transition(SCENES.WORLD_MAP);
+            return;
+        }
+
+        const diag = this.dialogue[index];
+        this.isAnimating = true;
+
+        // 話者側のボックスを再表示アニメーション
+        if (diag.position === 'top') {
+            this.topBox.classList.remove('show');
+        } else {
+            this.bottomBox.classList.remove('show');
+        }
+
+        setTimeout(() => {
+            if (diag.position === 'top') {
+                this.topName.innerText = diag.speaker || '';
+                this.topText.innerText = '';
+                this._typeWrite(this.topText, diag.text || '', () => { this.isAnimating = false; });
+                if (diag.portrait) {
+                    this.topImg.src = diag.portrait;
+                    this.topImg.style.display = 'block';
+                    this.topPlaceholder.style.display = 'none';
+                } else {
+                    this.topImg.style.display = 'none';
+                    this.topPlaceholder.style.display = 'flex';
+                    this.topPlaceholder.innerText = (diag.speaker || '?').charAt(0);
+                }
+                this.topBox.classList.add('show');
+            } else {
+                this.bottomName.innerText = diag.speaker || '';
+                this.bottomText.innerText = '';
+                this._typeWrite(this.bottomText, diag.text || '', () => { this.isAnimating = false; });
+                if (diag.portrait) {
+                    this.bottomImg.src = diag.portrait;
+                    this.bottomImg.style.display = 'block';
+                    this.bottomPlaceholder.style.display = 'none';
+                } else {
+                    this.bottomImg.style.display = 'none';
+                    this.bottomPlaceholder.style.display = 'flex';
+                    this.bottomPlaceholder.innerText = (diag.speaker || '?').charAt(0);
+                }
+                this.bottomBox.classList.add('show');
+            }
+        }, 150);
+    }
+
+    _typeWrite(el, text, onComplete) {
+        let i = 0;
+        if (this._typeInterval) clearInterval(this._typeInterval);
+        this._typeInterval = setInterval(() => {
+            if (i < text.length) {
+                el.textContent += text[i];
+                i++;
+            } else {
+                clearInterval(this._typeInterval);
+                this._typeInterval = null;
+                if (onComplete) onComplete();
+            }
+        }, 30);
+    }
+
+    advance() {
+        if (this.isAnimating) {
+            // アニメーションスキップ：全文表示
+            if (this._typeInterval) {
+                clearInterval(this._typeInterval);
+                this._typeInterval = null;
+            }
+            const diag = this.dialogue[this.dialogueIndex];
+            if (diag) {
+                const el = diag.position === 'top' ? this.topText : this.bottomText;
+                if (el) el.textContent = diag.text || '';
+            }
+            this.isAnimating = false;
+            return;
+        }
+
+        this.dialogueIndex++;
+        this.showDialogue(this.dialogueIndex);
+    }
+
+    cleanup() {
+        if (this._typeInterval) clearInterval(this._typeInterval);
+    }
+}
+
+class WorldMapScene {
+    constructor(manager) {
+        this.manager = manager;
+        this.selectedStageId = null;
+    }
+
+    createUI() {
+        if (!this.manager.uiContainer) return;
+
+        this.manager.uiContainer.style.pointerEvents = 'auto';
+
+        const allStages = gameProgress.getAllStages();
+
+        // Position nodes horizontally
+        const nodePositions = [
+            { x: 50, y: 150 },   // tutorial
+            { x: 230, y: 150 },  // castle
+            { x: 410, y: 150 },  // mountain
+        ];
+
+        let nodesHtml = '';
+        let connectorsHtml = '';
+
+        allStages.forEach((stage, i) => {
+            const pos = nodePositions[i] || { x: 50 + i * 180, y: 150 };
+            let stateClass = 'locked';
+            let statusText = '未開放';
+
+            if (stage.completed) {
+                stateClass = 'completed';
+                statusText = 'クリア済';
+            } else if (stage.unlocked) {
+                stateClass = 'available';
+                statusText = '出撃可能';
+            }
+
+            nodesHtml += `
+                <div class="stage-node ${stateClass}" data-stage-id="${esc(stage.id)}"
+                     style="left:${pos.x}px; top:${pos.y}px;">
+                    <div class="node-name">${esc(stage.name)}</div>
+                    <div class="node-status">${esc(statusText)}</div>
+                </div>
+            `;
+
+            if (i > 0) {
+                const prevPos = nodePositions[i - 1];
+                const connLeft = prevPos.x + 140;
+                const connWidth = pos.x - connLeft;
+                connectorsHtml += `<div class="stage-connector" style="left:${connLeft}px; width:${connWidth}px; top:${prevPos.y + 30}px;"></div>`;
+            }
+        });
+
+        const div = document.createElement('div');
+        div.className = 'scene-ui world-map-screen';
+
+        div.innerHTML = `
+            <div class="world-map-title">ワールドマップ</div>
+            <div class="world-map-container">
+                ${connectorsHtml}
+                ${nodesHtml}
+            </div>
+            <div class="world-map-buttons">
+                <button class="btn-secondary" id="btn-wm-back">タイトル</button>
+                <button class="btn-primary" id="btn-wm-go" disabled>出陣準備へ</button>
+            </div>
+        `;
+
+        this.manager.uiContainer.appendChild(div);
+
+        // Node click handlers
+        div.querySelectorAll('.stage-node.available').forEach(node => {
+            node.addEventListener('click', () => {
+                div.querySelectorAll('.stage-node').forEach(n => n.style.outline = 'none');
+                node.style.outline = '3px solid #ffd700';
+                this.selectedStageId = node.dataset.stageId;
+                document.getElementById('btn-wm-go').disabled = false;
+            });
+        });
+
+        document.getElementById('btn-wm-back').addEventListener('click', () => {
+            this.manager.transition(SCENES.TITLE);
+        });
+
+        document.getElementById('btn-wm-go').addEventListener('click', async () => {
+            if (!this.selectedStageId) return;
+
+            gameProgress.currentStage = this.selectedStageId;
+
+            // Load stage data
+            const stageConfig = STAGES[this.selectedStageId];
+            if (stageConfig && stageConfig.stageFile) {
+                try {
+                    const response = await fetch(`./scripts/data/stages/${stageConfig.stageFile}`);
+                    if (response.ok) {
+                        const fullMapData = await response.json();
+                        this.manager.setGameData('customMapData', fullMapData);
+                    } else {
+                        this.manager.setGameData('customMapData', null);
+                    }
+                } catch (e) {
+                    console.error('[WorldMapScene] Error loading stage:', e);
+                    this.manager.setGameData('customMapData', null);
+                }
+            } else {
+                this.manager.setGameData('customMapData', null);
+            }
+
+            this.manager.transition(SCENES.ORGANIZATION);
         });
     }
 }

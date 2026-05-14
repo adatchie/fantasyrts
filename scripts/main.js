@@ -15,9 +15,9 @@ import { WARLORDS } from './constants.js?v=126';
 // TUTORIAL_PLAIN_DATA import removed: JSON統一化によりfetch経由で読み込む
 import { AudioEngine } from './audio.js?v=123';
 import { MapSystem } from './map.js?v=123';
-import { RenderingEngine3D } from './rendering3d.js?v=126';
-import { CombatSystem } from './combat.js?v=123';
-import { AISystem } from './ai.js?v=123';
+import { RenderingEngine3D } from './rendering3d.js?v=130';
+import { CombatSystem } from './combat.js?v=128';
+import { AISystem } from './ai.js?v=124';
 import { UnitManager } from './unit-manager.js?v=123';
 import { hexToPixel } from './pathfinding.js?v=123';
 import { BuildingEditor } from './editor/building-editor.js?v=123';

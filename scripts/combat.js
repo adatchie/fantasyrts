@@ -6,7 +6,7 @@
 import { getDist, getDistRaw, getFacingAngle, findPath, getDistAttack } from './pathfinding.js';
 import { TERRAIN_TYPES } from './map.js';
 import { hexToPixel } from './pathfinding.js';
-import { DIALOGUE, UNIT_TYPES, UNIT_TYPE_NORMAL, UNIT_TYPE_HEADQUARTERS, TILE_HEIGHT } from './constants.js';
+import { DIALOGUE, UNIT_TYPES, UNIT_TYPE_NORMAL, UNIT_TYPE_HEADQUARTERS, TILE_HEIGHT, COMMANDER_GROWTH_RATES, MAX_LEVEL, STAT_CAP, expToNextLevel } from './constants.js';
 import { getFormationModifiers, checkForcedFormationChange, calculateFormationTargets } from './formation.js';
 import { ATTACK_PATTERNS, rotatePattern } from './attack-patterns.js';
 
@@ -441,9 +441,13 @@ export class CombatSystem {
                 // 魔法陣など?
                 this.renderingEngine.add3DEffect('MAGIC_CAST', att);
             }
-            // 魔法弾飛�EぁE
+            // 魔法弾飛翔
             if (this.renderingEngine && this.renderingEngine.spawnMagicProjectile) {
-                await this.renderingEngine.spawnMagicProjectile(att, def); // 要実裁E
+                await this.renderingEngine.spawnMagicProjectile(att, def);
+                // 着弾時に落雷エフェクト
+                if (this.renderingEngine.add3DEffect) {
+                    this.renderingEngine.add3DEffect('THUNDER_STRIKE', def.x, def.y);
+                }
             } else {
                 // フォールバック: ビ�Eム
                 this.addEffect('BEAM', { q: att.x, r: att.y }, { q: def.x, r: def.y }, '#AA00FF');
@@ -841,6 +845,11 @@ export class CombatSystem {
         // 突撃の予備動作時間（少し征E��てからエフェクト！E
         await this.wait(150);
 
+        // スラッシュ軌跡エフェクト
+        if (this.renderingEngine && this.renderingEngine.add3DEffect) {
+            this.renderingEngine.add3DEffect('SLASH', att, def);
+        }
+
         this.spawnSparks(att, def); // 攻撁E�Eと防御側の間に火花
 
         this.audioEngine.sfxHit();
@@ -895,7 +904,11 @@ export class CombatSystem {
         let dmgToDef = Math.floor((Math.sqrt(safeSoldiers) * finalAtkStat * mod * dirMod) / (finalDefStat / 15));
         if (!Number.isFinite(dmgToDef) || dmgToDef < 10) dmgToDef = 10;
 
-        // ダメージ適用�E�被攻撁E�Eのみ�E�E
+        // 確率防御（Guard）判定
+        const guardResult = this.rollGuard(def);
+        dmgToDef = Math.floor(dmgToDef * guardResult.damageMultiplier);
+
+        // ダメージ適用（被攻撃側のみ）
         def.soldiers -= dmgToDef;
         this.spawnText({ q: def.x, r: def.y }, `-${dmgToDef}`, '#ff3333', 60);
         this.speak(def, 'DAMAGED');
@@ -924,7 +937,11 @@ export class CombatSystem {
             }
             await this.dramaticDeath(def, att.side);
         }
-        // 注: 攻撁E�Eはダメージを受けなぁE��め、死亡判定�E不要E
+
+        // EXP獲得・レベルアップ
+        this._awardExp(att, def);
+
+        // 注: 攻撃側はダメージを受けないため、死亡判定は不要
 
         // ---------------------------------------------------------
         // 騎�E押し�Eし！EAVALRY: canPushBack === true�E�E
@@ -988,8 +1005,57 @@ export class CombatSystem {
      * @param {Object} unit - 討ち取られたユニッチE
      * @param {string} killerSide - 討ち取った�Eの陣営
      */
+    // ==================== Guard / EXP / LevelUp ====================
+
+    rollGuard(defender) {
+        const defVal = defender.def || 50;
+        const agiVal = defender.AGI || defender.agi || 50;
+        const chance = Math.min(0.5, (defVal + agiVal) / 400);
+        if (Math.random() < chance) {
+            this.spawnText({ q: defender.x, r: defender.y }, 'Guard!', '#44aaff', 50);
+            return { triggered: true, damageMultiplier: 0.5 };
+        }
+        return { triggered: false, damageMultiplier: 1.0 };
+    }
+
+    _awardExp(attacker, defender) {
+        if (!defender.dead) return;
+        const baseExp = Math.max(1, Math.floor((defender.maxSoldiers || 100) * 0.01 + (defender.level || 1) * 5));
+        attacker.exp = (attacker.exp || 0) + baseExp;
+        this.spawnText({ q: attacker.x, r: attacker.y }, `+${baseExp} EXP`, '#00ccff', 50);
+        this._processLevelUps(attacker);
+    }
+
+    _processLevelUps(unit) {
+        const growth = COMMANDER_GROWTH_RATES[unit.type] || COMMANDER_GROWTH_RATES.INFANTRY;
+        const statKeys = ['ATK', 'DEF', 'AGI', 'VIT', 'INT', 'MND', 'LUK'];
+        const combatMap = { ATK: 'atk', DEF: 'def' };
+        let safetyCounter = 0;
+
+        while (unit.exp >= expToNextLevel(unit.level) && unit.level < MAX_LEVEL && safetyCounter < 10) {
+            unit.exp -= expToNextLevel(unit.level);
+            unit.level++;
+            safetyCounter++;
+
+            for (const key of statKeys) {
+                const rate = growth[key] || 0;
+                const roll = Math.random() * 100;
+                const currentVal = unit[key] ?? 50;
+                if (roll < rate && currentVal < STAT_CAP) {
+                    unit[key] = currentVal + 1;
+                    if (combatMap[key] && unit[combatMap[key]] !== undefined) {
+                        unit[combatMap[key]] = unit[key];
+                    }
+                }
+            }
+            this.spawnText({ q: unit.x, r: unit.y }, `Lv${unit.level}!`, '#ffd700', 50);
+        }
+    }
+
+    // ==================== Death Animation ====================
+
     async dramaticDeath(unit, killerSide) {
-        // 本陣かどぁE��を判宁E
+        // 本陣かどぁE�を判宁E
         const isHeadquarters = (unit.unitType === 'HEADQUARTERS');
 
         // 討ち取った�EによってSEを変更
@@ -1499,6 +1565,10 @@ export class CombatSystem {
             this.audioEngine.sfxMagicAtk && this.audioEngine.sfxMagicAtk();
             if (this.renderingEngine && this.renderingEngine.spawnMagicProjectile) {
                 await this.renderingEngine.spawnMagicProjectile(att, def, 0xAA00FF);
+                // 着弾時に落雷エフェクト
+                if (this.renderingEngine.add3DEffect) {
+                    this.renderingEngine.add3DEffect('THUNDER_STRIKE', def.x, def.y);
+                }
             } else {
                 await this.wait(500);
             }
@@ -1511,12 +1581,15 @@ export class CombatSystem {
                 await this.wait(500);
             }
         } else if (rangeType === 'heal') {
-            // 僧侶�E�聖なる�E(黁E
-            this.audioEngine.sfxMagicAtk && this.audioEngine.sfxMagicAtk();
-            if (this.renderingEngine && this.renderingEngine.spawnMagicProjectile) {
-                await this.renderingEngine.spawnMagicProjectile(att, def, 0xFFFF88);
-            } else {
-                await this.wait(500);
+            // 僧侶の聖なる光(味方のみ)
+            // 安全チェック: ターゲットが敵の場合は回復しない（近接フォールバックはcombat()で処理）
+            if (att.side === def.side) {
+                this.audioEngine.sfxMagicAtk && this.audioEngine.sfxMagicAtk();
+                if (this.renderingEngine && this.renderingEngine.spawnMagicProjectile) {
+                    await this.renderingEngine.spawnMagicProjectile(att, def, 0xFFFF88);
+                } else {
+                    await this.wait(500);
+                }
             }
 
         } else {
@@ -1607,7 +1680,11 @@ export class CombatSystem {
         let dmgToDef = Math.floor((Math.sqrt(safeSoldiers) * finalAtkStat * heightMod * distMod * 0.7) / (finalDefStat / 15));
         if (!Number.isFinite(dmgToDef) || dmgToDef < 5) dmgToDef = 5;
 
-        // ダメージ適用�E�反撁E��し！E
+        // 確率防御（Guard）判定
+        const guardResult = this.rollGuard(def);
+        dmgToDef = Math.floor(dmgToDef * guardResult.damageMultiplier);
+
+        // ダメージ適用（反撃なし）
         def.soldiers -= dmgToDef;
         this.spawnText({ q: def.x, r: def.y }, `-${dmgToDef}`, '#ff6600', 60);
         this.speak(def, 'DAMAGED');
@@ -1633,8 +1710,11 @@ export class CombatSystem {
             await this.dramaticDeath(def, att.side);
         }
 
+        // EXP獲得・レベルアップ
+        this._awardExp(att, def);
+
         // ---------------------------------------------------------
-        // AoEスプラチE��ュダメージ�E�魔術師: isAoe === true�E�E
+        // AoEスプラッシュダメージ�E�魔術師: isAoe === true�E�E
         // 着弾点の周囲8マスにぁE��敵ユニットにめE0%のダメージを与えめE
         // ---------------------------------------------------------
         if (typeInfo.isAoe && allUnits && allUnits.length > 0) {

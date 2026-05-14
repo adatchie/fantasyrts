@@ -29,6 +29,15 @@ export class UnitManager {
     }
 
     /**
+     * 全ユニット・部隊をクリア
+     */
+    clearUnits() {
+        this.units.length = 0;
+        this.warlordGroups = {};
+        this.squadrons.clear();
+    }
+
+    /**
      * 武将データから複数ユニットを生成し、部隊(Squadron)を編成する
      * @param {Object} warlord - 武将データ
      * @param {number} warlordId - 武将ID
@@ -65,7 +74,7 @@ export class UnitManager {
         // ユニット生成
         const units = [];
         // 武将ユニットのデフォルトタイプ（未指定なら歩兵）
-        const rawType = warlord.type || warlord.unitType || 'INFANTRY';
+        const rawType = warlord.class || warlord.type || warlord.unitType || 'INFANTRY';
         const defaultUnitType = String(rawType).toUpperCase();
         const typeInfo = getUnitTypeInfo(defaultUnitType) || UNIT_TYPES.INFANTRY;
 
@@ -83,19 +92,29 @@ export class UnitManager {
                 unitType: isHeadquarters ? UNIT_TYPE_HEADQUARTERS : UNIT_TYPE_NORMAL,
 
                 // ユニットタイプ
-                type: defaultUnitType, // 本陣もタイプを持つ
+                class: defaultUnitType,
+                type: defaultUnitType, // 互換性
 
                 // 武将の属性を継承
                 name: warlord.name,
                 side: warlord.side,
-                atk: warlord.atk,
-                def: warlord.def,
-                jin: warlord.jin,
+                ATK: warlord.ATK,
+                DEF: warlord.DEF,
+                AGI: warlord.AGI,
+                VIT: warlord.VIT ?? 50,
+                INT: warlord.INT ?? 50,
+                MND: warlord.MND ?? 50,
+                LUK: warlord.LUK ?? 50,
+                atk: warlord.ATK, // 互換性
+                def: warlord.DEF, // 互換性
+                jin: warlord.AGI, // 互換性
                 loyalty: warlord.loyalty,
                 p: warlord.p,
                 kamon: warlord.kamon,
                 bg: warlord.bg,
                 face: warlord.face,
+                level: warlord.level ?? 1,
+                exp: warlord.exp ?? 0,
 
                 // このユニットの兵力
                 soldiers: soldierDistribution[i],
@@ -195,7 +214,7 @@ export class UnitManager {
         const squadron = new Squadron(squadronId, null);
 
         // ユニットタイプから基本パラメータを取得
-        const unitTypeId = unitData.type || 'INFANTRY';
+        const unitTypeId = unitData.class || unitData.type || 'INFANTRY';
         const typeInfo = getUnitTypeInfo(unitTypeId) || UNIT_TYPES.INFANTRY;
 
         const unit = {
@@ -209,15 +228,25 @@ export class UnitManager {
             name: unitData.name,
             side: side,
             // ユニットタイプの基本ステータスを適用（unitDataの値で上書き可能）
-            atk: unitData.atk ?? typeInfo.atk,
-            def: unitData.def ?? typeInfo.def,
-            jin: unitData.jin ?? 50,
+            atk: unitData.ATK ?? unitData.atk ?? typeInfo.atk,
+            def: unitData.DEF ?? unitData.def ?? typeInfo.def,
+            jin: unitData.AGI ?? unitData.jin ?? 50,
+            ATK: unitData.ATK ?? unitData.atk ?? typeInfo.atk,
+            DEF: unitData.DEF ?? unitData.def ?? typeInfo.def,
+            AGI: unitData.AGI ?? unitData.jin ?? 50,
+            VIT: unitData.VIT ?? 50,
+            INT: unitData.INT ?? 50,
+            MND: unitData.MND ?? 50,
+            LUK: unitData.LUK ?? 50,
+            level: unitData.level ?? 1,
+            exp: unitData.exp ?? 0,
             loyalty: unitData.loyalty ?? 100,
             p: unitData.p ?? 1000,
             kamon: unitData.kamon || null,
             bg: unitData.bg || '#333',
             face: unitData.face || null,
-            type: unitTypeId, // ユニットタイプID
+            class: unitTypeId,
+            type: unitTypeId, // 互換性
 
             // 兵力
             soldiers: unitData.soldiers || 1000,
@@ -383,33 +412,29 @@ export class UnitManager {
         let y = cy;
         let dx = 0;
         let dy = -1;
-        let t = startRadius * startRadius;
-        // startRadiusへのジャンプは簡易実装では省略、0から回す
+        let stepCount = 0;
+        const skipSteps = startRadius * startRadius * 2; // 内側リングのステップ数を近似
 
-        // 中心を含む
+        // startRadius=0なら中心を含む
         if (startRadius === 0) {
             positions.push({ x, y });
         }
 
         if (positions.length >= count) return positions;
 
-        // 簡易スパイラル(Rectangular spiral)
-        // 1, 1, 2, 2, 3, 3, 4, 4... steps
         let segmentLength = 1;
         let segmentPassed = 0;
-        let stepIndex = 0;
         let run = 0;
 
-        // 無限ループ防止
         while (positions.length < count && run < 1000) {
             for (let i = 0; i < segmentLength; i++) {
                 x += dx;
                 y += dy;
+                stepCount++;
 
-                // マップ範囲内かつ通行可能かチェック（mapSystemがあれば）
-                // ここでは簡易的に範囲内チェックのみ
+                if (stepCount <= skipSteps) continue; // startRadius未満の位置をスキップ
+
                 if (x >= 0 && x < MAP_W && y >= 0 && y < MAP_H) {
-                    // 重複チェックは呼び出し元で行う、あるいはここで含める
                     positions.push({ x, y });
                     if (positions.length >= count) return positions;
                 }
@@ -433,10 +458,22 @@ export class UnitManager {
 
     // ヘルパー：武将ごとのユニットリスト取得
     getUnitsByWarlordId(warlordId) {
-        if (this.warlordGroups[warlordId]) {
-            return this.warlordGroups[warlordId];
-        }
-        return this.units.filter(u => u.warlordId === warlordId);
+        if (warlordId === undefined || warlordId === null) return [];
+
+        const idKey = String(warlordId);
+        const merged = new Map();
+        const add = (unit) => {
+            if (unit && String(unit.warlordId) === idKey) {
+                merged.set(unit.id, unit);
+            }
+        };
+
+        (this.warlordGroups[warlordId] || []).forEach(add);
+        this.units.forEach(add);
+
+        const units = Array.from(merged.values());
+        this.warlordGroups[warlordId] = units;
+        return units;
     }
 
     /**

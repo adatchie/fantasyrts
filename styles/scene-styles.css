@@ -1223,3 +1223,184 @@ h3 {
         opacity: 1;
     }
 }
+
+/* ============================================
+   ResultScene — EXP/LvUP Cards
+   ============================================ */
+
+.result-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.85);
+    color: #e8f0ff;
+    padding: 20px;
+}
+
+.result-header {
+    font-size: 48px;
+    margin-bottom: 20px;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+}
+
+.result-unit-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+    max-width: 900px;
+    margin-bottom: 30px;
+}
+
+.result-unit-card {
+    background: linear-gradient(135deg, rgba(30,40,60,0.95), rgba(20,25,40,0.98));
+    border: 1px solid rgba(100,150,220,0.4);
+    border-radius: 10px;
+    padding: 12px 16px;
+    min-width: 140px;
+    text-align: center;
+    position: relative;
+}
+
+.result-unit-card .unit-name {
+    font-size: 16px;
+    font-weight: bold;
+    color: #ffd700;
+    margin-bottom: 6px;
+}
+
+.result-unit-card .unit-level {
+    font-size: 14px;
+    color: #aac;
+}
+
+.result-unit-card .unit-exp {
+    font-size: 13px;
+    color: #8fa;
+    margin-top: 4px;
+}
+
+.result-unit-card .lvup-badge {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    background: #ffd700;
+    color: #333;
+    font-size: 11px;
+    font-weight: bold;
+    padding: 2px 8px;
+    border-radius: 8px;
+    animation: lvup-pulse 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes lvup-pulse {
+    from { transform: scale(1); opacity: 0.9; }
+    to { transform: scale(1.15); opacity: 1; }
+}
+
+.result-unit-card .stat-change {
+    font-size: 11px;
+    color: #8cf;
+    margin-top: 2px;
+}
+
+/* ============================================
+   EventScene — 戦闘中会話と同じUIを使用
+   ============================================ */
+
+.event-screen {
+    background: rgba(0, 0, 0, 0.4);
+}
+
+/* ============================================
+   WorldMapScene
+   ============================================ */
+
+.world-map-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.6);
+}
+
+.world-map-container {
+    position: relative;
+    width: 600px;
+    height: 400px;
+}
+
+.world-map-title {
+    font-size: 36px;
+    color: #e8f0ff;
+    margin-bottom: 30px;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+}
+
+.stage-node {
+    position: absolute;
+    width: 140px;
+    text-align: center;
+    padding: 16px 10px;
+    border-radius: 12px;
+    cursor: default;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.stage-node.available {
+    background: linear-gradient(135deg, rgba(60,80,40,0.9), rgba(40,60,20,0.95));
+    border: 2px solid #ffd700;
+    cursor: pointer;
+}
+
+.stage-node.available:hover {
+    transform: scale(1.08);
+    box-shadow: 0 0 20px rgba(255,215,0,0.5);
+}
+
+.stage-node.completed {
+    background: linear-gradient(135deg, rgba(30,60,30,0.9), rgba(20,40,20,0.95));
+    border: 2px solid #4a4;
+    opacity: 0.7;
+}
+
+.stage-node.locked {
+    background: linear-gradient(135deg, rgba(40,40,40,0.9), rgba(30,30,30,0.95));
+    border: 2px solid #555;
+    opacity: 0.5;
+}
+
+.stage-node .node-name {
+    font-size: 15px;
+    font-weight: bold;
+    color: #e8f0ff;
+    margin-bottom: 4px;
+}
+
+.stage-node .node-status {
+    font-size: 12px;
+    color: #aaa;
+}
+
+.stage-node.completed .node-status {
+    color: #4a4;
+}
+
+.stage-node.available .node-status {
+    color: #ffd700;
+}
+
+.stage-connector {
+    position: absolute;
+    height: 2px;
+    background: rgba(100,150,220,0.3);
+    top: 50%;
+}
+
+.world-map-buttons {
+    margin-top: 30px;
+    display: flex;
+    gap: 12px;
+}
+
